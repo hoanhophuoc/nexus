@@ -99,8 +99,8 @@ jobs:
         with:
           validate-wrappers: true
 
-      - name: Install Xvfb and Inter font
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb fonts-inter
+      - name: Install Xvfb
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb
 
       - name: Run JavaFX tests
         run: xvfb-run -a ./gradlew --no-daemon fxTest :desktop-user:fxTest :desktop-admin:fxTest
