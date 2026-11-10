@@ -32,6 +32,18 @@ Every workflow declares least-privilege permissions; write scopes are confined t
 
 `fxTest` requires a display. On Linux CI it runs under Xvfb. Locally, a normal desktop session is enough.
 
+### Golden screenshot baselines
+
+The golden suites keep two reviewed baselines: `golden/` for local Linux desktops and `golden-ci/` for the hosted Ubuntu runner. CI sets `GOLDEN_BASELINE=ci`, so it compares against runner-generated images at 0.75% differing pixels; local runs default to `golden/`. The bundled `Chat System Sans` font keeps glyphs stable, but FreeType rasterization differs enough between distributions that one baseline cannot serve both environments.
+
+Regenerate the local baseline from a desktop session:
+
+```bash
+ADMIN_UPDATE_GOLDENS=true USER_UPDATE_GOLDENS=true xvfb-run -a ./gradlew :desktop-user:fxTest :desktop-admin:fxTest
+```
+
+Regenerate `golden-ci/` only on the hosted runner with `GOLDEN_BASELINE=ci` and the same update flags; do not copy local screenshots into it. When a JavaFX test fails, CI uploads both the generated `golden-actual/` images and the reports in the `fx-test-reports` artifact so the difference can be reviewed.
+
 The `Live user journey (isolated Docker)` job requires only Docker and network access. It runs `./scripts/live-journey.sh`, which builds its own server and test-runner images, starts throwaway PostgreSQL/Redis/server containers, provisions a temporary admin, runs `RealServerUserJourneyFxTest` headlessly, and removes the temporary stack. It does not use the Compose stack or an Xvfb display, and the job fails if any `chat-system-live-*` container, network or volume remains afterwards.
 
 ## Test suites and coverage
