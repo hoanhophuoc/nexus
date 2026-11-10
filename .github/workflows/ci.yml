@@ -1,0 +1,201 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Build, unit & integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up JDK 27
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '27'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          validate-wrappers: true
+
+      - name: Compile, unit tests, integration tests and FX test classes
+        run: ./gradlew --no-daemon clean test integrationTest fxTestClasses
+
+      - name: Generate JaCoCo coverage report
+        run: ./gradlew --no-daemon jacocoTestReport
+
+      - name: Enforce coverage regression floor
+        run: ./gradlew --no-daemon coverageVerification
+
+      - name: Detect Sonar token
+        id: sonar-token
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          if [ -n "$SONAR_TOKEN" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::SONAR_TOKEN is not configured; SonarQube Cloud analysis is skipped."
+          fi
+
+      # Forked pull requests never receive this secret. Analysis waits for the
+      # project quality gate and fails this job when the gate fails.
+      - name: SonarQube Cloud analysis and quality gate
+        if: steps.sonar-token.outputs.present == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: ./gradlew --no-daemon sonar
+
+      - name: Upload test and coverage reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-reports
+          path: |
+            build/reports/tests
+            build/test-results
+            build/reports/jacoco
+          retention-days: 14
+
+  fx-test:
+    name: JavaFX FXML tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 27
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '27'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          validate-wrappers: true
+
+      - name: Install Xvfb
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb
+
+      - name: Run JavaFX tests
+        run: xvfb-run -a ./gradlew --no-daemon fxTest :desktop-user:fxTest :desktop-admin:fxTest
+
+      - name: Upload JavaFX reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fx-test-reports
+          path: |
+            build/reports/tests/fxTest
+            build/test-results/fxTest
+            desktop-user/build/reports/tests/fxTest
+            desktop-user/build/test-results/fxTest
+            desktop-admin/build/reports/tests/fxTest
+            desktop-admin/build/test-results/fxTest
+          retention-days: 14
+
+  live-journey:
+    name: Live user journey (isolated Docker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The runner needs only Docker. It provisions PostgreSQL, Redis, the
+      # server, generated admin credentials and a headless JavaFX environment.
+      - name: Run isolated live user journey
+        run: ./scripts/live-journey.sh
+
+      - name: Upload live journey reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: live-journey-reports
+          path: |
+            desktop-user/build/reports/tests/fxTest
+            desktop-user/build/test-results/fxTest
+          retention-days: 14
+
+      - name: Verify temporary Docker resources were removed
+        if: always()
+        run: |
+          set -euo pipefail
+          leftovers="$(
+            {
+              docker ps -a --format '{{.Names}}' | grep '^chat-system-live-' || true
+              docker network ls --format '{{.Name}}' | grep '^chat-system-live-' || true
+              docker volume ls --format '{{.Name}}' | grep '^chat-system-live-' || true
+            } | sort -u
+          )"
+          if [ -n "$leftovers" ]; then
+            echo "::error::Temporary live-journey Docker resources were not removed:"
+            echo "$leftovers"
+            exit 1
+          fi
+
+  package-linux:
+    name: Linux app image
+    needs: build-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 27
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '27'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          validate-wrappers: true
+
+      - name: Build client and admin application images
+        run: ./gradlew --no-daemon packageClient packageAdmin -PpackageType=app-image -PappVersion=0.0.0
+
+      - name: Archive application images
+        run: |
+          mkdir -p build/app-images
+          cp -R build/package/ChatSystemClient/out/ChatSystemClient build/app-images/
+          cp -R build/package/ChatSystemAdmin/out/ChatSystemAdmin build/app-images/
+          tar -czf build/ChatSystem-linux-x64-appimages.tar.gz -C build/app-images .
+
+      - name: Upload application images
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-app-images
+          path: build/ChatSystem-linux-x64-appimages.tar.gz
+          retention-days: 14

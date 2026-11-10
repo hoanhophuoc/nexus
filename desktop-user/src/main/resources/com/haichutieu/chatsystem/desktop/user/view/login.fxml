@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.PasswordField?>
+<?import javafx.scene.control.TextField?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.StackPane?>
+<?import javafx.scene.layout.VBox?>
+
+<StackPane xmlns:fx="http://javafx.com/fxml" styleClass="login-root" prefWidth="520" prefHeight="640">
+    <VBox maxWidth="400" spacing="14" styleClass="login-card">
+        <HBox spacing="12" alignment="CENTER_LEFT">
+            <StackPane styleClass="brand-mark">
+                <Label text="C" styleClass="brand-mark-text"/>
+            </StackPane>
+            <VBox spacing="2">
+                <Label text="%app.name" styleClass="brand-name"/>
+                <Label text="%login.tagline" styleClass="caption"/>
+            </VBox>
+        </HBox>
+
+        <VBox spacing="5">
+            <Label text="%login.title" styleClass="title"/>
+            <Label text="%login.subtitle" styleClass="subtitle" wrapText="true"/>
+        </VBox>
+
+        <VBox spacing="6">
+            <Label fx:id="usernameLabel" text="%login.username" styleClass="field-label"/>
+            <TextField fx:id="usernameField" promptText="%login.usernamePrompt"/>
+        </VBox>
+
+        <VBox spacing="6">
+            <Label fx:id="passwordLabel" text="%login.password" styleClass="field-label"/>
+            <PasswordField fx:id="passwordField" promptText="%login.passwordPrompt"/>
+        </VBox>
+
+        <Label fx:id="feedbackLabel" text="%login.hint" styleClass="form-feedback" wrapText="true"/>
+
+        <Button fx:id="signInButton" text="%login.submit" defaultButton="true"
+                maxWidth="Infinity" styleClass="primary-button">
+            <VBox.margin>
+                <Insets top="4"/>
+            </VBox.margin>
+        </Button>
+
+        <HBox spacing="10" alignment="CENTER_LEFT">
+            <Button fx:id="registerButton" text="%login.register" styleClass="ghost-button"
+                    maxWidth="Infinity" HBox.hgrow="ALWAYS"/>
+            <Button fx:id="forgotPasswordButton" text="%login.forgotPassword" styleClass="ghost-button"
+                    maxWidth="Infinity" HBox.hgrow="ALWAYS"/>
+        </HBox>
+
+        <HBox spacing="8" alignment="CENTER_RIGHT">
+            <Label text="%login.themeHint" styleClass="caption"/>
+            <Button fx:id="themeButton" text="%login.themeToggle" styleClass="icon-button"/>
+        </HBox>
+    </VBox>
+</StackPane>

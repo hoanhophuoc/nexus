@@ -1,0 +1,7 @@
+plugins {
+    // Lets Gradle download the JDK 25 toolchain declared in build.gradle when it is not installed locally.
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
+}
+
+rootProject.name = "Chat-System"
+include 'client-sdk', 'desktop-shared', 'desktop-user', 'desktop-admin', 'server'

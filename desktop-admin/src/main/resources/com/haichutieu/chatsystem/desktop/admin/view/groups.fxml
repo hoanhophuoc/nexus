@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.SplitPane?>
+<?import javafx.scene.control.TableColumn?>
+<?import javafx.scene.control.TableView?>
+<?import javafx.scene.control.TextField?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.VBox?>
+
+<VBox xmlns="http://javafx.com/javafx/21" xmlns:fx="http://javafx.com/fxml/1"
+      spacing="12" styleClass="admin-screen">
+    <Label styleClass="title" text="%admin.groups.title"/>
+    <HBox alignment="CENTER_LEFT" spacing="8" styleClass="admin-toolbar">
+        <TextField fx:id="filterField" promptText="%admin.groups.filterPrompt" HBox.hgrow="ALWAYS"/>
+        <Button fx:id="applyButton" styleClass="secondary-button" text="%admin.groups.apply"/>
+        <Label fx:id="statusLabel" styleClass="admin-status" text="%admin.groups.loading"/>
+    </HBox>
+    <SplitPane fx:id="splitPane" styleClass="admin-split" VBox.vgrow="ALWAYS">
+        <items>
+            <VBox spacing="8">
+                <TableView fx:id="groupsTable" styleClass="admin-table" VBox.vgrow="ALWAYS">
+                    <columns>
+                        <TableColumn fx:id="nameColumn" prefWidth="230" text="%admin.groups.name"/>
+                        <TableColumn fx:id="createdColumn" prefWidth="150" text="%admin.groups.created"/>
+                    </columns>
+                </TableView>
+            </VBox>
+            <VBox spacing="8">
+                <Label styleClass="admin-section-title" text="%admin.groups.membersTitle"/>
+                <Label fx:id="memberStatusLabel" styleClass="admin-status" text="%admin.groups.selectHint"/>
+                <TableView fx:id="membersTable" styleClass="admin-table" VBox.vgrow="ALWAYS">
+                    <columns>
+                        <TableColumn fx:id="memberUsernameColumn" prefWidth="140" text="%admin.groups.username"/>
+                        <TableColumn fx:id="memberFullNameColumn" prefWidth="170" text="%admin.groups.fullName"/>
+                        <TableColumn fx:id="memberRoleColumn" prefWidth="100" text="%admin.groups.role"/>
+                        <TableColumn fx:id="memberJoinedColumn" prefWidth="110" text="%admin.groups.joined"/>
+                    </columns>
+                </TableView>
+            </VBox>
+        </items>
+    </SplitPane>
+</VBox>

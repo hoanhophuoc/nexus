@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.CheckBox?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ListView?>
+<?import javafx.scene.control.TextArea?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.VBox?>
+
+<VBox xmlns:fx="http://javafx.com/fxml" spacing="12" prefWidth="560" prefHeight="600"
+      styleClass="dialog-content">
+    <Label fx:id="titleLabel" text="%report.title" styleClass="dialog-title" wrapText="true"/>
+    <Label fx:id="targetLabel" text="%report.targetFallback" styleClass="dialog-subtitle" wrapText="true"/>
+    <Label fx:id="reasonLabel" text="%report.reason" styleClass="field-label"/>
+    <TextArea fx:id="reasonField" promptText="%report.reasonPrompt" prefRowCount="4" wrapText="true"/>
+    <Label fx:id="evidenceLabel" text="%report.evidence" styleClass="field-label"/>
+    <Label text="%report.evidenceHint" styleClass="caption" wrapText="true"/>
+    <ListView fx:id="evidenceList" prefHeight="180" VBox.vgrow="ALWAYS" styleClass="account-list"/>
+    <CheckBox fx:id="consentCheck" text="%report.consent" wrapText="true"/>
+    <Label fx:id="statusLabel" text="%report.hint" styleClass="form-feedback" wrapText="true"/>
+    <HBox spacing="8">
+        <Button fx:id="submitButton" text="%report.submit" styleClass="danger-button"/>
+        <Button fx:id="cancelButton" text="%dialog.cancel" styleClass="ghost-button"/>
+    </HBox>
+</VBox>

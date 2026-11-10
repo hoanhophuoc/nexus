@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ListView?>
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.StackPane?>
+<?import javafx.scene.layout.VBox?>
+
+<BorderPane xmlns="http://javafx.com/javafx/21" xmlns:fx="http://javafx.com/fxml/1"
+            styleClass="admin-shell">
+    <left>
+        <VBox prefWidth="264" styleClass="admin-sidebar" spacing="14">
+            <HBox alignment="CENTER_LEFT" spacing="10" styleClass="admin-brand">
+                <Label styleClass="brand-mark" text="%admin.brand.mark"/>
+                <VBox spacing="1">
+                    <Label styleClass="brand-name" text="%admin.app.name"/>
+                    <Label styleClass="muted-label" text="%admin.shell.subtitle"/>
+                </VBox>
+            </HBox>
+            <HBox alignment="CENTER_LEFT" spacing="10" styleClass="admin-identity">
+                <StackPane fx:id="avatarHost" minHeight="38" minWidth="38"/>
+                <Label fx:id="identityLabel" wrapText="true" styleClass="admin-identity-label"/>
+            </HBox>
+            <Label styleClass="section-label" text="%admin.nav.label"/>
+            <ListView fx:id="navigationList" styleClass="admin-nav" VBox.vgrow="ALWAYS"/>
+            <HBox alignment="CENTER_LEFT" spacing="8" styleClass="admin-sidebar-footer">
+                <Button fx:id="themeButton" styleClass="icon-button" text="%admin.shell.themeToggle"/>
+                <Button fx:id="signOutButton" styleClass="ghost-button" text="%admin.shell.signOut"/>
+            </HBox>
+        </VBox>
+    </left>
+    <center>
+        <VBox styleClass="admin-main">
+            <HBox alignment="CENTER_LEFT" styleClass="admin-header">
+                <VBox spacing="2">
+                    <Label styleClass="title" text="%admin.shell.title"/>
+                    <Label styleClass="muted-label" text="%admin.shell.tagline"/>
+                </VBox>
+            </HBox>
+            <StackPane fx:id="contentHost" styleClass="admin-content" VBox.vgrow="ALWAYS"/>
+        </VBox>
+    </center>
+</BorderPane>

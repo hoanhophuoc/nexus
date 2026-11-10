@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.ComboBox?>
+<?import javafx.scene.control.DatePicker?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.PasswordField?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.control.Separator?>
+<?import javafx.scene.control.SplitPane?>
+<?import javafx.scene.control.TableColumn?>
+<?import javafx.scene.control.TableView?>
+<?import javafx.scene.control.TextField?>
+<?import javafx.scene.layout.ColumnConstraints?>
+<?import javafx.scene.layout.FlowPane?>
+<?import javafx.scene.layout.GridPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.VBox?>
+
+<SplitPane xmlns="http://javafx.com/javafx/21" xmlns:fx="http://javafx.com/fxml/1"
+           dividerPositions="0.58" styleClass="admin-split">
+    <items>
+        <VBox spacing="12" styleClass="admin-screen">
+            <Label styleClass="title" text="%admin.accounts.title"/>
+            <HBox alignment="CENTER_LEFT" spacing="8" styleClass="admin-toolbar">
+                <TextField fx:id="filterField" promptText="%admin.accounts.filterPrompt" HBox.hgrow="ALWAYS"/>
+                <Button fx:id="applyButton" styleClass="secondary-button" text="%admin.accounts.apply"/>
+                <Button fx:id="newUserButton" styleClass="primary-button" text="%admin.accounts.newUser"/>
+            </HBox>
+            <Label fx:id="statusLabel" styleClass="admin-status" text="%admin.accounts.loading"/>
+            <TableView fx:id="accountsTable" styleClass="admin-table" VBox.vgrow="ALWAYS">
+                <columns>
+                    <TableColumn fx:id="usernameColumn" minWidth="90" prefWidth="150"
+                                 text="%admin.accounts.username"/>
+                    <TableColumn fx:id="fullNameColumn" minWidth="120" prefWidth="180"
+                                 text="%admin.accounts.fullName"/>
+                    <TableColumn fx:id="emailColumn" minWidth="160" prefWidth="210"
+                                 text="%admin.accounts.email"/>
+                    <TableColumn fx:id="statusColumn" minWidth="70" prefWidth="100"
+                                 text="%admin.accounts.status"/>
+                    <TableColumn fx:id="actionColumn" minWidth="180" prefWidth="205"
+                                 text="%admin.accounts.action"/>
+                </columns>
+            </TableView>
+        </VBox>
+        <ScrollPane fitToWidth="true" styleClass="admin-scroll">
+            <VBox spacing="9" styleClass="admin-detail">
+                <Label fx:id="detailsTitle" styleClass="admin-section-title" text="%admin.accounts.detailsHint"/>
+                <Label fx:id="detailsStatus" styleClass="admin-status" text="%admin.accounts.detailsHint" wrapText="true"/>
+                <GridPane hgap="8" vgap="6">
+                    <columnConstraints>
+                        <ColumnConstraints minWidth="88" prefWidth="100"/>
+                        <ColumnConstraints hgrow="ALWAYS" minWidth="180"/>
+                    </columnConstraints>
+                    <Label fx:id="usernameLabel" styleClass="field-label" text="%admin.accounts.username"
+                           GridPane.rowIndex="0"/>
+                    <TextField fx:id="usernameField" promptText="%admin.accounts.usernamePrompt"
+                               GridPane.columnIndex="1" GridPane.rowIndex="0"/>
+                    <Label fx:id="fullNameLabel" styleClass="field-label" text="%admin.accounts.fullName"
+                           GridPane.rowIndex="1"/>
+                    <TextField fx:id="fullNameField" promptText="%admin.accounts.fullNamePrompt"
+                               GridPane.columnIndex="1" GridPane.rowIndex="1"/>
+                    <Label fx:id="emailLabel" styleClass="field-label" text="%admin.accounts.email"
+                           GridPane.rowIndex="2"/>
+                    <TextField fx:id="emailField" promptText="%admin.accounts.emailPrompt"
+                               GridPane.columnIndex="1" GridPane.rowIndex="2"/>
+                    <Label fx:id="addressLabel" styleClass="field-label" text="%admin.accounts.address"
+                           GridPane.rowIndex="3"/>
+                    <TextField fx:id="addressField" promptText="%admin.accounts.addressPrompt"
+                               GridPane.columnIndex="1" GridPane.rowIndex="3"/>
+                    <Label fx:id="birthDateLabel" styleClass="field-label" text="%admin.accounts.birthDate"
+                           GridPane.rowIndex="4"/>
+                    <DatePicker fx:id="birthDateField" promptText="%admin.accounts.birthDatePrompt"
+                                GridPane.columnIndex="1" GridPane.rowIndex="4"/>
+                    <Label fx:id="genderLabel" styleClass="field-label" text="%admin.accounts.gender"
+                           GridPane.rowIndex="5"/>
+                    <ComboBox fx:id="genderField" maxWidth="Infinity"
+                              GridPane.columnIndex="1" GridPane.rowIndex="5"/>
+                </GridPane>
+                <VBox fx:id="passwordBox" spacing="4" visible="false" managed="false">
+                    <Label fx:id="passwordLabel" styleClass="field-label" text="%admin.accounts.password"/>
+                    <PasswordField fx:id="passwordField" promptText="%admin.accounts.passwordPrompt"/>
+                </VBox>
+                <FlowPane alignment="CENTER_LEFT" hgap="7" vgap="7" prefWrapLength="360"
+                          styleClass="admin-detail-actions">
+                    <Button fx:id="saveButton" defaultButton="true" styleClass="primary-button"
+                            text="%admin.accounts.save"/>
+                    <Button fx:id="resetPasswordButton" styleClass="secondary-button"
+                            text="%admin.accounts.resetPassword"/>
+                    <Button fx:id="lockButton" styleClass="secondary-button" text="%admin.accounts.lock"/>
+                    <Button fx:id="deleteButton" styleClass="danger-button" text="%admin.accounts.delete"/>
+                    <Button fx:id="cancelButton" styleClass="ghost-button" text="%admin.accounts.cancel"/>
+                </FlowPane>
+                <VBox fx:id="actionConfirmBox" spacing="6" managed="false" visible="false"
+                      styleClass="admin-confirm">
+                    <Label fx:id="confirmActionLabel" styleClass="body" text="%admin.accounts.confirmHint"
+                           wrapText="true"/>
+                    <HBox spacing="7">
+                        <Button fx:id="confirmActionButton" styleClass="danger-button"
+                                text="%admin.accounts.confirmAction"/>
+                        <Button fx:id="cancelActionButton" styleClass="ghost-button"
+                                text="%admin.accounts.cancel"/>
+                    </HBox>
+                </VBox>
+                <Separator/>
+                <Label styleClass="admin-section-title" text="%admin.accounts.loginHistoryTitle"/>
+                <Label fx:id="historyStatus" styleClass="admin-status" text="%admin.accounts.selectHint"
+                       wrapText="true"/>
+                <TableView fx:id="historyTable" prefHeight="150" styleClass="admin-table">
+                    <columns>
+                        <TableColumn fx:id="historyWhenColumn" prefWidth="180" text="%admin.accounts.loginWhen"/>
+                        <TableColumn fx:id="historyUserColumn" prefWidth="180" text="%admin.accounts.loginUser"/>
+                    </columns>
+                </TableView>
+                <Separator/>
+                <Label styleClass="admin-section-title" text="%admin.accounts.friendListTitle"/>
+                <Label fx:id="friendStatus" styleClass="admin-status" text="%admin.accounts.selectHint"
+                       wrapText="true"/>
+                <TableView fx:id="friendsTable" prefHeight="150" styleClass="admin-table">
+                    <columns>
+                        <TableColumn fx:id="friendUsernameColumn" prefWidth="150" text="%admin.accounts.username"/>
+                        <TableColumn fx:id="friendFullNameColumn" prefWidth="180" text="%admin.accounts.fullName"/>
+                        <TableColumn fx:id="friendAddressColumn" prefWidth="180" text="%admin.accounts.address"/>
+                    </columns>
+                </TableView>
+            </VBox>
+        </ScrollPane>
+    </items>
+</SplitPane>
