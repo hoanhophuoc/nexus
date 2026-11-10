@@ -40,16 +40,15 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Golden screenshots for the new user workspace. Goldens are generated with
  * {@code USER_UPDATE_GOLDENS=true} at 960x720 (account), 560x620 (report) and 640x600 (group),
  * then compared at 0.75% differing pixels with a per-channel delta of 16.
+ * CI compares against {@code golden-ci}, generated on the hosted Linux runner, so
+ * distribution-specific text rasterization does not require a loose tolerance.
  */
 class UserGoldenScreenshotFxTest {
     private static final String BASE = "com.haichutieu.chatsystem.desktop.user.i18n.messages";
     private static final String PASSWORD = "correct horse battery staple";
-    /*
-     * The bundled font keeps glyphs stable, but FreeType rasterization still
-     * differs between Linux distributions. Keep the budget just above that noise
-     * floor; layout, colour and font-family regressions are much larger.
-     */
-    private static final double MAX_RATIO = 0.065;
+    private static final String GOLDEN_DIR = "ci".equalsIgnoreCase(System.getenv("GOLDEN_BASELINE"))
+            ? "golden-ci" : "golden";
+    private static final double MAX_RATIO = 0.0075;
     private static final int MAX_DELTA = 16;
 
     @Test
@@ -171,14 +170,14 @@ class UserGoldenScreenshotFxTest {
         Files.createDirectories(output.getParent());
         ImageIO.write(fromFx(actual), "png", output.toFile());
         boolean update = "true".equalsIgnoreCase(System.getenv("USER_UPDATE_GOLDENS"));
-        Path source = projectRoot().resolve("src/fxTest/resources/golden").resolve(name);
+        Path source = projectRoot().resolve("src/fxTest/resources").resolve(GOLDEN_DIR).resolve(name);
         if (update) {
             Files.createDirectories(source.getParent());
             Files.copy(output, source, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             return;
         }
         BufferedImage golden;
-        try (InputStream input = UserGoldenScreenshotFxTest.class.getResourceAsStream("/golden/" + name)) {
+        try (InputStream input = UserGoldenScreenshotFxTest.class.getResourceAsStream("/" + GOLDEN_DIR + "/" + name)) {
             assertThat(input).as("golden resource %s", name).isNotNull();
             golden = ImageIO.read(input);
         }
