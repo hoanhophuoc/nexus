@@ -24,9 +24,9 @@
     -color-bubble-mine-text: rgb(255, 255, 255);
     -color-focus-ring: rgb(23, 33, 47);
 
-    /* Pin the UI typeface so golden screenshots render identically on developer
-       machines and CI. The CI JavaFX job installs the Inter 4.1 font package. */
-    -fx-font-family: "Inter";
+    /* Bundled by ThemeManager so golden screenshots render identically on
+       developer machines and CI, independent of host fonts. */
+    -fx-font-family: "Chat System Sans";
     -fx-font-size: 13px;
     -fx-background-color: -color-bg;
     -fx-text-fill: -color-text;

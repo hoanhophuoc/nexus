@@ -7,7 +7,10 @@ import javafx.beans.property.ReadOnlyObjectProperty;
 import javafx.beans.property.SimpleObjectProperty;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
+import javafx.scene.text.Font;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.Objects;
 import java.util.prefs.Preferences;
 
@@ -23,6 +26,15 @@ public final class ThemeManager {
     private static final String DARK_CLASS = "theme-dark";
     private static final String STYLESHEET = Objects.requireNonNull(
             ThemeManager.class.getResource("theme.css"), "theme.css is missing").toExternalForm();
+
+    /*
+     * The UI font is bundled instead of resolved from the host so JavaFX golden
+     * screenshots are reproducible on developer machines and CI.
+     */
+    static {
+        loadFont("fonts/ChatSystemSans-Regular.otf");
+        loadFont("fonts/ChatSystemSans-Bold.otf");
+    }
 
     private final Preferences preferences = Preferences.userNodeForPackage(ThemeManager.class);
     private final ObjectProperty<Theme> theme = new SimpleObjectProperty<>(loadPreference());
@@ -41,6 +53,19 @@ public final class ThemeManager {
             // Unit tests and very early startup can run before the toolkit owns a Preferences map.
         }
         refreshEffectiveTheme();
+    }
+
+    private static void loadFont(String resource) {
+        try (InputStream stream = ThemeManager.class.getResourceAsStream(resource)) {
+            if (stream == null) {
+                throw new IllegalStateException("Missing UI font resource: " + resource);
+            }
+            if (Font.loadFont(stream, 13) == null) {
+                throw new IllegalStateException("Cannot load UI font: " + resource);
+            }
+        } catch (IOException exception) {
+            throw new ExceptionInInitializerError(exception);
+        }
     }
 
     public static String stylesheetUrl() {
