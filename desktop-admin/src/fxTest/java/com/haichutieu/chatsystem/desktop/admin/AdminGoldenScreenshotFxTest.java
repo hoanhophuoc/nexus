@@ -6,6 +6,7 @@ import com.haichutieu.chatsystem.desktop.shared.ui.ThemeManager;
 import javafx.application.Platform;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
+import javafx.scene.control.Label;
 import javafx.scene.control.TableView;
 import javafx.scene.image.PixelReader;
 import javafx.scene.image.WritableImage;
@@ -78,6 +79,10 @@ class AdminGoldenScreenshotFxTest {
                     rootReference.get().applyCss();
                     rootReference.get().layout();
                     clearFocus(rootReference.get());
+                    Label title = (Label) rootReference.get().lookup(".title");
+                    assertThat(title).as("accounts title").isNotNull();
+                    assertThat(title.getFont().getFamily()).as("bundled UI font")
+                            .isEqualTo("Chat System Sans");
                     return true;
                 });
                 assertGolden(snapshot(stage), "accounts-light.png");
