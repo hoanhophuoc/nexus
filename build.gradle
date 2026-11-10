@@ -88,20 +88,20 @@ dependencies {
     testImplementation 'com.tngtech.archunit:archunit-junit5:1.5.1'
 
     // Real PostgreSQL 18 for persistence and socket integration tests.
-    integrationTestImplementation 'org.testcontainers:testcontainers:1.21.4'
+    integrationTestImplementation 'org.testcontainers:testcontainers:2.0.5'
     integrationTestImplementation 'org.testcontainers:postgresql:1.21.4'
     integrationTestImplementation 'org.awaitility:awaitility:4.3.0'
     integrationTestImplementation 'com.icegreen:greenmail:2.1.15'
 
     // Hibernate ORM (Jakarta Persistence 3.2)
-    implementation platform("org.hibernate.orm:hibernate-platform:7.4.14.Final")
+    implementation platform("org.hibernate.orm:hibernate-platform:7.4.15.Final")
     implementation "org.hibernate.orm:hibernate-core"
     implementation "org.hibernate.orm:hibernate-hikaricp"
     implementation 'com.zaxxer:HikariCP:7.1.0'
     implementation "jakarta.transaction:jakarta.transaction-api:2.0.1"
     // jakarta.transaction's module descriptor requires the CDI and interceptor APIs.
     implementation 'jakarta.interceptor:jakarta.interceptor-api:2.2.0'
-    implementation 'jakarta.enterprise:jakarta.enterprise.cdi-api:4.1.0'
+    implementation 'jakarta.enterprise:jakarta.enterprise.cdi-api:5.0.0'
 
     implementation 'org.postgresql:postgresql:42.7.14' // postgresql driver
 
