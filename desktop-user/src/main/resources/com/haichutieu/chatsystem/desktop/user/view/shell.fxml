@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ListView?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.control.TextField?>
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.StackPane?>
+<?import javafx.scene.layout.VBox?>
+<?import javafx.scene.shape.Circle?>
+
+<BorderPane xmlns:fx="http://javafx.com/fxml" styleClass="app-root" prefWidth="1180" prefHeight="760">
+    <left>
+        <VBox prefWidth="320" minWidth="280" styleClass="sidebar">
+            <HBox spacing="10" alignment="CENTER_LEFT" styleClass="profile-header">
+                <StackPane fx:id="profileAvatarHost"/>
+                <VBox spacing="2" HBox.hgrow="ALWAYS">
+                    <Label fx:id="profileNameLabel" text="%shell.profileFallback" styleClass="profile-name"/>
+                    <Label fx:id="profileStatusLabel" text="%shell.profileOnline" styleClass="caption"/>
+                </VBox>
+            </HBox>
+
+            <TextField fx:id="searchField" promptText="%shell.searchPrompt" styleClass="search-field">
+                <VBox.margin>
+                    <Insets top="8" bottom="8"/>
+                </VBox.margin>
+            </TextField>
+
+            <ListView fx:id="conversationList" VBox.vgrow="ALWAYS" styleClass="conversation-list"/>
+            <ListView fx:id="searchResults" visible="false" managed="false" prefHeight="160"
+                      styleClass="search-results" VBox.vgrow="NEVER"/>
+
+            <VBox spacing="8" styleClass="sidebar-footer">
+                <Button fx:id="accountButton" text="%shell.account" styleClass="secondary-button"
+                        maxWidth="Infinity"/>
+                <HBox spacing="6">
+                    <Button fx:id="friendsButton" text="%shell.friends" styleClass="ghost-button"
+                            maxWidth="Infinity" HBox.hgrow="ALWAYS"/>
+                    <Button fx:id="newGroupButton" text="%shell.newGroup" styleClass="ghost-button"
+                            maxWidth="Infinity" HBox.hgrow="ALWAYS"/>
+                </HBox>
+                <HBox spacing="6">
+                    <Button fx:id="addMemberButton" text="%shell.addMember" styleClass="ghost-button"
+                            maxWidth="Infinity" HBox.hgrow="ALWAYS"/>
+                    <Button fx:id="removeMemberButton" text="%shell.removeMember" styleClass="ghost-button"
+                            maxWidth="Infinity" HBox.hgrow="ALWAYS"/>
+                </HBox>
+                <HBox spacing="6" alignment="CENTER_LEFT">
+                    <Button fx:id="recoveryButton" text="%shell.recovery" styleClass="ghost-button"
+                            maxWidth="Infinity" HBox.hgrow="ALWAYS"/>
+                    <Button fx:id="themeButton" text="☾" styleClass="icon-button" accessibleText="%theme.toDark"/>
+                    <Button fx:id="signOutButton" text="%shell.signOut" styleClass="danger-button"/>
+                </HBox>
+                <HBox spacing="7" alignment="CENTER_LEFT">
+                    <Circle fx:id="statusDot" radius="4" styleClass="presence-dot"/>
+                    <Label fx:id="statusLabel" text="%shell.connecting" styleClass="caption" wrapText="true"/>
+                </HBox>
+            </VBox>
+        </VBox>
+    </left>
+    <center>
+        <BorderPane styleClass="chat-pane">
+            <top>
+                <HBox spacing="10" alignment="CENTER_LEFT" styleClass="chat-header">
+                    <VBox spacing="2" HBox.hgrow="ALWAYS">
+                        <Label fx:id="chatTitleLabel" text="%shell.noConversationTitle" styleClass="chat-title"/>
+                        <Label fx:id="chatSubtitleLabel" text="%shell.noConversationHint" styleClass="caption"
+                               wrapText="true"/>
+                    </VBox>
+                    <Button fx:id="reportButton" text="%shell.report" styleClass="ghost-button"/>
+                    <Button fx:id="groupSettingsButton" text="%shell.groupSettings" styleClass="ghost-button"/>
+                    <Button fx:id="clearHistoryButton" text="%shell.clearHistory" styleClass="danger-button"/>
+                </HBox>
+            </top>
+            <center>
+                <VBox spacing="0">
+                    <ScrollPane fx:id="messageScroll" fitToWidth="true" hbarPolicy="NEVER"
+                                VBox.vgrow="ALWAYS" styleClass="message-scroll">
+                        <VBox fx:id="messageRows" spacing="8" styleClass="message-list"/>
+                    </ScrollPane>
+                    <HBox spacing="10" alignment="CENTER_LEFT" styleClass="composer">
+                        <TextField fx:id="composeField" promptText="%shell.composePrompt"
+                                   styleClass="composer-field" HBox.hgrow="ALWAYS"/>
+                        <Button fx:id="sendButton" text="%shell.send" defaultButton="true"
+                                styleClass="primary-button"/>
+                    </HBox>
+                </VBox>
+            </center>
+        </BorderPane>
+    </center>
+</BorderPane>

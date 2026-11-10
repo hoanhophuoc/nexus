@@ -1,0 +1,138 @@
+asyncapi: 3.1.0
+info:
+  title: Chat System Events
+  version: 1.0.0
+  description: Authenticated WebSocket events for real-time conversation delivery.
+servers:
+  production:
+    host: '{host}'
+    pathname: /ws/v1
+    protocol: wss
+    description: WebSocket server; authenticate with the HttpOnly Secure CHAT_SESSION cookie from the login response.
+    security:
+      - $ref: '#/components/securitySchemes/session'
+    variables:
+      host:
+        description: Public API hostname
+        default: chat.example.invalid
+channels:
+  conversationEvents:
+    address: /conversations/{conversationId}
+    parameters:
+      conversationId:
+        description: Conversation UUID
+        location: '$message.payload#/conversationId'
+    messages:
+      messageCreated:
+        $ref: '#/components/messages/MessageCreated'
+      messageDeleted:
+        $ref: '#/components/messages/MessageDeleted'
+      mlsEvent:
+        $ref: '#/components/messages/MlsEvent'
+  userEvents:
+    address: /users/{userId}
+    description: Private per-user events. The server only allows a client to subscribe to its own user ID.
+    parameters:
+      userId:
+        description: Authenticated user UUID
+        location: '$message.payload#/userId'
+    messages:
+      messageHidden:
+        $ref: '#/components/messages/MessageHidden'
+operations:
+  receiveConversationEvents:
+    action: receive
+    channel: { $ref: '#/channels/conversationEvents' }
+    messages:
+      - $ref: '#/channels/conversationEvents/messages/messageCreated'
+      - $ref: '#/channels/conversationEvents/messages/messageDeleted'
+      - $ref: '#/channels/conversationEvents/messages/mlsEvent'
+  receivePrivateUserEvents:
+    action: receive
+    channel: { $ref: '#/channels/userEvents' }
+    messages:
+      - $ref: '#/channels/userEvents/messages/messageHidden'
+components:
+  securitySchemes:
+    session:
+      type: httpApiKey
+      name: CHAT_SESSION
+      in: cookie
+  messages:
+    MessageCreated:
+      name: MessageCreated
+      title: Persisted message notification
+      payload:
+        type: object
+        additionalProperties: false
+        required: [type, eventId, cursor, message]
+        properties:
+          type: { type: string, const: MessageCreated }
+          eventId: { type: string, format: uuid }
+          cursor: { type: string, minLength: 1, maxLength: 512 }
+          message:
+            oneOf:
+              - type: object
+                required: [id, conversationId, senderId, content, createdAt]
+                properties:
+                  id: { type: string, format: uuid }
+                  conversationId: { type: string, format: uuid }
+                  senderId: { type: string, format: uuid }
+                  content: { type: string, maxLength: 10000 }
+                  createdAt: { type: string, format: date-time }
+                  deletedForEveryoneAt: { type: string, format: date-time, nullable: true }
+              - type: object
+                required: [id, conversationId, senderId, epoch, ciphertext, createdAt]
+                properties:
+                  id: { type: string, format: uuid }
+                  conversationId: { type: string, format: uuid }
+                  senderId: { type: string, format: uuid }
+                  epoch: { type: integer, minimum: 0 }
+                  ciphertext: { type: string, contentEncoding: base64, maxLength: 1048576 }
+                  createdAt: { type: string, format: date-time }
+    MessageDeleted:
+      name: MessageDeleted
+      title: Message deletion notification
+      payload:
+        type: object
+        additionalProperties: false
+        required: [type, eventId, cursor, conversationId, messageId]
+        properties:
+          type: { type: string, const: MessageDeleted }
+          eventId: { type: string, format: uuid }
+          cursor: { type: string, minLength: 1, maxLength: 512 }
+          conversationId: { type: string, format: uuid }
+          messageId: { type: string, format: uuid }
+    MessageHidden:
+      name: MessageHidden
+      title: Per-user message deletion notification
+      payload:
+        type: object
+        additionalProperties: false
+        required: [type, eventId, cursor, userId, conversationId, messageId]
+        properties:
+          type: { type: string, const: MessageHidden }
+          eventId: { type: string, format: uuid }
+          cursor: { type: string, minLength: 1, maxLength: 512 }
+          userId: { type: string, format: uuid }
+          conversationId: { type: string, format: uuid }
+          messageId: { type: string, format: uuid }
+    MlsEvent:
+      name: MlsEvent
+      title: MLS commit or application ciphertext notification
+      description: Only active members whose join epoch covers the ciphertext receive this event.
+      payload:
+        type: object
+        additionalProperties: false
+        required: [type, eventId, cursor, conversationId, id, senderId, epoch, kind, ciphertext, createdAt]
+        properties:
+          type: { type: string, enum: [MlsCommit, MlsMessage] }
+          eventId: { type: string, format: uuid }
+          cursor: { type: string, minLength: 1, maxLength: 512 }
+          conversationId: { type: string, format: uuid }
+          id: { type: string, format: uuid }
+          senderId: { type: string, format: uuid }
+          epoch: { type: integer, minimum: 0 }
+          kind: { type: string, enum: [commit, application] }
+          ciphertext: { type: string, contentEncoding: base64, maxLength: 1048576 }
+          createdAt: { type: string, format: date-time }

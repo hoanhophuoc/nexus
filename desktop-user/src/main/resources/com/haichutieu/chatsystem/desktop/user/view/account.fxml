@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.ComboBox?>
+<?import javafx.scene.control.DatePicker?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ListView?>
+<?import javafx.scene.control.PasswordField?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.control.Tab?>
+<?import javafx.scene.control.TabPane?>
+<?import javafx.scene.control.TextField?>
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.StackPane?>
+<?import javafx.scene.layout.VBox?>
+
+<BorderPane xmlns:fx="http://javafx.com/fxml" styleClass="account-root" prefWidth="960" prefHeight="720">
+    <top>
+        <HBox spacing="12" alignment="CENTER_LEFT" styleClass="account-header">
+            <StackPane fx:id="accountAvatarHost"/>
+            <VBox spacing="2" HBox.hgrow="ALWAYS">
+                <Label fx:id="accountNameLabel" text="%account.fallbackName" styleClass="profile-name"/>
+                <Label fx:id="accountUsernameLabel" text="%account.fallbackUsername" styleClass="caption"/>
+            </VBox>
+            <Button fx:id="closeButton" text="%dialog.close" styleClass="ghost-button"/>
+        </HBox>
+    </top>
+    <center>
+        <TabPane fx:id="tabs" tabClosingPolicy="UNAVAILABLE" styleClass="account-tabs">
+            <Tab fx:id="profileTab" text="%account.tab.profile">
+                <ScrollPane fitToWidth="true" styleClass="account-scroll">
+                    <VBox spacing="12" styleClass="account-pane">
+                        <Label text="%account.profileTitle" styleClass="section-label"/>
+                        <Label text="%account.profileHint" styleClass="caption" wrapText="true"/>
+                        <VBox spacing="5">
+                            <Label fx:id="profileFullNameLabel" text="%account.fullName" styleClass="field-label"/>
+                            <TextField fx:id="profileFullNameField" promptText="%account.fullNamePrompt"/>
+                        </VBox>
+                        <VBox spacing="5">
+                            <Label fx:id="profileEmailLabel" text="%account.email" styleClass="field-label"/>
+                            <TextField fx:id="profileEmailField" promptText="%account.emailPrompt"/>
+                        </VBox>
+                        <VBox spacing="5">
+                            <Label fx:id="profileAddressLabel" text="%account.address" styleClass="field-label"/>
+                            <TextField fx:id="profileAddressField" promptText="%account.addressPrompt"/>
+                        </VBox>
+                        <HBox spacing="12">
+                            <VBox spacing="5" HBox.hgrow="ALWAYS">
+                                <Label fx:id="profileBirthDateLabel" text="%account.birthDate" styleClass="field-label"/>
+                                <DatePicker fx:id="profileBirthDateField" maxWidth="Infinity"/>
+                            </VBox>
+                            <VBox spacing="5" HBox.hgrow="ALWAYS">
+                                <Label fx:id="profileGenderLabel" text="%account.gender" styleClass="field-label"/>
+                                <ComboBox fx:id="profileGenderField" maxWidth="Infinity"/>
+                            </VBox>
+                        </HBox>
+                        <Button fx:id="saveProfileButton" text="%account.saveProfile" styleClass="primary-button"/>
+                    </VBox>
+                </ScrollPane>
+            </Tab>
+            <Tab fx:id="securityTab" text="%account.tab.security">
+                <ScrollPane fitToWidth="true" styleClass="account-scroll">
+                    <VBox spacing="12" styleClass="account-pane">
+                        <Label text="%account.passwordTitle" styleClass="section-label"/>
+                        <Label text="%account.passwordHint" styleClass="caption" wrapText="true"/>
+                        <VBox spacing="5">
+                            <Label fx:id="currentPasswordLabel" text="%account.currentPassword" styleClass="field-label"/>
+                            <PasswordField fx:id="currentPasswordField" promptText="%account.currentPasswordPrompt"/>
+                        </VBox>
+                        <VBox spacing="5">
+                            <Label fx:id="newPasswordLabel" text="%account.newPassword" styleClass="field-label"/>
+                            <PasswordField fx:id="newPasswordField" promptText="%account.newPasswordPrompt"/>
+                        </VBox>
+                        <VBox spacing="5">
+                            <Label fx:id="confirmPasswordLabel" text="%account.confirmPassword" styleClass="field-label"/>
+                            <PasswordField fx:id="confirmPasswordField" promptText="%account.confirmPasswordPrompt"/>
+                        </VBox>
+                        <Button fx:id="changePasswordButton" text="%account.changePassword" styleClass="primary-button"/>
+                    </VBox>
+                </ScrollPane>
+            </Tab>
+            <Tab fx:id="discoverTab" text="%account.tab.discover">
+                <VBox spacing="10" styleClass="account-pane">
+                    <Label text="%account.discoverTitle" styleClass="section-label"/>
+                    <HBox spacing="8">
+                        <TextField fx:id="discoveryQueryField" promptText="%account.searchPrompt"
+                                   styleClass="search-field" HBox.hgrow="ALWAYS"/>
+                        <Button fx:id="discoverySearchButton" text="%account.search" styleClass="secondary-button"/>
+                    </HBox>
+                    <ListView fx:id="discoveryList" VBox.vgrow="ALWAYS" styleClass="account-list"/>
+                    <HBox spacing="8">
+                        <Button fx:id="sendRequestButton" text="%account.sendRequest" styleClass="primary-button"/>
+                        <Button fx:id="messageUserButton" text="%account.message" styleClass="ghost-button"/>
+                    </HBox>
+                </VBox>
+            </Tab>
+            <Tab fx:id="requestsTab" text="%account.tab.requests">
+                <VBox spacing="10" styleClass="account-pane">
+                    <Label text="%account.incomingTitle" styleClass="section-label"/>
+                    <ListView fx:id="incomingList" prefHeight="190" styleClass="account-list"/>
+                    <HBox spacing="8">
+                        <Button fx:id="acceptRequestButton" text="%account.accept" styleClass="primary-button"/>
+                        <Button fx:id="declineRequestButton" text="%account.decline" styleClass="ghost-button"/>
+                    </HBox>
+                    <Label text="%account.outgoingTitle" styleClass="section-label"/>
+                    <ListView fx:id="outgoingList" prefHeight="190" styleClass="account-list"/>
+                    <Button fx:id="cancelRequestButton" text="%account.cancelRequest" styleClass="danger-button"/>
+                </VBox>
+            </Tab>
+            <Tab fx:id="friendsTab" text="%account.tab.friends">
+                <VBox spacing="10" styleClass="account-pane">
+                    <Label text="%account.friendsTitle" styleClass="section-label"/>
+                    <ListView fx:id="friendsList" VBox.vgrow="ALWAYS" styleClass="account-list"/>
+                    <HBox spacing="8">
+                        <Button fx:id="messageFriendButton" text="%account.message" styleClass="primary-button"/>
+                        <Button fx:id="unfriendButton" text="%account.unfriend" styleClass="ghost-button"/>
+                        <Button fx:id="blockButton" text="%account.block" styleClass="danger-button"/>
+                        <Button fx:id="reportButton" text="%account.report" styleClass="ghost-button"/>
+                    </HBox>
+                </VBox>
+            </Tab>
+            <Tab fx:id="blockedTab" text="%account.tab.blocked">
+                <VBox spacing="10" styleClass="account-pane">
+                    <Label text="%account.blockedTitle" styleClass="section-label"/>
+                    <Label text="%account.blockedHint" styleClass="caption" wrapText="true"/>
+                    <ListView fx:id="blockedList" VBox.vgrow="ALWAYS" styleClass="account-list"/>
+                    <Button fx:id="unblockButton" text="%account.unblock" styleClass="secondary-button"/>
+                </VBox>
+            </Tab>
+        </TabPane>
+    </center>
+    <bottom>
+        <HBox spacing="8" alignment="CENTER_LEFT" styleClass="account-status">
+            <Label fx:id="statusLabel" text="%account.loading" styleClass="caption" wrapText="true"/>
+        </HBox>
+    </bottom>
+</BorderPane>

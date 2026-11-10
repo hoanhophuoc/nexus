@@ -1,0 +1,57 @@
+plugins {
+    id 'application'
+    id 'org.openjfx.javafxplugin' version '0.1.0'
+}
+
+group = 'com.haichutieu.chatsystem'
+version = rootProject.version
+
+java { toolchain { languageVersion = JavaLanguageVersion.of(27) } }
+
+repositories { mavenCentral() }
+
+javafx {
+    version = '27.0.1'
+    modules = ['javafx.controls', 'javafx.fxml']
+}
+
+application {
+    mainClass = 'com.haichutieu.chatsystem.desktop.admin.AdminDesktopApplication'
+    applicationDefaultJvmArgs = ['--enable-native-access=javafx.graphics']
+}
+
+sourceSets {
+    fxTest {
+        java.srcDir 'src/fxTest/java'
+        compileClasspath += sourceSets.main.output + configurations.testRuntimeClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+}
+
+configurations {
+    fxTestImplementation.extendsFrom testImplementation
+    fxTestRuntimeOnly.extendsFrom testRuntimeOnly
+}
+
+dependencies {
+    implementation project(':desktop-shared')
+    testImplementation 'org.junit.jupiter:junit-jupiter:6.1.3'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:6.1.3'
+    testImplementation 'org.assertj:assertj-core:3.27.7'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 27
+}
+
+tasks.withType(Test).configureEach { useJUnitPlatform() }
+
+tasks.register('fxTest', Test) {
+    description = 'Runs JavaFX toolkit/UI tests (requires a display or Xvfb).'
+    group = 'verification'
+    testClassesDirs = sourceSets.fxTest.output.classesDirs
+    classpath = sourceSets.fxTest.runtimeClasspath
+    systemProperty 'junit.jupiter.execution.timeout.default', '60 s'
+    jvmArgs '--enable-native-access=ALL-UNNAMED'
+}

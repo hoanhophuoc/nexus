@@ -1,0 +1,277 @@
+/* Admin-only layout. Every colour comes from the shared theme tokens. */
+.admin-shell {
+    -fx-background-color: -color-bg;
+}
+
+.admin-sidebar {
+    -fx-background-color: -color-surface;
+    -fx-border-color: transparent -color-border transparent transparent;
+    -fx-border-width: 0 1 0 0;
+    -fx-padding: 18 16 16 16;
+}
+
+.admin-brand {
+    -fx-padding: 0 0 2 2;
+}
+
+.admin-identity {
+    -fx-background-color: -color-surface-muted;
+    -fx-background-radius: 10;
+    -fx-padding: 9 10;
+}
+
+.admin-identity-label {
+    -fx-font-size: 12px;
+    -fx-text-fill: -color-text-muted;
+}
+
+.admin-sidebar-footer {
+    -fx-padding: 4 0 0 0;
+}
+
+.admin-nav {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+    -fx-border-color: transparent;
+}
+
+.admin-nav .list-cell {
+    -fx-background-color: transparent;
+    -fx-text-fill: -color-text-muted;
+    -fx-padding: 9 12;
+    -fx-background-radius: 8;
+}
+
+.admin-nav .list-cell:filled:hover {
+    -fx-background-color: -color-surface-muted;
+    -fx-text-fill: -color-text;
+}
+
+.admin-nav .list-cell:filled:selected {
+    -fx-background-color: -color-accent-soft;
+    -fx-text-fill: -color-accent;
+    -fx-font-weight: bold;
+}
+
+.admin-nav .scroll-bar:vertical {
+    -fx-pref-width: 8;
+}
+
+.admin-main {
+    -fx-background-color: -color-bg;
+}
+
+.admin-header {
+    -fx-background-color: -color-surface;
+    -fx-border-color: transparent transparent -color-border transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 17 24;
+}
+
+.admin-content {
+    -fx-background-color: -color-bg;
+}
+
+.admin-screen {
+    -fx-background-color: -color-bg;
+    -fx-padding: 20 24;
+}
+
+.admin-toolbar {
+    -fx-alignment: center-left;
+}
+
+.admin-status {
+    -fx-font-size: 12px;
+    -fx-text-fill: -color-text-muted;
+}
+
+.admin-section-title {
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -color-text;
+}
+
+.admin-table {
+    -fx-background-color: -color-surface;
+    -fx-border-color: -color-border-strong;
+    -fx-border-radius: 10;
+    -fx-background-radius: 10;
+    -fx-padding: 2;
+}
+
+.admin-table .column-header-background {
+    -fx-background-color: -color-surface-muted;
+    -fx-background-radius: 8 8 0 0;
+}
+
+.admin-table .column-header,
+.admin-table .filler {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent transparent -color-border transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+.admin-table .column-header .label {
+    -fx-text-fill: -color-text-muted;
+    -fx-font-weight: bold;
+    -fx-font-size: 12px;
+    -fx-padding: 8 10;
+}
+
+.admin-table .table-row-cell {
+    -fx-background-color: -color-surface;
+    -fx-border-color: transparent transparent -color-border transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-table-cell-border-color: transparent;
+}
+
+.admin-table .table-row-cell:odd {
+    -fx-background-color: -color-surface;
+}
+
+.admin-table .table-row-cell:hover {
+    -fx-background-color: -color-surface-muted;
+}
+
+.admin-table .table-row-cell:selected {
+    -fx-background-color: -color-accent-soft;
+}
+
+.admin-table .table-cell {
+    -fx-text-fill: -color-text;
+    -fx-padding: 8 10;
+    -fx-border-color: transparent;
+}
+
+.admin-table .table-row-cell:selected .table-cell {
+    -fx-text-fill: -color-text;
+}
+
+.admin-table .placeholder {
+    -fx-background-color: -color-surface;
+}
+
+.admin-table .placeholder .label {
+    -fx-text-fill: -color-text-muted;
+}
+
+.admin-action-row {
+    -fx-spacing: 6;
+    -fx-alignment: center-left;
+}
+
+.admin-action-button {
+    -fx-padding: 5 10;
+    -fx-font-size: 12px;
+}
+
+.admin-split {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+
+.admin-split > .split-pane-divider {
+    -fx-background-color: -color-border-strong;
+    -fx-padding: 0 2 0 2;
+}
+
+.admin-scroll {
+    -fx-background-color: -color-bg;
+    -fx-padding: 0;
+    -fx-border-color: transparent;
+}
+
+.admin-scroll > .viewport {
+    -fx-background-color: -color-bg;
+}
+
+.admin-chart {
+    -fx-background-color: -color-surface;
+    -fx-border-color: -color-border-strong;
+    -fx-border-radius: 10;
+    -fx-background-radius: 10;
+    -fx-padding: 10;
+}
+
+.admin-chart .chart-title {
+    -fx-text-fill: -color-text;
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+}
+
+.admin-chart .chart-plot-background {
+    -fx-background-color: -color-surface;
+}
+
+.admin-chart .chart-horizontal-grid-lines,
+.admin-chart .chart-vertical-grid-lines {
+    -fx-stroke: -color-border;
+}
+
+.admin-chart .axis {
+    -fx-tick-label-fill: -color-text-muted;
+    -fx-border-color: transparent;
+}
+
+.admin-chart .axis-label {
+    -fx-text-fill: -color-text-muted;
+}
+
+.admin-chart .chart-bar {
+    -fx-bar-fill: -color-accent;
+}
+
+.admin-chart .chart-bar:hover {
+    -fx-bar-fill: -color-accent-hover;
+}
+
+.admin-chart .chart-legend {
+    -fx-background-color: transparent;
+}
+
+.admin-detail {
+    -fx-background-color: -color-bg;
+    -fx-padding: 20 24 24 20;
+}
+
+.admin-detail-actions {
+    -fx-padding: 2 0 0 0;
+}
+
+.admin-confirm {
+    -fx-background-color: -color-danger-soft;
+    -fx-background-radius: 10;
+    -fx-padding: 10;
+}
+
+.admin-status.error {
+    -fx-text-fill: -color-danger;
+}
+
+.admin-detail .combo-box .list-cell,
+.admin-detail .combo-box .list-cell:filled:selected {
+    -fx-text-fill: -color-text;
+}
+
+.admin-screen .check-box,
+.admin-screen .check-box .text {
+    -fx-text-fill: -color-text;
+    -fx-fill: -color-text;
+}
+
+.admin-screen .date-picker,
+.admin-screen .date-picker > .text-field,
+.admin-screen .date-picker .text-field {
+    -fx-control-inner-background: -color-surface;
+    -fx-background-color: -color-surface;
+    -fx-text-fill: -color-text;
+}
+
+.admin-screen .date-picker .arrow-button {
+    -fx-background-color: -color-surface-muted;
+}
+
+.admin-screen .date-picker .arrow-button .arrow {
+    -fx-background-color: -color-text-muted;
+}

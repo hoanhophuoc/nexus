@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ListView?>
+<?import javafx.scene.control.TextField?>
+<?import javafx.scene.layout.VBox?>
+
+<VBox xmlns:fx="http://javafx.com/fxml" spacing="12" prefWidth="480" prefHeight="420"
+      styleClass="dialog-content">
+    <Label fx:id="titleLabel" styleClass="dialog-title" wrapText="true"/>
+    <Label fx:id="descriptionLabel" styleClass="dialog-subtitle" wrapText="true"/>
+    <TextField fx:id="nameField" promptText="%dialog.groupName" visible="false" managed="false"/>
+    <ListView fx:id="userList" VBox.vgrow="ALWAYS" prefHeight="280"/>
+</VBox>

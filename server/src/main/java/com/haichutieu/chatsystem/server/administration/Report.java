@@ -1,0 +1,11 @@
+package com.haichutieu.chatsystem.server.administration;
+
+import com.haichutieu.chatsystem.server.social.SocialUser;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
+
+public record Report(UUID id, SocialUser reporter, SocialUser reportedUser, String reason, Instant createdAt,
+                     String status, List<ReportEvidence> selectedEvidence) {
+}

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ListView?>
+<?import javafx.scene.control.TextField?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.VBox?>
+
+<VBox xmlns:fx="http://javafx.com/fxml" spacing="12" prefWidth="620" prefHeight="580"
+      styleClass="dialog-content">
+    <Label fx:id="titleLabel" text="%groupSettings.title" styleClass="dialog-title" wrapText="true"/>
+    <Label fx:id="descriptionLabel" text="%groupSettings.description" styleClass="dialog-subtitle" wrapText="true"/>
+
+    <HBox spacing="8">
+        <TextField fx:id="nameField" promptText="%groupSettings.namePrompt" HBox.hgrow="ALWAYS"/>
+        <Button fx:id="renameButton" text="%groupSettings.rename" styleClass="primary-button"/>
+    </HBox>
+
+    <Label text="%groupSettings.members" styleClass="section-label"/>
+    <ListView fx:id="membersList" VBox.vgrow="ALWAYS" styleClass="account-list"/>
+
+    <HBox spacing="8">
+        <Button fx:id="promoteButton" text="%groupSettings.promote" styleClass="secondary-button"/>
+        <Button fx:id="demoteButton" text="%groupSettings.demote" styleClass="ghost-button"/>
+        <Button fx:id="removeButton" text="%groupSettings.remove" styleClass="danger-button"/>
+        <Button fx:id="leaveButton" text="%groupSettings.leave" styleClass="danger-button"/>
+        <Button fx:id="closeButton" text="%dialog.close" styleClass="ghost-button"/>
+    </HBox>
+    <Label fx:id="statusLabel" text="%groupSettings.loading" styleClass="form-feedback" wrapText="true"/>
+</VBox>

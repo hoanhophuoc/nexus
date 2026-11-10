@@ -1,0 +1,794 @@
+/* Chat System design tokens and component catalogue.
+   Every screen uses semantic tokens; no screen-level inline colour. */
+
+.root {
+    -color-bg: rgb(244, 246, 250);
+    -color-surface: rgb(255, 255, 255);
+    -color-surface-muted: rgb(238, 242, 247);
+    -color-surface-strong: rgb(226, 232, 240);
+    -color-border: rgb(219, 226, 234);
+    -color-border-strong: rgb(123, 135, 152);
+    -color-text: rgb(23, 33, 47);
+    -color-text-muted: rgb(86, 100, 118);
+    -color-text-subtle: rgb(98, 111, 128);
+    -color-accent: rgb(29, 93, 220);
+    -color-accent-hover: rgb(23, 77, 184);
+    -color-accent-soft: rgb(232, 239, 255);
+    -color-on-accent: rgb(255, 255, 255);
+    -color-danger: rgb(192, 57, 43);
+    -color-danger-soft: rgb(253, 236, 234);
+    -color-success: rgb(47, 133, 90);
+    -color-warning: rgb(183, 121, 31);
+    -color-bubble-theirs: rgb(255, 255, 255);
+    -color-bubble-mine: rgb(47, 111, 237);
+    -color-bubble-mine-text: rgb(255, 255, 255);
+    -color-focus-ring: rgb(23, 33, 47);
+
+    -fx-font-size: 13px;
+    -fx-background-color: -color-bg;
+    -fx-text-fill: -color-text;
+    -fx-focus-color: -color-accent;
+    -fx-faint-focus-color: transparent;
+}
+
+.theme-dark {
+    -color-bg: rgb(15, 20, 27);
+    -color-surface: rgb(21, 28, 38);
+    -color-surface-muted: rgb(27, 36, 48);
+    -color-surface-strong: rgb(35, 46, 60);
+    -color-border: rgb(39, 50, 65);
+    -color-border-strong: rgb(96, 113, 137);
+    -color-text: rgb(232, 237, 245);
+    -color-text-muted: rgb(154, 167, 186);
+    -color-text-subtle: rgb(136, 148, 164);
+    -color-accent: rgb(110, 155, 255);
+    -color-accent-hover: rgb(134, 172, 255);
+    -color-accent-soft: rgb(29, 44, 77);
+    -color-on-accent: rgb(11, 18, 32);
+    -color-danger: rgb(255, 122, 112);
+    -color-danger-soft: rgb(58, 29, 29);
+    -color-success: rgb(99, 211, 145);
+    -color-warning: rgb(240, 195, 106);
+    -color-bubble-theirs: rgb(28, 37, 50);
+    -color-bubble-mine: rgb(59, 111, 224);
+    -color-bubble-mine-text: rgb(255, 255, 255);
+    -color-focus-ring: rgb(232, 237, 245);
+    -fx-background-color: -color-bg;
+    -fx-text-fill: -color-text;
+}
+
+.app-root {
+    -fx-background-color: -color-bg;
+}
+
+.label {
+    -fx-text-fill: -color-text;
+}
+
+.title {
+    -fx-font-size: 24px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -color-text;
+}
+
+.brand-name {
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -color-text;
+}
+
+.subtitle {
+    -fx-font-size: 13px;
+    -fx-text-fill: -color-text-muted;
+}
+
+.caption {
+    -fx-font-size: 11.5px;
+    -fx-text-fill: -color-text-muted;
+}
+
+.section-label {
+    -fx-font-size: 10.5px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -color-text-subtle;
+}
+
+.field-label {
+    -fx-font-size: 11.5px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -color-text-muted;
+}
+
+.form-feedback {
+    -fx-font-size: 12px;
+    -fx-text-fill: -color-text-muted;
+    -fx-min-height: 18px;
+}
+
+.form-feedback.error {
+    -fx-text-fill: -color-danger;
+}
+
+/* ---------------------------------------------------------------- login */
+
+.login-root {
+    -fx-background-color: -color-bg;
+    -fx-padding: 36px;
+}
+
+.login-card {
+    -fx-background-color: -color-surface;
+    -fx-background-radius: 18px;
+    -fx-border-color: -color-border;
+    -fx-border-radius: 18px;
+    -fx-padding: 32px;
+    -fx-effect: dropshadow(gaussian, rgba(15, 23, 42, 0.14), 32, 0, 0, 12);
+}
+
+.brand-mark {
+    -fx-background-color: -color-accent;
+    -fx-background-radius: 14px;
+    -fx-min-width: 44px;
+    -fx-min-height: 44px;
+    -fx-pref-width: 44px;
+    -fx-pref-height: 44px;
+    -fx-max-width: 44px;
+    -fx-max-height: 44px;
+}
+
+.brand-mark-text {
+    -fx-text-fill: -color-on-accent;
+    -fx-font-size: 20px;
+    -fx-font-weight: bold;
+}
+
+/* --------------------------------------------------------------- buttons */
+
+.button {
+    -fx-background-radius: 9px;
+    -fx-border-radius: 9px;
+    -fx-padding: 8px 14px;
+    -fx-font-size: 13px;
+    -fx-cursor: hand;
+}
+
+.button:focused {
+    -fx-border-color: -color-accent;
+    -fx-border-width: 1.5px;
+    -fx-effect: dropshadow(gaussian, -color-focus-ring, 3, 0.72, 0, 0);
+}
+
+.primary-button {
+    -fx-background-color: -color-accent;
+    -fx-text-fill: -color-on-accent;
+    -fx-font-weight: bold;
+}
+
+.primary-button:hover {
+    -fx-background-color: -color-accent-hover;
+}
+
+.primary-button:pressed {
+    -fx-opacity: 0.88;
+}
+
+.primary-button:disabled {
+    -fx-opacity: 0.55;
+}
+
+.secondary-button {
+    -fx-background-color: -color-accent-soft;
+    -fx-text-fill: -color-accent;
+    -fx-font-weight: bold;
+}
+
+.secondary-button:hover {
+    -fx-background-color: -color-surface-strong;
+}
+
+.ghost-button {
+    -fx-background-color: transparent;
+    -fx-text-fill: -color-text-muted;
+    -fx-border-color: -color-border;
+    -fx-border-width: 1px;
+}
+
+.ghost-button:hover {
+    -fx-background-color: -color-surface-muted;
+    -fx-text-fill: -color-text;
+}
+
+.danger-button {
+    -fx-background-color: -color-danger-soft;
+    -fx-text-fill: -color-danger;
+    -fx-font-weight: bold;
+}
+
+.icon-button {
+    -fx-background-color: transparent;
+    -fx-text-fill: -color-text-muted;
+    -fx-padding: 6px 9px;
+    -fx-font-size: 15px;
+}
+
+.icon-button:hover {
+    -fx-background-color: -color-surface-muted;
+    -fx-background-radius: 8px;
+}
+
+.wide-button {
+    -fx-max-width: Infinity;
+}
+
+/* ---------------------------------------------------------------- fields */
+
+.text-field,
+.password-field {
+    -fx-background-color: -color-surface;
+    -fx-background-radius: 9px;
+    -fx-border-color: -color-border-strong;
+    -fx-border-radius: 9px;
+    -fx-border-width: 1px;
+    -fx-padding: 9px 12px;
+    -fx-text-fill: -color-text;
+    -fx-prompt-text-fill: -color-text-subtle;
+    -fx-highlight-fill: -color-accent-soft;
+    -fx-highlight-text-fill: -color-text;
+}
+
+.text-field:focused,
+.password-field:focused {
+    -fx-border-color: -color-accent;
+    -fx-border-width: 1.5px;
+}
+
+.search-field {
+    -fx-background-color: -color-surface-muted;
+    -fx-border-color: -color-border-strong;
+}
+
+.search-field:focused {
+    -fx-background-color: -color-surface;
+    -fx-border-color: -color-accent;
+}
+
+.composer-field {
+    -fx-background-color: -color-surface-muted;
+    -fx-border-color: -color-border-strong;
+    -fx-padding: 10px 14px;
+}
+
+.composer-field:focused {
+    -fx-background-color: -color-surface;
+    -fx-border-color: -color-accent;
+}
+
+/* --------------------------------------------------------------- sidebar */
+
+.sidebar {
+    -fx-background-color: -color-surface;
+    -fx-border-color: transparent -color-border transparent transparent;
+    -fx-border-width: 0 1px 0 0;
+    -fx-padding: 14px 12px 10px 12px;
+}
+
+.profile-header {
+    -fx-padding: 4px 4px 10px 4px;
+}
+
+.profile-name {
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -color-text;
+}
+
+.sidebar-footer {
+    -fx-padding: 8px 4px 2px 4px;
+    -fx-border-color: -color-border transparent transparent transparent;
+    -fx-border-width: 1px 0 0 0;
+}
+
+.avatar {
+    -fx-background-color: -color-accent-soft;
+    -fx-background-radius: 999px;
+}
+
+.avatar-initials {
+    -fx-text-fill: -color-accent;
+    -fx-font-weight: bold;
+    -fx-font-size: 12px;
+}
+
+.presence-dot {
+    -fx-fill: -color-text-subtle;
+}
+
+.presence-dot.online {
+    -fx-fill: -color-success;
+}
+
+.presence-dot.offline {
+    -fx-fill: -color-text-subtle;
+}
+
+/* ----------------------------------------------------------------- lists */
+
+.list-view {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-padding: 0;
+}
+
+.list-view:focused,
+.table-view:focused {
+    -fx-border-color: -color-accent;
+    -fx-border-width: 1.5px;
+    -fx-border-radius: 10px;
+    -fx-effect: dropshadow(gaussian, -color-focus-ring, 3, 0.72, 0, 0);
+}
+
+.list-cell {
+    -fx-background-color: transparent;
+    -fx-padding: 8px 10px;
+}
+
+.list-cell:filled:hover {
+    -fx-background-color: -color-surface-muted;
+    -fx-background-radius: 10px;
+}
+
+.list-cell:filled:selected {
+    -fx-background-color: -color-accent-soft;
+    -fx-background-radius: 10px;
+}
+
+.list-cell:filled:selected .label {
+    -fx-text-fill: -color-text;
+}
+
+.conversation-list {
+    -fx-padding: 2px 0 0 0;
+}
+
+.conversation-name {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -color-text;
+}
+
+.conversation-meta {
+    -fx-font-size: 11px;
+    -fx-text-fill: -color-text-muted;
+}
+
+.person-row {
+    -fx-padding: 2px 0;
+}
+
+.search-results {
+    -fx-background-color: -color-surface;
+    -fx-border-color: -color-border;
+    -fx-border-width: 0 0 1px 0;
+    -fx-padding: 4px 12px 8px 12px;
+}
+
+/* ------------------------------------------------------------------ chat */
+
+.chat-pane {
+    -fx-background-color: -color-bg;
+}
+
+.chat-header {
+    -fx-background-color: -color-surface;
+    -fx-border-color: transparent transparent -color-border transparent;
+    -fx-border-width: 0 0 1px 0;
+    -fx-padding: 14px 20px;
+}
+
+.chat-title {
+    -fx-font-size: 16px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -color-text;
+}
+
+.message-scroll {
+    -fx-background-color: transparent;
+    -fx-background: transparent;
+    -fx-padding: 0;
+}
+
+.message-scroll > .viewport {
+    -fx-background-color: transparent;
+}
+
+.message-list {
+    -fx-padding: 20px 22px 8px 22px;
+}
+
+.message-row {
+    -fx-padding: 0 2px;
+}
+
+.message-bubble {
+    -fx-background-color: -color-bubble-theirs;
+    -fx-background-radius: 14px 14px 14px 4px;
+    -fx-border-color: -color-border;
+    -fx-border-radius: 14px 14px 14px 4px;
+    -fx-border-width: 1px;
+    -fx-padding: 9px 12px;
+    -fx-effect: dropshadow(gaussian, rgba(15, 23, 42, 0.06), 10, 0, 0, 2);
+}
+
+.message-bubble.mine {
+    -fx-background-color: -color-bubble-mine;
+    -fx-background-radius: 14px 14px 4px 14px;
+    -fx-border-color: transparent;
+    -fx-border-radius: 14px 14px 4px 14px;
+}
+
+.message-bubble .label {
+    -fx-text-fill: -color-text;
+}
+
+.message-bubble.mine .label {
+    -fx-text-fill: -color-bubble-mine-text;
+}
+
+.message-meta {
+    -fx-font-size: 10.5px;
+    -fx-opacity: 0.72;
+}
+
+.message-bubble.pending {
+    -fx-opacity: 0.62;
+}
+
+.message-highlight {
+    -fx-border-color: -color-warning;
+    -fx-border-width: 2px;
+    -fx-border-radius: 14px;
+}
+
+.day-separator {
+    -fx-font-size: 11px;
+    -fx-text-fill: -color-text-subtle;
+    -fx-padding: 8px 0 2px 0;
+}
+
+.composer {
+    -fx-background-color: -color-surface;
+    -fx-border-color: -color-border transparent transparent transparent;
+    -fx-border-width: 1px 0 0 0;
+    -fx-padding: 12px 20px 16px 20px;
+}
+
+/* --------------------------------------------------------------- states */
+
+.state-view {
+    -fx-padding: 28px;
+    -fx-spacing: 8px;
+}
+
+.state-title {
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -color-text;
+}
+
+.state-message {
+    -fx-font-size: 12px;
+    -fx-text-fill: -color-text-muted;
+}
+
+/* --------------------------------------------------------------- dialogs */
+
+.dialog-pane {
+    -fx-background-color: -color-surface;
+}
+
+.dialog-pane .header-panel {
+    -fx-background-color: -color-surface;
+}
+
+.dialog-content {
+    -fx-background-color: -color-surface;
+    -fx-padding: 20px;
+    -fx-spacing: 12px;
+}
+
+.dialog-title {
+    -fx-font-size: 18px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -color-text;
+}
+
+.dialog-subtitle {
+    -fx-font-size: 12px;
+    -fx-text-fill: -color-text-muted;
+}
+
+/* ------------------------------------------------------------- scrollbar */
+
+.scroll-bar:vertical,
+.scroll-bar:horizontal {
+    -fx-background-color: transparent;
+}
+
+.scroll-bar:vertical {
+    -fx-pref-width: 10px;
+}
+
+.scroll-bar:horizontal {
+    -fx-pref-height: 10px;
+}
+
+.scroll-bar .thumb {
+    -fx-background-color: -color-border-strong;
+    -fx-background-radius: 6px;
+}
+
+.scroll-bar .increment-button,
+.scroll-bar .decrement-button {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+
+.tooltip {
+    -fx-background-color: -color-text;
+    -fx-text-fill: -color-surface;
+    -fx-background-radius: 6px;
+    -fx-padding: 6px 8px;
+}
+
+/* ---------------------------------------------------------- text & progress */
+
+.text-area {
+    -fx-background-color: -color-surface-muted;
+    -fx-background-radius: 9px;
+    -fx-border-color: -color-border-strong;
+    -fx-border-radius: 9px;
+    -fx-text-fill: -color-text;
+}
+
+.text-area .content {
+    -fx-background-color: transparent;
+}
+
+.text-area:focused {
+    -fx-border-color: -color-accent;
+    -fx-border-width: 1.5px;
+}
+
+.check-box {
+    -fx-min-height: 24px;
+}
+
+.check-box > .box {
+    -fx-background-color: -color-surface;
+    -fx-border-color: -color-border-strong;
+    -fx-border-width: 1.5px;
+    -fx-border-radius: 4px;
+    -fx-background-radius: 4px;
+}
+
+.check-box:selected > .box {
+    -fx-background-color: -color-accent;
+    -fx-border-color: -color-accent;
+}
+
+.check-box:selected > .box > .mark {
+    -fx-background-color: -color-on-accent;
+}
+
+.check-box:focused {
+    -fx-effect: dropshadow(gaussian, -color-focus-ring, 3, 0.72, 0, 0);
+}
+
+.combo-box {
+    -fx-background-color: -color-surface-muted;
+    -fx-background-radius: 9px;
+    -fx-border-color: -color-border-strong;
+    -fx-border-radius: 9px;
+    -fx-padding: 0;
+}
+
+.combo-box > .list-cell {
+    -fx-background-color: transparent;
+    -fx-text-fill: -color-text;
+    -fx-padding: 8px 10px;
+}
+
+.combo-box .arrow-button {
+    -fx-background-color: transparent;
+}
+
+.combo-box .arrow {
+    -fx-background-color: -color-text-muted;
+}
+
+.combo-box-popup .list-view {
+    -fx-background-color: -color-surface;
+    -fx-border-color: -color-border;
+    -fx-border-radius: 9px;
+    -fx-background-radius: 9px;
+}
+
+.combo-box-popup .list-cell {
+    -fx-background-color: -color-surface;
+    -fx-text-fill: -color-text;
+    -fx-padding: 7px 10px;
+}
+
+.combo-box-popup .list-cell:filled:hover,
+.combo-box-popup .list-cell:filled:selected {
+    -fx-background-color: -color-accent-soft;
+    -fx-text-fill: -color-accent;
+}
+
+.date-picker {
+    -fx-background-color: -color-surface-muted;
+    -fx-background-radius: 9px;
+    -fx-border-color: -color-border-strong;
+    -fx-border-radius: 9px;
+}
+
+.combo-box:focused,
+.date-picker:focused {
+    -fx-border-color: -color-accent;
+    -fx-border-width: 1.5px;
+    -fx-effect: dropshadow(gaussian, -color-focus-ring, 3, 0.72, 0, 0);
+}
+
+.date-picker > .text-field {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-text-fill: -color-text;
+}
+
+.date-picker > .arrow-button {
+    -fx-background-color: transparent;
+}
+
+.date-picker > .arrow-button > .arrow {
+    -fx-background-color: -color-text-muted;
+}
+
+.date-picker-popup {
+    -fx-background-color: -color-surface;
+    -fx-border-color: -color-border;
+    -fx-border-radius: 9px;
+    -fx-background-radius: 9px;
+}
+
+.date-picker-popup > .month-year-pane {
+    -fx-background-color: -color-surface-muted;
+}
+
+.date-picker-popup > * > .day-cell {
+    -fx-background-color: -color-surface;
+    -fx-text-fill: -color-text;
+}
+
+.date-picker-popup > * > .day-cell:hover {
+    -fx-background-color: -color-surface-muted;
+}
+
+.date-picker-popup > * > .selected {
+    -fx-background-color: -color-accent;
+    -fx-text-fill: -color-on-accent;
+}
+
+.progress-indicator {
+    -fx-progress-color: -color-accent;
+}
+
+/* --------------------------------------------------------------- account */
+
+.account-root {
+    -fx-background-color: -color-bg;
+}
+
+.account-header {
+    -fx-background-color: -color-surface;
+    -fx-border-color: transparent transparent -color-border transparent;
+    -fx-border-width: 0 0 1px 0;
+    -fx-padding: 16px 20px;
+}
+
+.account-tabs {
+    -fx-background-color: -color-surface;
+}
+
+.account-tabs > .tab-header-area > .tab-header-background {
+    -fx-background-color: -color-surface-muted;
+}
+
+.account-tabs > .tab-header-area > .headers-region > .tab {
+    -fx-background-color: transparent;
+    -fx-background-radius: 9px 9px 0 0;
+    -fx-padding: 8px 16px;
+}
+
+.account-tabs > .tab-header-area > .headers-region > .tab:selected {
+    -fx-background-color: -color-surface;
+    -fx-border-color: transparent transparent -color-accent transparent;
+    -fx-border-width: 0 0 2px 0;
+}
+
+.account-tabs:focused > .tab-header-area > .headers-region > .tab:selected {
+    -fx-border-color: -color-accent;
+    -fx-border-width: 1.5px;
+    -fx-border-radius: 9px 9px 0 0;
+    -fx-effect: dropshadow(gaussian, -color-focus-ring, 3, 0.72, 0, 0);
+}
+
+.account-tabs > .tab-header-area > .headers-region > .tab .tab-label {
+    -fx-text-fill: -color-text-muted;
+    -fx-font-weight: bold;
+}
+
+.account-tabs > .tab-header-area > .headers-region > .tab:selected .tab-label {
+    -fx-text-fill: -color-text;
+}
+
+.account-tabs > .tab-content-area {
+    -fx-background-color: -color-surface;
+}
+
+.account-pane {
+    -fx-padding: 18px 20px;
+}
+
+.account-scroll {
+    -fx-background-color: transparent;
+    -fx-background: transparent;
+}
+
+.account-scroll > .viewport {
+    -fx-background-color: transparent;
+}
+
+.account-list {
+    -fx-background-color: -color-surface-muted;
+    -fx-background-radius: 10px;
+    -fx-border-color: -color-border-strong;
+    -fx-border-radius: 10px;
+    -fx-padding: 4px;
+}
+
+.account-status {
+    -fx-background-color: -color-surface;
+    -fx-border-color: -color-border transparent transparent transparent;
+    -fx-border-width: 1px 0 0 0;
+    -fx-padding: 10px 20px;
+}
+
+.status-error,
+.caption.status-error {
+    -fx-text-fill: -color-danger;
+}
+
+.confirm-dialog {
+    -fx-background-color: -color-surface;
+}
+
+.menu-button {
+    -fx-background-radius: 8px;
+}
+
+.context-menu {
+    -fx-background-color: -color-surface;
+    -fx-border-color: -color-border;
+    -fx-border-radius: 9px;
+    -fx-background-radius: 9px;
+    -fx-padding: 4px;
+}
+
+.menu-item .label {
+    -fx-text-fill: -color-text;
+}
+
+.menu-item:focused {
+    -fx-background-color: -color-accent-soft;
+    -fx-background-radius: 6px;
+}

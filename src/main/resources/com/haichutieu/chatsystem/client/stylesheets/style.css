@@ -1,0 +1,142 @@
+.root {
+    -fx-background-color: white;
+}
+
+#header.login,
+#header.signup {
+    -fx-font-size: 36px;
+}
+
+Text.username.login,
+Text.password.login,
+Text.name.signup,
+Text.username.signup,
+Text.password.signup,
+Text.email.signup,
+Text.confirm-password.signup {
+    -fx-font-size: 20px;
+    -fx-font-weight: bold;
+}
+
+.login.username.field,
+.login.password.field,
+.field.name.signup,
+.field.username.signup,
+.field.password.signup,
+.field.email.signup,
+.field.confirm-password.signup {
+    -fx-font-size: 16px;
+    -fx-background-color: #fafafa;
+    -fx-border-radius: 8px;
+}
+
+.login.username.field:hover,
+.login.password.field:hover,
+.field.name.signup:hover,
+.field.username.signup:hover,
+.field.password.signup:hover,
+.field.email.signup:hover,
+.field.confirm-password.signup:hover {
+    -fx-background-color: #f0f0f0;
+}
+
+#register.login,
+#forget.login,
+#already.signup {
+    -fx-font-size: 15px;
+    -fx-text-fill: #00a6ff;
+}
+
+#register.login:hover,
+#forget.login:hover,
+#already.signup:hover {
+    -fx-text-fill: #0077cc;
+    -fx-cursor: hand;
+}
+
+#register.login:pressed,
+#forget.login:pressed,
+#already.signup:pressed {
+    -fx-text-fill: #005299;
+}
+
+Button.login,
+Button.signup {
+    -fx-background-color: #00a6ff;
+    -fx-text-fill: white;
+    -fx-font-size: 20px;
+    -fx-font-weight: bold;
+    -fx-background-radius: 8px;
+}
+
+Button.login:hover,
+Button.signup:hover {
+    -fx-background-color: #0077cc;
+    -fx-cursor: hand;
+}
+
+Button.login:pressed {
+    -fx-background-color: #005299;
+}
+
+.login.right, .signup.right {
+    -fx-background-color: linear-gradient(to bottom, #7f51ff, #ff7375);
+}
+
+Label.right {
+    -fx-font-size: 32px;
+    -fx-text-fill: white;
+}
+
+.error.field {
+    -fx-border-color: red;
+}
+
+.vboxFrame {
+    -fx-border-radius: 8px;
+    -fx-border-color: #ffffff;
+    -fx-border-width: 2px;
+}
+
+/*conversation hover*/
+.conversation:hover {
+    -fx-background-color: rgba(127, 81, 255, .8);
+    -fx-cursor: hand;
+}
+
+.conversation {
+    -fx-background-color: rgb(161, 112, 228);
+    -fx-background-radius: 8;
+}
+
+.message-to {
+    -fx-background-color: rgba(127, 81, 255, .8);
+    -fx-background-radius: 12;
+}
+
+.message-from {
+    -fx-background-color: rgba(255, 255, 255, .6);
+    -fx-background-radius: 12;
+}
+
+.message-system {
+    -fx-text-fill: rgba(255, 255, 255, .5);
+}
+
+.main-chat:hover {
+    -fx-background-color: rgba(216, 130, 130, 0.6);
+    -fx-cursor: hand;
+}
+
+.main-chat {
+    -fx-background-color: rgba(255, 255, 255, .6);
+}
+
+.image {
+    -fx-cursor: hand;
+}
+
+.message-search {
+    -fx-background-color: rgba(255, 255, 255, .6);
+    -fx-background-radius: 12;
+}

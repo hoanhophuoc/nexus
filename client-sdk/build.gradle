@@ -1,0 +1,76 @@
+plugins {
+    id 'java'
+    id 'org.openapi.generator' version '7.27.0'
+}
+
+group = 'com.haichutieu.chatsystem'
+version = rootProject.version
+
+repositories {
+    mavenCentral()
+}
+
+openApiGenerate {
+    generatorName.set('java')
+    inputSpec.set("$rootDir/api/v1/openapi.yaml")
+    outputDir.set(layout.buildDirectory.dir('generated/openapi').get().asFile.absolutePath)
+    apiPackage.set('com.haichutieu.chatsystem.sdk.api')
+    invokerPackage.set('com.haichutieu.chatsystem.sdk')
+    modelPackage.set('com.haichutieu.chatsystem.sdk.model')
+    configOptions.set([
+            library: 'native',
+            dateLibrary: 'java8',
+            useJakartaEe: 'true',
+            useJackson3: 'true',
+            hideGenerationTimestamp: 'true'
+    ])
+    globalProperties.set([
+            apis: '',
+            models: '',
+            supportingFiles: ''
+    ])
+}
+
+tasks.named('openApiValidate') {
+    inputSpec.set("$rootDir/api/v1/openapi.yaml")
+}
+
+sourceSets.main.java.srcDir(layout.buildDirectory.dir('generated/openapi/src/main/java'))
+
+// OpenAPI Generator 7.27 serializes File bodies with Jackson, which sends the temp
+// file path as JSON. The server's binary MLS/key-package endpoints need raw bytes.
+def generatedDefaultApi = layout.buildDirectory.file(
+        'generated/openapi/src/main/java/com/haichutieu/chatsystem/sdk/api/DefaultApi.java')
+
+tasks.register('patchGeneratedBinaryBodies') {
+    dependsOn tasks.named('openApiGenerate')
+    outputs.upToDateWhen { false }
+    doLast {
+        File api = generatedDefaultApi.get().asFile
+        String source = api.getText('UTF-8')
+        String jsonFileBody = 'byte[] localVarPostBody = memberVarObjectMapper.writeValueAsBytes(body);'
+        String rawFileBody = '''byte[] localVarPostBody;
+      try {
+        localVarPostBody = java.nio.file.Files.readAllBytes(body.toPath());
+      } catch (java.io.IOException e) {
+        throw new ApiException(e);
+      }'''
+        if (source.contains(rawFileBody)) {
+            return
+        }
+        if (!source.contains(jsonFileBody)) {
+            throw new GradleException('Generated binary request body pattern changed; inspect DefaultApi.java.')
+        }
+        api.setText(source.replace(jsonFileBody, rawFileBody), 'UTF-8')
+    }
+}
+
+tasks.named('compileJava') {
+    dependsOn tasks.named('openApiGenerate'), tasks.named('patchGeneratedBinaryBodies')
+}
+
+dependencies {
+    implementation 'tools.jackson.core:jackson-databind:3.2.4'
+    implementation 'org.openapitools:jackson-databind-nullable:0.2.13'
+    implementation 'jakarta.annotation:jakarta.annotation-api:3.0.0'
+}
