@@ -117,6 +117,8 @@ jobs:
             desktop-user/build/test-results/fxTest
             desktop-admin/build/reports/tests/fxTest
             desktop-admin/build/test-results/fxTest
+            desktop-admin/build/golden-actual
+            desktop-user/build/golden-actual
           retention-days: 14
 
   live-journey:
