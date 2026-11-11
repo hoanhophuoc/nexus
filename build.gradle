@@ -168,6 +168,8 @@ tasks.register('fullTest') {
     group = 'verification'
     description = 'Runs unit, integration and JavaFX test suites.'
     dependsOn tasks.named('test'), integrationTest, fxTest,
+            ':server:test', ':server:integrationTest', ':desktop-shared:test',
+            ':desktop-user:test', ':desktop-admin:test',
             ':desktop-user:fxTest', ':desktop-admin:fxTest'
 }
 
@@ -186,44 +188,64 @@ tasks.named('jacocoTestReport', JacocoReport) {
     }
 }
 
-// Anti-regression gate for the packages that have meaningful executable coverage
-// today. The aspirational targets (auth 90%, services 85%, DAL 80%, etc.) are
-// documented in docs/CI-CD.md; these minimums are the current measured baseline
-// and must be raised as the remaining workflows gain tests.
+// Coverage for the rewritten modules. The root project's own sources are the legacy
+// monolith, so a gate over them protects code that is scheduled for deletion while
+// leaving the new server and shared desktop modules unguarded.
+def coverageModules = [':server', ':desktop-shared']
+
+def coverageClassDirectories = { -> coverageModules.collect { project(it).sourceSets.main.output } }
+def coverageSourceDirectories = { -> coverageModules.collect { project(it).sourceSets.main.allSource.srcDirs } }
+def coverageExecutionData = { ->
+    coverageModules.collect { project(it).layout.buildDirectory.file('jacoco/test.exec').get().asFile } +
+            [project(':server').layout.buildDirectory.file('jacoco/integrationTest.exec').get().asFile]
+}
+
+tasks.register('coverageReport', JacocoReport) {
+    group = 'verification'
+    description = 'Coverage report for the rewritten server and desktop-shared modules.'
+    dependsOn ':server:test', ':server:integrationTest', ':desktop-shared:test'
+    executionData files(coverageExecutionData)
+    classDirectories.setFrom files(coverageClassDirectories)
+    sourceDirectories.setFrom files(coverageSourceDirectories)
+    reports {
+        xml.required = true
+        html.required = true
+        csv.required = false
+    }
+}
+
+// Anti-regression gate over the rewritten modules. The floors are the baseline measured
+// on 2026-11-11 (bundle 74.97% line / 52.32% branch), rounded down, so a regression fails
+// the build instead of demanding coverage the current tests do not have. Raise them as the
+// remaining workflows gain tests; the aspirational targets are documented in docs/CI-CD.md.
 def coverageVerification = tasks.register('coverageVerification', JacocoCoverageVerification) {
     group = 'verification'
-    description = 'Fails when measured coverage drops below the recorded baseline.'
-    dependsOn tasks.named('test'), integrationTest
-    // Core gate: unit + PostgreSQL/socket integration. JavaFX coverage is
-    // reported when fxTest has run but is not a dependency of CI's build job.
-    executionData files(
-            layout.buildDirectory.file('jacoco/test.exec'),
-            layout.buildDirectory.file('jacoco/integrationTest.exec')
-    )
-    classDirectories.setFrom(sourceSets.main.output)
+    description = 'Fails when the rewritten modules drop below their recorded coverage baseline.'
+    dependsOn ':server:test', ':server:integrationTest', ':desktop-shared:test'
+    executionData files(coverageExecutionData)
+    classDirectories.setFrom files(coverageClassDirectories)
     violationRules {
         rule {
             element = 'BUNDLE'
-            limit { counter = 'LINE'; value = 'COVEREDRATIO'; minimum = 0.19 }
-            limit { counter = 'BRANCH'; value = 'COVEREDRATIO'; minimum = 0.13 }
+            limit { counter = 'LINE'; value = 'COVEREDRATIO'; minimum = 0.74 }
+            limit { counter = 'BRANCH'; value = 'COVEREDRATIO'; minimum = 0.51 }
         }
-        rule {
-            element = 'PACKAGE'
-            includes = ['com.haichutieu.chatsystem.server.dal']
-            limit { counter = 'LINE'; value = 'COVEREDRATIO'; minimum = 0.68 }
-            limit { counter = 'BRANCH'; value = 'COVEREDRATIO'; minimum = 0.60 }
-        }
-        rule {
-            element = 'PACKAGE'
-            includes = ['com.haichutieu.chatsystem.server']
-            limit { counter = 'LINE'; value = 'COVEREDRATIO'; minimum = 0.45 }
-            limit { counter = 'BRANCH'; value = 'COVEREDRATIO'; minimum = 0.40 }
-        }
-        rule {
-            element = 'PACKAGE'
-            includes = ['com.haichutieu.chatsystem.util']
-            limit { counter = 'LINE'; value = 'COVEREDRATIO'; minimum = 0.85 }
-            limit { counter = 'BRANCH'; value = 'COVEREDRATIO'; minimum = 0.80 }
+        [
+                'com.haichutieu.chatsystem.server.identity'             : [0.69d, 0.50d],
+                'com.haichutieu.chatsystem.server.social'               : [0.64d, 0.38d],
+                'com.haichutieu.chatsystem.server.messaging'            : [0.82d, 0.61d],
+                'com.haichutieu.chatsystem.server.groups'               : [0.85d, 0.66d],
+                'com.haichutieu.chatsystem.server.administration'       : [0.80d, 0.53d],
+                'com.haichutieu.chatsystem.desktop.shared.mls'          : [0.85d, 0.54d],
+                'com.haichutieu.chatsystem.desktop.shared.cache'        : [0.88d, 0.57d],
+                'com.haichutieu.chatsystem.desktop.shared.messaging'    : [0.63d, 0.45d]
+        ].each { packageName, floors ->
+            rule {
+                element = 'PACKAGE'
+                includes = [packageName]
+                limit { counter = 'LINE'; value = 'COVEREDRATIO'; minimum = floors[0] }
+                limit { counter = 'BRANCH'; value = 'COVEREDRATIO'; minimum = floors[1] }
+            }
         }
     }
 }
