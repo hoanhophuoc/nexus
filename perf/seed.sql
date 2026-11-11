@@ -5,7 +5,11 @@
 
 BEGIN;
 
-DELETE FROM chat_v1.user_account WHERE username LIKE 'load\_%';
+-- The perf stack is disposable and every run rewrites the fixtures, so truncate the chat
+-- schema instead of deleting users row by row: `message` has no index on its sender, so a
+-- per-user delete cascade degrades into a full table scan per user (429 s and counting on a
+-- 659k-row table) instead of a constant-time reset.
+TRUNCATE chat_v1.user_account CASCADE;
 
 WITH params AS (SELECT :users::int AS n),
      users AS (
