@@ -42,3 +42,7 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+### Local agent tooling ###
+# Symlinks to the root Gradle wrapper so the Spring Tools language server in server/ uses Gradle 9.
+/server/gradlew
+/server/gradle
