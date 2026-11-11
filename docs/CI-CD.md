@@ -222,10 +222,10 @@ These cannot be set from files:
 | `./gradlew coverageVerification` | Passed; baseline thresholds enforced (verified the DAL rule fails when raised) |
 | `./gradlew fullTest` | Passed, 133 tests across 7 suites (4 skipped by design) plus the coverage gate, on the GA-only stack (Spring Boot 4.1.2, JavaFX 27.0.1) |
 | `./gradlew check` | Passed; standard lifecycle runs unit tests (integration/FX remain separate tasks) |
-| `./gradlew architectureTest` | Not a Gradle task; architecture rules run as 4 `ArchitectureTest` cases inside `test` |
+| Architecture rules | Not a Gradle task; `ServerArchitectureTest` runs them inside `./gradlew :server:test` |
 | `./gradlew cyclonedxBom` | Passed; `build/reports/cyclonedx/bom.json` |
 | `./gradlew :desktop-user:packageClient :desktop-admin:packageAdmin -PpackageType=app-image` | Passed; both images built |
-| Packaged client and admin startup smoke tests | Both passed; each stayed alive for 12 s against a stub TCP server |
+| Packaged client and admin startup smoke tests | Both app images built on JavaFX 27.0.1 and stayed alive for 20 s (timeout 124, no exceptions) both headless and under Xvfb; the server jar manifest reports `Spring-Boot-Version: 4.1.2` |
 | Workflow YAML parse | Passed for all workflow files and Dependabot |
 | Action SHA pinning | Every action reference uses a full commit SHA |
 | `actionlint` 1.7.12 | Passed after fixing one shellcheck glob |
