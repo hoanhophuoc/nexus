@@ -41,6 +41,22 @@ public class RedisPresenceStore implements PresenceStore {
     }
 
     @Override
+    public void refresh(java.util.Map<UUID, ? extends Collection<String>> connections) {
+        if (connections == null || connections.isEmpty()) return;
+        long now = System.currentTimeMillis();
+        redis.executePipelined((org.springframework.data.redis.core.RedisCallback<Object>) pipeline -> {
+            for (var entry : connections.entrySet()) {
+                byte[] key = key(entry.getKey()).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                for (String connectionId : entry.getValue()) {
+                    pipeline.zAdd(key, now, connectionId.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                }
+                pipeline.pExpire(key, ttlMillis * 2);
+            }
+            return null;
+        });
+    }
+
+    @Override
     public void offline(UUID userId, String connectionId) {
         requireIds(userId, connectionId);
         redis.opsForZSet().remove(key(userId), connectionId);
