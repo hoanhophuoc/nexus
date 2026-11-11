@@ -17,20 +17,22 @@ Every workflow declares least-privilege permissions; write scopes are confined t
 ## Local build and test commands
 
 ```bash
-./gradlew clean build          # compile, unit tests, jars and distributions
-./gradlew test                 # fast unit tests (no Docker, no display)
-./gradlew integrationTest      # PostgreSQL 18 via Testcontainers + real TCP socket tests
-./gradlew fxTest               # JavaFX toolkit and FXML loading tests (display required)
-./gradlew fullTest             # unit + integration + JavaFX tests
-./gradlew jacocoTestReport     # XML and HTML coverage reports
-./gradlew coverageVerification # anti-regression coverage gate (fullTest includes it)
-./gradlew cyclonedxBom         # CycloneDX SBOM
-./gradlew check                # standard verification lifecycle
+./gradlew clean build                      # compile and assemble every module
+./gradlew :server:test                     # server unit tests (no Docker, no display)
+./gradlew :server:integrationTest          # PostgreSQL 18 + Redis via Testcontainers (Docker)
+./gradlew :desktop-shared:test             # shared client, cache and MLS tests
+./gradlew :desktop-user:fxTest :desktop-admin:fxTest   # JavaFX tests (display or Xvfb)
+./gradlew fullTest                         # every module suite plus the coverage gate
+./gradlew coverageReport                   # XML and HTML coverage for the product modules
+./gradlew coverageVerification             # anti-regression coverage gate
+./gradlew cyclonedxBom                     # CycloneDX SBOM
+./gradlew :server:bootRun                  # start the server locally
+./gradlew :desktop-user:run :desktop-admin:run         # start the desktop apps
 ```
 
-`integrationTest` requires a running Docker daemon. It starts `postgres:18-alpine`, creates the schema with Hibernate, and uses the same Hibernate configuration path as the server. It never reads production credentials.
+`:server:integrationTest` requires a running Docker daemon. It starts throwaway `postgres:18-alpine` and `redis:8.10-alpine` containers, applies the real Flyway migrations and exercises the REST and WebSocket surfaces. It never reads production credentials.
 
-`fxTest` requires a display. On Linux CI it runs under Xvfb. Locally, a normal desktop session is enough.
+`fxTest` requires a display. Linux CI runs both JavaFX suites under Xvfb; locally a normal desktop session is enough.
 
 ### Golden screenshot baselines
 
@@ -66,31 +68,39 @@ The harness does not replace a multi-host soak: k6 and the server share one mach
 
 ## Test suites and coverage
 
-| Suite | Tests | What it covers |
-| --- | --- | --- |
-| Unit (`test`) | 21 | Configuration precedence, JSON/newline framing, Argon2id/BCrypt password migration, FXML resource and handler validation, package boundaries |
-| Integration (`integrationTest`) | 35 | Hibernate mappings, PostgreSQL constraints/transactions/rollback, friend/group/message persistence, registration/login, admin authorization and account management, group permission checks, spoofed-message and delete-authorization rejection, real `AsynchronousSocketChannel` framing, UTF-8 chunk boundaries, concurrent/ordered messages, abrupt disconnects and reconnect, GreenMail password reset |
-| JavaFX (`fxTest`) | 6 | Login/signup/forgot-password/admin-login FXML loading, controller injection, validation rules, error state |
+| Suite | Module | Tests | What it covers |
+| --- | --- | --- | --- |
+| `test` | `server` | 44 | Identity and profile validation, security filters, session and reset rules, admin authorization, group roles, MLS routing, authenticated WebSocket handling |
+| `integrationTest` | `server` | 25 | Flyway migrations from an empty schema, PostgreSQL constraints and transactions, REST auth and CSRF, Redis rate limits and distributed presence |
+| `test` | `desktop-shared` | 29 | Encrypted cache and key derivation, history sync, MLS crypto and state store, theme contrast |
+| `test` / `fxTest` | `desktop-user` | 4 / 21 | Bundle parity, FXML loading, account and social flows, MLS group chat, goldens, rendered-control contrast |
+| `test` / `fxTest` | `desktop-admin` | 3 / 6 | Resource and design contract, admin flows against a loopback server, goldens |
 
-Current audit run (JaCoCo 0.8.16; 35 integration tests, 62 tests overall):
+Current audit run (JaCoCo 0.8.16, `./gradlew coverageReport`, 2026-11-11) over `:server` and `:desktop-shared` unit plus `:server` integration data:
 
 | Package | Line | Branch |
 | --- | --- | --- |
-| `com.haichutieu.chatsystem.util` | 87.5% | 85.3% |
-| `com.haichutieu.chatsystem.server.dal` | 70.9% | 64.9% |
-| `com.haichutieu.chatsystem.server` | 50.8% | 47.4% |
-| `com.haichutieu.chatsystem.dto` | 48.0% | 0% |
-| `com.haichutieu.chatsystem.client.gui` | 4.3% | 0% |
-| `com.haichutieu.chatsystem.client` / `.client.bus` | 0% | 0% |
-| Overall | 22.0% | 16.2% |
+| `com.haichutieu.chatsystem.server` (application entry point) | 33.3% | – |
+| `com.haichutieu.chatsystem.server.identity` | 70.3% | 51.7% |
+| `com.haichutieu.chatsystem.server.social` | 65.1% | 39.6% |
+| `com.haichutieu.chatsystem.server.messaging` | 83.1% | 62.1% |
+| `com.haichutieu.chatsystem.server.groups` | 86.4% | 67.4% |
+| `com.haichutieu.chatsystem.server.administration` | 81.4% | 54.1% |
+| `com.haichutieu.chatsystem.server.infrastructure` | 100% | – |
+| `com.haichutieu.chatsystem.desktop.shared` | 82.9% | 60.5% |
+| `com.haichutieu.chatsystem.desktop.shared.mls` | 86.4% | 55.1% |
+| `com.haichutieu.chatsystem.desktop.shared.cache` | 89.7% | 58.2% |
+| `com.haichutieu.chatsystem.desktop.shared.messaging` | 64.8% | 46.5% |
+| `com.haichutieu.chatsystem.desktop.shared.ui` | 0% | 0% |
+| **Bundle** | **75.0%** | **52.3%** |
 
 In the legacy root project — which the gate no longer measures — the UI controllers, the client business controllers, and the remaining large command-switch branches in `SocketServer` are the main uncovered areas. `coverageVerification` now measures the rewritten modules (`:server` plus `:desktop-shared`, using unit and PostgreSQL/Redis integration execution data) and enforces their measured baseline: 74% line / 51% branch for the bundle, plus per-package floors for identity, social, messaging, groups, administration and the shared MLS, cache and messaging packages. The legacy 19%/13% floors above are gone, so coverage of the rewritten code cannot silently regress; `fullTest` depends on the gate. `./gradlew coverageReport` renders the same scope as HTML and XML at `build/reports/jacoco/coverageReport/`. The gate deliberately uses only unit + integration execution data so the Linux CI build job does not depend on a display. These are regression floors, **not** the desired end state. The aspirational targets remain: authentication/security 90%, business services 85%, persistence 80%, socket protocol/networking 80%, configuration/utilities 85%, JavaFX controllers 70%, overall 75-80%. The current gap is dominated by JavaFX/client controller coverage, which needs toolkit-level interaction tests rather than more DAL tests. SonarQube Cloud's **new code** quality gate remains the pull-request gate. The reports are at `build/reports/jacoco/test/jacocoTestReport.xml` and `build/reports/jacoco/test/html/index.html`.
 
 ### Known coverage gaps
 
-- `SocketClient`, `AuthController`, `ChatAppController`, `FriendsController`, and `AdminController` have no executable tests; they are JavaFX-bound and need `Platform.runLater`/FXML harness work.
-- Most `client.gui` controllers are only loaded by FXML tests, not exercised through button, validation, navigation, or table interactions.
-- `MessageService` and `AdminService` error paths (null/exception branches) are not all reachable with a healthy PostgreSQL instance.
+- `desktop.shared.ui` is 0% by design in this gate: the theme, `I18n` and component helpers render through the JavaFX toolkit, which the display-free CI job cannot start. They are exercised indirectly by the `fxTest` suites.
+- The `desktop-user` and `desktop-admin` controllers are covered by `fxTest` only, so they are outside the coverage gate and outside CI's display-free job.
+- The server application entry point and the few exception branches that need an unreachable database remain uncovered.
 - SonarQube Cloud analysis has not been executed because no `SONAR_TOKEN` is available in this environment.
 
 ## SonarQube Cloud
