@@ -219,6 +219,12 @@
     -fx-background-radius: 8px;
 }
 
+.button:disabled {
+    -fx-background-color: -color-surface-muted;
+    -fx-text-fill: -color-text-muted;
+    -fx-opacity: 1;
+}
+
 .wide-button {
     -fx-max-width: Infinity;
 }
@@ -253,6 +259,13 @@
 .search-field:focused {
     -fx-background-color: -color-surface;
     -fx-border-color: -color-accent;
+}
+
+.text-field:disabled,
+.password-field:disabled {
+    -fx-background-color: -color-surface-muted;
+    -fx-text-fill: -color-text-muted;
+    -fx-opacity: 1;
 }
 
 .composer-field {
@@ -545,16 +558,27 @@
 
 /* ---------------------------------------------------------- text & progress */
 
-.text-area {
+.text-area,
+.text-area .scroll-pane,
+.text-area .scroll-pane .viewport,
+.text-area .scroll-pane .content,
+.text-area .scroll-pane .corner {
     -fx-background-color: -color-surface-muted;
+}
+
+.text-area {
     -fx-background-radius: 9px;
     -fx-border-color: -color-border-strong;
     -fx-border-radius: 9px;
     -fx-text-fill: -color-text;
 }
 
-.text-area .content {
-    -fx-background-color: transparent;
+.text-area .text {
+    -fx-fill: -color-text;
+}
+
+.text-area .prompt-text {
+    -fx-fill: -color-text-subtle;
 }
 
 .text-area:focused {
@@ -562,8 +586,37 @@
     -fx-border-width: 1.5px;
 }
 
+.text-area:disabled {
+    -fx-background-color: -color-surface-muted;
+    -fx-opacity: 1;
+}
+
+.text-area:disabled .text {
+    -fx-fill: -color-text-muted;
+}
+
+.check-box,
+.check-box .text {
+    -fx-text-fill: -color-text;
+    -fx-fill: -color-text;
+}
+
 .check-box {
     -fx-min-height: 24px;
+}
+
+.check-box:disabled {
+    -fx-opacity: 1;
+}
+
+.check-box:disabled,
+.check-box:disabled .text {
+    -fx-text-fill: -color-text-muted;
+    -fx-fill: -color-text-muted;
+}
+
+.check-box:disabled > .box {
+    -fx-opacity: 0.55;
 }
 
 .check-box > .box {
@@ -601,6 +654,10 @@
     -fx-padding: 8px 10px;
 }
 
+.combo-box > .list-cell .text {
+    -fx-fill: -color-text;
+}
+
 .combo-box .arrow-button {
     -fx-background-color: transparent;
 }
@@ -622,10 +679,29 @@
     -fx-padding: 7px 10px;
 }
 
+.combo-box-popup .list-cell .text {
+    -fx-fill: -color-text;
+}
+
 .combo-box-popup .list-cell:filled:hover,
 .combo-box-popup .list-cell:filled:selected {
     -fx-background-color: -color-accent-soft;
     -fx-text-fill: -color-accent;
+}
+
+.combo-box-popup .list-cell:filled:hover .text,
+.combo-box-popup .list-cell:filled:selected .text {
+    -fx-fill: -color-accent;
+}
+
+.combo-box-popup .list-cell:disabled {
+    -fx-background-color: -color-surface-muted;
+    -fx-text-fill: -color-text-muted;
+    -fx-opacity: 1;
+}
+
+.combo-box-popup .list-cell:disabled .text {
+    -fx-fill: -color-text-muted;
 }
 
 .date-picker {
@@ -642,10 +718,36 @@
     -fx-effect: dropshadow(gaussian, -color-focus-ring, 3, 0.72, 0, 0);
 }
 
+.combo-box:disabled,
+.date-picker:disabled {
+    -fx-background-color: -color-surface-muted;
+    -fx-opacity: 1;
+}
+
+.combo-box:disabled > .list-cell {
+    -fx-text-fill: -color-text-muted;
+    -fx-opacity: 1;
+}
+
+.combo-box:disabled > .list-cell .text {
+    -fx-fill: -color-text-muted;
+}
+
+.combo-box:disabled .arrow,
+.date-picker:disabled > .arrow-button > .arrow {
+    -fx-background-color: -color-text-muted;
+}
+
+.date-picker:disabled > .text-field {
+    -fx-text-fill: -color-text-muted;
+    -fx-opacity: 1;
+}
+
 .date-picker > .text-field {
     -fx-background-color: transparent;
     -fx-border-color: transparent;
     -fx-text-fill: -color-text;
+    -fx-prompt-text-fill: -color-text-subtle;
 }
 
 .date-picker > .arrow-button {
@@ -667,18 +769,40 @@
     -fx-background-color: -color-surface-muted;
 }
 
+.date-picker-popup > .month-year-pane .label {
+    -fx-text-fill: -color-text;
+}
+
 .date-picker-popup > * > .day-cell {
     -fx-background-color: -color-surface;
     -fx-text-fill: -color-text;
+}
+
+.date-picker-popup > * > .day-cell .text {
+    -fx-fill: -color-text;
 }
 
 .date-picker-popup > * > .day-cell:hover {
     -fx-background-color: -color-surface-muted;
 }
 
+.date-picker-popup > * > .day-cell:disabled {
+    -fx-background-color: -color-surface-muted;
+    -fx-text-fill: -color-text-muted;
+    -fx-opacity: 1;
+}
+
+.date-picker-popup > * > .day-cell:disabled .text {
+    -fx-fill: -color-text-muted;
+}
+
 .date-picker-popup > * > .selected {
     -fx-background-color: -color-accent;
     -fx-text-fill: -color-on-accent;
+}
+
+.date-picker-popup > * > .selected .text {
+    -fx-fill: -color-on-accent;
 }
 
 .progress-indicator {
@@ -779,6 +903,17 @@
     -fx-background-radius: 8px;
 }
 
+.menu-button:disabled {
+    -fx-background-color: -color-surface-muted;
+    -fx-text-fill: -color-text-muted;
+    -fx-opacity: 1;
+}
+
+/* MenuButton renders its text through an inner Label, which sets its own fill. */
+.menu-button:disabled > .label {
+    -fx-text-fill: -color-text-muted;
+}
+
 .context-menu {
     -fx-background-color: -color-surface;
     -fx-border-color: -color-border;
@@ -791,7 +926,68 @@
     -fx-text-fill: -color-text;
 }
 
+.menu-item:disabled {
+    -fx-opacity: 1;
+}
+
+.menu-item:disabled .label {
+    -fx-text-fill: -color-text-muted;
+}
+
 .menu-item:focused {
     -fx-background-color: -color-accent-soft;
     -fx-background-radius: 6px;
+}
+
+.toggle-button:disabled {
+    -fx-background-color: -color-surface-muted;
+    -fx-text-fill: -color-text-muted;
+    -fx-opacity: 1;
+}
+
+.toggle-button:selected:disabled {
+    -fx-background-color: -color-surface-muted;
+    -fx-border-color: -color-border-strong;
+    -fx-text-fill: -color-text-muted;
+    -fx-opacity: 1;
+}
+
+.hyperlink:disabled {
+    -fx-text-fill: -color-text-muted;
+    -fx-opacity: 1;
+}
+
+.spinner:disabled {
+    -fx-background-color: -color-surface-muted;
+    -fx-opacity: 1;
+}
+
+.spinner:disabled .text-field {
+    -fx-background-color: transparent;
+    -fx-text-fill: -color-text-muted;
+    -fx-opacity: 1;
+}
+
+.list-cell:disabled {
+    -fx-background-color: -color-surface-muted;
+    -fx-text-fill: -color-text-muted;
+    -fx-opacity: 1;
+}
+
+.list-cell:disabled .text {
+    -fx-fill: -color-text-muted;
+}
+
+.table-row-cell:disabled {
+    -fx-background-color: -color-surface-muted;
+    -fx-opacity: 1;
+}
+
+.table-row-cell:disabled .table-cell {
+    -fx-text-fill: -color-text-muted;
+    -fx-opacity: 1;
+}
+
+.table-row-cell:disabled .text {
+    -fx-fill: -color-text-muted;
 }
