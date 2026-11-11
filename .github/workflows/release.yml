@@ -58,7 +58,11 @@ jobs:
       - name: Unit and integration tests
         env:
           VERSION: ${{ steps.version.outputs.version }}
-        run: ./gradlew --no-daemon test integrationTest -PreleaseVersion="$VERSION"
+        run: >
+          ./gradlew --no-daemon
+          :server:test :server:integrationTest
+          :desktop-shared:test :desktop-user:test :desktop-admin:test
+          -PreleaseVersion="$VERSION"
 
   sbom:
     name: CycloneDX SBOM
