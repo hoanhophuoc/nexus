@@ -11,6 +11,7 @@ import java.sql.SQLException;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 @Repository
@@ -23,22 +24,31 @@ public class JdbcSocialRepository implements SocialRepository {
         this.jdbc = jdbc;
     }
 
+    /**
+     * Both predicates are substring matches anchored by the trigram indexes from V9, so the search
+     * reads the users whose name actually contains the term instead of walking the table in id order
+     * until it has enough rows. Wildcards in the term are escaped, so a query for % or _ matches
+     * those characters literally instead of matching everything.
+     */
+    static final String SEARCH_SQL = """
+            SELECT u.id, u.username, u.full_name, u.address, u.birth_date, u.gender
+            FROM chat_v1.user_account u
+            WHERE u.id <> ? AND u.locked = FALSE
+              AND (u.username_normalized LIKE ? ESCAPE '\\'
+                   OR LOWER(u.full_name) LIKE ? ESCAPE '\\')
+              AND NOT EXISTS (
+                  SELECT 1 FROM chat_v1.user_block b
+                  WHERE (b.blocker_id = ? AND b.blocked_id = u.id)
+                     OR (b.blocker_id = u.id AND b.blocked_id = ?)
+              )
+            """;
+
     @Override
     public UserPage<SocialUser> search(UUID viewerId, String query, UUID cursor, int limit) {
         String cursorClause = cursor == null ? "" : "AND u.id > ?";
-        String sql = """
-                SELECT u.id, u.username, u.full_name, u.address, u.birth_date, u.gender
-                FROM chat_v1.user_account u
-                WHERE u.id <> ? AND u.locked = FALSE
-                  AND (POSITION(? IN u.username_normalized) > 0 OR POSITION(? IN LOWER(u.full_name)) > 0)
-                  AND NOT EXISTS (
-                      SELECT 1 FROM chat_v1.user_block b
-                      WHERE (b.blocker_id = ? AND b.blocked_id = u.id)
-                         OR (b.blocker_id = u.id AND b.blocked_id = ?)
-                  )
-                """ + cursorClause + " ORDER BY u.id LIMIT ?";
-        List<Object> args = new ArrayList<>(List.of(viewerId, query.toLowerCase(java.util.Locale.ROOT),
-                query.toLowerCase(java.util.Locale.ROOT), viewerId, viewerId));
+        String sql = SEARCH_SQL + cursorClause + " ORDER BY u.id LIMIT ?";
+        String pattern = containsPattern(query);
+        List<Object> args = new ArrayList<>(List.of(viewerId, pattern, pattern, viewerId, viewerId));
         if (cursor != null) args.add(cursor);
         args.add(limit + 1);
         List<SocialUser> users = jdbc.query(sql, USER_MAPPER, args.toArray());
@@ -251,6 +261,14 @@ public class JdbcSocialRepository implements SocialRepository {
         return Boolean.TRUE.equals(jdbc.queryForObject("""
                 SELECT EXISTS (SELECT 1 FROM chat_v1.friendship WHERE user_low_id = ? AND user_high_id = ?)
                 """, Boolean.class, pair[0], pair[1]));
+    }
+
+    private static String containsPattern(String query) {
+        String escaped = query.toLowerCase(Locale.ROOT)
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_");
+        return "%" + escaped + "%";
     }
 
     private static UUID[] pair(UUID firstId, UUID secondId) {
