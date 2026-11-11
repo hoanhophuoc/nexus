@@ -263,8 +263,8 @@ Other useful commands:
 ./gradlew fullTest        # unit + integration + JavaFX tests
 ./gradlew jacocoTestReport
 ./gradlew cyclonedxBom
-./gradlew packageClient   # jpackage app image; add -PpackageType=deb for a .deb
-./gradlew packageAdmin
+./gradlew :desktop-user:packageClient   # jpackage app image; add -PpackageType=deb for a .deb
+./gradlew :desktop-admin:packageAdmin
 ```
 
 ---

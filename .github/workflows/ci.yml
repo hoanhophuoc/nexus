@@ -195,14 +195,18 @@ jobs:
         with:
           validate-wrappers: true
 
+      # Packages the rewritten desktop modules, not the legacy root launchers.
       - name: Build client and admin application images
-        run: ./gradlew --no-daemon packageClient packageAdmin -PpackageType=app-image -PappVersion=0.0.0
+        run: >
+          ./gradlew --no-daemon :desktop-user:packageClient :desktop-admin:packageAdmin
+          -PpackageType=app-image -PappVersion=0.0.0
 
       - name: Archive application images
         run: |
+          set -euo pipefail
           mkdir -p build/app-images
-          cp -R build/package/ChatSystemClient/out/ChatSystemClient build/app-images/
-          cp -R build/package/ChatSystemAdmin/out/ChatSystemAdmin build/app-images/
+          cp -R desktop-user/build/package/ChatSystemClient/out/ChatSystemClient build/app-images/
+          cp -R desktop-admin/build/package/ChatSystemAdmin/out/ChatSystemAdmin build/app-images/
           tar -czf build/ChatSystem-linux-x64-appimages.tar.gz -C build/app-images .
 
       - name: Upload application images

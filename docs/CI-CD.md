@@ -137,13 +137,13 @@ SonarSource's Java documentation states that LTS versions **8, 11, 17, 21, 25 an
 The two JavaFX clients are packaged with `jpackage`; the server remains a Docker image.
 
 ```bash
-./gradlew packageClient -PpackageType=app-image -PappVersion=1.0.0
-./gradlew packageAdmin  -PpackageType=app-image -PappVersion=1.0.0
+./gradlew :desktop-user:packageClient -PpackageType=app-image -PappVersion=1.0.0
+./gradlew :desktop-admin:packageAdmin -PpackageType=app-image -PappVersion=1.0.0
 
 # Platform-native installers (run on the matching OS)
-./gradlew packageClient -PpackageType=deb -PappVersion=1.0.0   # Linux
-./gradlew packageClient -PpackageType=msi -PappVersion=1.0.0   # Windows (WiX)
-./gradlew packageClient -PpackageType=dmg -PappVersion=1.0.0   # macOS
+./gradlew :desktop-user:packageClient -PpackageType=deb -PappVersion=1.0.0   # Linux
+./gradlew :desktop-user:packageClient -PpackageType=msi -PappVersion=1.0.0   # Windows (WiX)
+./gradlew :desktop-user:packageClient -PpackageType=dmg -PappVersion=1.0.0   # macOS
 ```
 
 Outputs are under `build/package/<AppName>/out/`. Each app image contains `bin/`, `lib/app/` (application jars and FXML/CSS resources) and `lib/runtime/` (a bundled Java runtime); users do not need a separate JDK or JavaFX SDK. Desktop packages exclude the Hibernate, PostgreSQL, mail and JAXB jars that only the server uses.
@@ -199,7 +199,7 @@ These cannot be set from files:
 | `./gradlew check` | Passed; standard lifecycle runs unit tests (integration/FX remain separate tasks) |
 | `./gradlew architectureTest` | Not a Gradle task; architecture rules run as 4 `ArchitectureTest` cases inside `test` |
 | `./gradlew cyclonedxBom` | Passed; `build/reports/cyclonedx/bom.json` |
-| `./gradlew packageClient packageAdmin -PpackageType=app-image` | Passed; both images built |
+| `./gradlew :desktop-user:packageClient :desktop-admin:packageAdmin -PpackageType=app-image` | Passed; both images built |
 | Packaged client and admin startup smoke tests | Both passed; each stayed alive for 12 s against a stub TCP server |
 | Workflow YAML parse | Passed for all workflow files and Dependabot |
 | Action SHA pinning | Every action reference uses a full commit SHA |
