@@ -1,5 +1,9 @@
 package com.haichutieu.chatsystem.server.messaging;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import com.haichutieu.chatsystem.server.identity.AuthenticationService;
@@ -24,13 +28,40 @@ public class AuthenticatedWebSocketHandler extends TextWebSocketHandler implemen
     private final ObjectMapper mapper;
     private final AuthenticationService authentication;
     private final PresenceStore presence;
+    private final Counter delivered;
+    private final Timer sendLatency;
+    private final Timer authLatency;
     private final ConcurrentHashMap<UUID, Set<WebSocketSession>> sessions = new ConcurrentHashMap<>();
 
     public AuthenticatedWebSocketHandler(ObjectMapper mapper, AuthenticationService authentication,
-                                         PresenceStore presence) {
+                                         PresenceStore presence, MeterRegistry meters) {
         this.mapper = mapper;
         this.authentication = authentication;
         this.presence = presence;
+        this.delivered = Counter.builder("chat.ws.delivered")
+                .description("Realtime events written to an open socket")
+                .register(meters);
+        this.sendLatency = Timer.builder("chat.ws.send")
+                .description("Time from message creation to socket write, as the server sees it")
+                .publishPercentiles(0.5, 0.95, 0.99)
+                .register(meters);
+        this.authLatency = Timer.builder("chat.ws.auth")
+                .description("Session revalidation performed while delivering an event")
+                .publishPercentiles(0.5, 0.95, 0.99)
+                .register(meters);
+        Gauge.builder("chat.ws.sessions", this, handler -> handler.openSessions())
+                .description("Open authenticated WebSocket sessions on this instance")
+                .register(meters);
+    }
+
+    private int openSessions() {
+        int open = 0;
+        for (Set<WebSocketSession> active : sessions.values()) {
+            for (WebSocketSession session : active) {
+                if (session.isOpen()) open++;
+            }
+        }
+        return open;
     }
 
     @Override
@@ -66,15 +97,18 @@ public class AuthenticatedWebSocketHandler extends TextWebSocketHandler implemen
 
     @Scheduled(fixedDelayString = "${chat.presence.heartbeat-ms:30000}")
     public void refreshPresence() {
+        Map<UUID, java.util.List<String>> heartbeats = new java.util.HashMap<>();
         for (Map.Entry<UUID, Set<WebSocketSession>> entry : sessions.entrySet()) {
+            java.util.List<String> open = new java.util.ArrayList<>(entry.getValue().size());
             for (WebSocketSession session : entry.getValue()) {
-                if (!session.isOpen()) continue;
-                try {
-                    presence.online(entry.getKey(), session.getId());
-                } catch (RuntimeException ignored) {
-                    // Retry on the next heartbeat; do not tear down a live socket.
-                }
+                if (session.isOpen()) open.add(session.getId());
             }
+            if (!open.isEmpty()) heartbeats.put(entry.getKey(), open);
+        }
+        try {
+            presence.refresh(heartbeats);
+        } catch (RuntimeException ignored) {
+            // Retry on the next heartbeat; do not tear down live sockets.
         }
     }
 
@@ -88,14 +122,31 @@ public class AuthenticatedWebSocketHandler extends TextWebSocketHandler implemen
         try {
             JsonNode envelope = mapper.readTree(message.getBody());
             String payload = mapper.writeValueAsString(envelope.get("payload"));
+            java.time.Instant created = null;
+            JsonNode createdNode = envelope.get("payload") == null ? null
+                    : envelope.get("payload").get("message") == null ? null
+                    : envelope.get("payload").get("message").get("createdAt");
+            if (createdNode != null && createdNode.isString()) {
+                try {
+                    created = java.time.Instant.parse(createdNode.asString());
+                } catch (RuntimeException ignored) {
+                    // Older payloads may omit or mistype the timestamp; skip the sample.
+                }
+            }
             for (JsonNode target : envelope.withArray("targets")) {
                 Set<WebSocketSession> active = sessions.get(UUID.fromString(target.asText()));
                 if (active == null) continue;
                 for (WebSocketSession session : active) {
+                    long authStarted = System.nanoTime();
                     UUID tokenUser = authentication.authenticate((String) session.getAttributes()
                             .get(SessionHandshakeInterceptor.SESSION_TOKEN)).map(identity -> identity.userId()).orElse(null);
+                    authLatency.record(java.time.Duration.ofNanos(System.nanoTime() - authStarted));
                     if (session.isOpen() && target.asText().equals(tokenUser == null ? "" : tokenUser.toString())) {
                         synchronized (session) { session.sendMessage(new TextMessage(payload)); }
+                        delivered.increment();
+                        if (created != null) {
+                            sendLatency.record(java.time.Duration.between(created, java.time.Instant.now()));
+                        }
                     } else if (session.isOpen() && tokenUser == null) {
                         session.close(CloseStatus.NOT_ACCEPTABLE.withReason("Session revoked."));
                     }

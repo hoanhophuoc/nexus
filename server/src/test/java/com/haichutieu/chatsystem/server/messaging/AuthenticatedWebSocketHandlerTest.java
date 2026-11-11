@@ -26,7 +26,8 @@ class AuthenticatedWebSocketHandlerTest {
     private final AuthenticationService authentication = mock(AuthenticationService.class);
     private final PresenceStore presence = mock(PresenceStore.class);
     private final AuthenticatedWebSocketHandler handler =
-            new AuthenticatedWebSocketHandler(JsonMapper.builder().build(), authentication, presence);
+            new AuthenticatedWebSocketHandler(JsonMapper.builder().build(), authentication, presence,
+                    new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
     private final WebSocketSession session = mock(WebSocketSession.class);
     private final UUID userId = UUID.randomUUID();
 
