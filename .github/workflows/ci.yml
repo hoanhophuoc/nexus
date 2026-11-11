@@ -38,8 +38,14 @@ jobs:
         with:
           validate-wrappers: true
 
+      # The rewrite lives in the server, desktop-shared, desktop-user and desktop-admin
+      # modules; running only the root project's tasks would leave the new code untested.
       - name: Compile, unit tests, integration tests and FX test classes
-        run: ./gradlew --no-daemon clean test integrationTest fxTestClasses
+        run: >
+          ./gradlew --no-daemon clean fxTestClasses
+          test integrationTest
+          :server:test :server:integrationTest
+          :desktop-shared:test :desktop-user:test :desktop-admin:test
 
       - name: Generate JaCoCo coverage report
         run: ./gradlew --no-daemon jacocoTestReport
@@ -76,6 +82,8 @@ jobs:
             build/reports/tests
             build/test-results
             build/reports/jacoco
+            */build/reports/tests
+            */build/test-results
           retention-days: 14
 
   fx-test:
