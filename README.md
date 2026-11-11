@@ -205,7 +205,7 @@ Compose stack.
 api/v1/openapi.yaml            REST contract (the SDK is generated from it)
 api/v1/events.yaml             WebSocket event contract
 server/src/main/java/.../server/{identity,social,messaging,groups,administration,infrastructure}
-server/src/main/resources/db/migration   Flyway V1-V6 (forward-only)
+server/src/main/resources/db/migration   Flyway V1-V8 (forward-only)
 desktop-shared/src/main/java/.../desktop/shared/{ui,cache,messaging,mls}
 desktop-user, desktop-admin    one FXML view and controller per screen
 scripts/live-journey.sh        isolated end-to-end journey (Docker only)
