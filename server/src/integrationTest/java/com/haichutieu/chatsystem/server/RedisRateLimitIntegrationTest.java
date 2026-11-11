@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class RedisRateLimitIntegrationTest {
 
     @Container
-    private static final GenericContainer<?> REDIS = new GenericContainer<>("redis:7-alpine").withExposedPorts(6379);
+    private static final GenericContainer<?> REDIS = new GenericContainer<>("redis:8.10-alpine").withExposedPorts(6379);
 
     @Test
     void redisScriptIncrementsAtomicallyAndAppliesExpiry() {

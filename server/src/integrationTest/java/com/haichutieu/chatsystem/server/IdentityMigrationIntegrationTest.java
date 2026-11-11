@@ -6,7 +6,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -61,10 +61,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class IdentityMigrationIntegrationTest {
 
     @Container
-    private static final PostgreSQLContainer<?> POSTGRES =
-            new PostgreSQLContainer<>("postgres:18-alpine");
+    private static final PostgreSQLContainer POSTGRES =
+            new PostgreSQLContainer("postgres:18-alpine");
     @Container
-    private static final GenericContainer<?> REDIS = new GenericContainer<>("redis:7-alpine")
+    private static final GenericContainer<?> REDIS = new GenericContainer<>("redis:8.10-alpine")
             .withExposedPorts(6379);
 
     @DynamicPropertySource

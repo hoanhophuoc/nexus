@@ -24,7 +24,8 @@
 #   CHAT_LIVE_SERVER_IMAGE    Server image tag (default: chat-system-live-server:latest)
 #   CHAT_LIVE_TEST_IMAGE      Test runner image tag (default: chat-system-live-test:latest)
 #   CHAT_LIVE_GRADLE_IMAGE    Base Gradle image for the test runner
-#                             (default: gradle:9.8.2-jdk27)
+#                             (default: gradle:9.8.2-jdk27; the wrapper runs the
+#                              actual Gradle version)
 #   CHAT_LIVE_GRADLE_HOME     Reusable Gradle cache directory; it must not be in
 #                             use by another Gradle build. A temporary one is
 #                             created and removed when this is not set
@@ -196,7 +197,7 @@ if ! docker run -d --rm \
     --name "$REDIS_CONTAINER" \
     --network "$NETWORK" \
     -e CHAT_REDIS_PASSWORD="$REDIS_PASSWORD" \
-    redis:7-alpine \
+    redis:8.10-alpine \
     sh -c 'exec redis-server --save "" --appendonly no --requirepass "$CHAT_REDIS_PASSWORD"' \
     >/dev/null; then
     die "could not start the throwaway Redis container"
