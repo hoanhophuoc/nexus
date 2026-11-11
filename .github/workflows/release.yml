@@ -143,7 +143,7 @@ jobs:
           PACKAGE_TYPE: ${{ matrix.package_type }}
         run: |
           set -euo pipefail
-          ./gradlew --no-daemon packageClient packageAdmin \
+          ./gradlew --no-daemon :desktop-user:packageClient :desktop-admin:packageAdmin \
             -PpackageType="$PACKAGE_TYPE" \
             -PreleaseVersion="$VERSION" \
             -PappVersion="$VERSION"
@@ -153,7 +153,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release-assets
-          find build/package -path '*/out/*' -type f \( -name '*.deb' -o -name '*.msi' -o -name '*.dmg' \) -exec cp {} release-assets/ \;
+          find desktop-user/build/package desktop-admin/build/package \
+            -path '*/out/*' -type f \( -name '*.deb' -o -name '*.msi' -o -name '*.dmg' \) \
+            -exec cp {} release-assets/ \;
           test -n "$(ls -A release-assets)"
           ls -l release-assets
 

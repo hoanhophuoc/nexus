@@ -55,3 +55,38 @@ tasks.register('fxTest', Test) {
     systemProperty 'junit.jupiter.execution.timeout.default', '60 s'
     jvmArgs '--enable-native-access=ALL-UNNAMED'
 }
+
+// Native desktop package. Run it on the target OS; jpackage never cross-compiles.
+//   ./gradlew :desktop-admin:packageAdmin -PpackageType=app-image
+//   ./gradlew :desktop-admin:packageAdmin -PpackageType=deb
+def packageType = providers.gradleProperty('packageType').getOrElse('app-image')
+def packageVersion = providers.gradleProperty('appVersion').getOrElse('1.0.0')
+
+tasks.register('packageAdmin', Exec) {
+    group = 'distribution'
+    description = 'Builds the admin client with jpackage (app-image, deb, msi or dmg).'
+    dependsOn tasks.named('jar')
+    def inputDir = layout.buildDirectory.dir('package/ChatSystemAdmin/input')
+    def destDir = layout.buildDirectory.dir('package/ChatSystemAdmin/out')
+    doFirst {
+        delete inputDir.get().asFile, destDir.get().asFile
+        copy {
+            from configurations.runtimeClasspath
+            from tasks.named('jar').get().archiveFile
+            into inputDir
+        }
+        commandLine 'jpackage',
+                '--type', packageType,
+                '--name', 'ChatSystemAdmin',
+                '--app-version', packageVersion,
+                '--vendor', 'Chat System',
+                '--input', inputDir.get().asFile.absolutePath,
+                '--main-jar', tasks.named('jar').get().archiveFileName.get(),
+                '--main-class', 'com.haichutieu.chatsystem.desktop.admin.AdminDesktopApplication',
+                '--dest', destDir.get().asFile.absolutePath,
+                '--java-options', '-Dfile.encoding=UTF-8',
+                // JavaFX loads as an unnamed module here, so the named-module form of this
+                // flag would leave native access blocked.
+                '--java-options', '--enable-native-access=ALL-UNNAMED'
+    }
+}
