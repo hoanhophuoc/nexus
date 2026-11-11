@@ -1,37 +1,41 @@
 # Chat-System — agent profile
 
 ## Stack
-- Java 27 via the Gradle toolchain; Gradle 9.8.x; JPMS (`system.chatsystem`).
-- Root modules: JavaFX 27.0.1 clients, Hibernate ORM 7.4.14 (Jakarta Persistence 3.2), Jackson 3.3.0, SLF4J 2.0, Password4j (Argon2id), JUnit Jupiter 6.1.
-- `server` module: Spring Boot 4.1.2 — WebMVC, WebSocket, Security, Validation, Actuator, Flyway, JDBC, Data Redis, Mail, Testcontainers.
-- PostgreSQL 18 and Redis 7 via Docker Compose; the socket server uses one virtual thread per connection.
+- Java 27 via the Gradle toolchain; Gradle 9.9.0 (wrapper); the root project holds no code.
+- `server`: Spring Boot 4.1.2 — WebMVC, WebSocket, Security, Validation, Actuator, Flyway, JDBC, Data Redis, Mail, Micrometer; PostgreSQL 18 with the `chat_v1` schema (Flyway `V1`–`V6`).
+- `client-sdk`: Java client generated from `api/v1/openapi.yaml` (OpenAPI Generator 7.27.0).
+- `desktop-shared`: JavaFX 27.0.1 design system, i18n, encrypted cache, MLS-style group crypto (Bouncy Castle 1.86).
+- `desktop-user` / `desktop-admin`: JavaFX 27.0.1 FXML applications; jpackage owns their installers.
+- Redis 8.10 for presence, rate limits and event fan-out; Jackson 3.3.0; Password4j Argon2id; JUnit Jupiter 6.1.
 
 ## Commands
-- `./gradlew build` — compile plus standard checks.
-- `./gradlew test` — fast unit tests, no Docker or display.
-- `./gradlew integrationTest` — PostgreSQL and TCP integration tests; requires Docker.
-- `./gradlew fxTest` — JavaFX toolkit and FXML tests; requires a display or Xvfb.
-- `./gradlew fullTest` — all three suites plus the coverage gate.
-- `./gradlew runClient` / `./gradlew runAdmin` — desktop clients.
+- `./gradlew :server:test` — server unit tests, no Docker or display.
+- `./gradlew :server:integrationTest` — PostgreSQL 18 + Redis via Testcontainers; requires Docker.
+- `./gradlew :desktop-shared:test` — cache, sync and MLS crypto tests.
+- `./gradlew :desktop-user:fxTest :desktop-admin:fxTest` — JavaFX tests; requires a display or Xvfb.
+- `./gradlew fullTest` — every module suite plus `coverageVerification`.
+- `./gradlew coverageReport` — JaCoCo XML/HTML for `:server` and `:desktop-shared`.
+- `./gradlew :desktop-user:run` / `:desktop-admin:run` / `:server:bootRun` — start an app locally.
+- `./gradlew :desktop-user:packageClient` / `:desktop-admin:packageAdmin` — jpackage installers.
 - Sonar: `./gradlew sonar` (plugin 7.5.0.8588), quality gate in CI.
 
 ## Layout
-- Production Java: `src/main/java/com/haichutieu/chatsystem`; resources: `src/main/resources` (FXML, CSS, images).
-- Test source sets are split by dependency: `src/test/java`, `src/integrationTest/java`, `src/fxTest/java`.
-- Modules: `server`, `client-sdk`, `desktop-shared`, `desktop-user`, `desktop-admin`.
-- Flyway migrations: `server/src/main/resources/db/migration` (`V1`–`V4`).
+- `server/src/main/java/com/haichutieu/chatsystem/server/{identity,social,messaging,groups,administration,infrastructure}`.
+- `server/src/main/resources/db/migration` — forward-only Flyway migrations; never edit an applied file.
+- `desktop-shared/src/main/java/.../desktop/shared/{ui,cache,messaging,mls}`.
+- `desktop-user` / `desktop-admin` — one FXML view plus controller per screen, `*AppContext` composition root.
+- Contracts: `api/v1/openapi.yaml` (REST) and `api/v1/events.yaml` (WebSocket events).
+- Workstream notes and verification log: `.superpowers/sdd/chat-system-rewrite/progress.md`; plan: `docs/plan.md`.
 
 ## Invariants
 - JDK 27 and UTF-8; do not lower `options.release`.
 - Put a test in the source set matching its dependencies; integration tests need Docker, never mocks.
 - PostgreSQL is published on `127.0.0.1:5432` only.
-- PostgreSQL 18 keeps data in a versioned subdirectory of `/var/lib/postgresql`; do not "fix" that volume mount.
 - `.env` is untracked and meant for Compose; never commit credentials.
-- Flyway migrations are forward-only; never edit an applied `V*` file.
+- Group encryption is MLS-style, not RFC 9420: never describe groups as RFC 9420 or fully E2EE in docs, UI copy or release notes.
 
 ## Capabilities
 - Skills: `java-spring-service`, `postgres-data`, `container-images`, `mermaid-diagrams`, `systematic-debugging`.
 - Project MCP: `spring-tools` (`.opencode/opencode.jsonc`), started in `server/` with the project name `server`; run `getProjectDiagnostics` before claiming Spring work is done. `server/gradlew` and `server/gradle` are symlinks to the root wrapper so the language server resolves the Gradle 9 model; they are local tooling, not repo code.
 - `postgres-mcp` is unsatisfiable (`pglast==7.2.0`), `mcp-postgres` is broken on Node 26, and the HenkDz server exposes writes; do not retry them. Use `docker exec -i chat-system-db-1 psql -U chat -d chat_system`.
-- Workstream notes: `.superpowers/sdd/chat-system-rewrite/progress.md`.
-- Both a plain Hibernate/JPA layer and a Spring Boot server exist; check which module you are in before applying patterns.
+- Performance harness: `docker-compose.perf.yml` with `perf/k6/chat-load.js`; measured results are recorded in the ledger.
