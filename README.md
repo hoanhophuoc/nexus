@@ -68,8 +68,8 @@ Sonar/SBOM configuration.
 | --- | --- | --- |
 | Java | **27** | Language and runtime (Gradle toolchain) |
 | Gradle | **9.9.1** | Build and packaging (wrapper) |
-| Spring Boot | **4.1.2** | Server, WebMVC, WebSocket, Security, Actuator |
-| JavaFX | **27.0.1** | Desktop clients |
+| Spring Boot | **4.2.0-RC2** | Server, WebMVC, WebSocket, Security, Actuator |
+| JavaFX | **28-ea+12** | Desktop clients |
 | PostgreSQL | **18** | Primary store, `chat_v1` schema managed by Flyway **13.12.1** |
 | Redis | **8.10** | Presence, rate limits, realtime fan-out |
 | Jackson | **3.3.0** | JSON on both sides of the API |

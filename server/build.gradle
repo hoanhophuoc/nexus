@@ -43,12 +43,12 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     implementation 'org.springframework.boot:spring-boot-starter-websocket'
-    // Flyway 13.12.1 is the newest release; the Boot 4.1.2 BOM still manages 12.4.0.
+    // Flyway 13.12.1 is the newest release; the Boot 4.2.0-RC2 BOM still manages 12.11.0.
     implementation 'org.flywaydb:flyway-core:13.12.1'
     implementation 'org.flywaydb:flyway-database-postgresql:13.12.1'
-    // Newest Jackson 3 release; the Boot 4.1.2 BOM still manages 3.1.7.
+    // Newest Jackson 3 release; the Boot BOM manages an older line.
     implementation 'tools.jackson.core:jackson-databind:3.3.0'
-    // Newest Lettuce release; the Boot 4.1.2 BOM still manages 7.5.2.
+    // Newest Lettuce release; the Boot 4.2.0-RC2 BOM still manages 7.8.0.
     implementation 'io.lettuce:lettuce-core:8.0.0.BETA1'
     implementation 'com.password4j:password4j:1.8.4'
     // Newest SLF4J release; the Boot BOM manages the 2.0.x line.
