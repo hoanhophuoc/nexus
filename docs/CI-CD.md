@@ -1,6 +1,6 @@
 # CI/CD and Quality Pipeline
 
-This project builds with **JDK 27**, **Gradle 9.9.1**, **JavaFX 28-ea+12**, **JUnit Jupiter 6.1.3** and **PostgreSQL 18**. The pipeline uses GitHub Actions and SonarQube Cloud; it never downgrades the Java/JavaFX runtime.
+This project builds with **JDK 27**, **Gradle 9.9.1**, **JavaFX 27.0.1**, **JUnit Jupiter 6.1.3** and **PostgreSQL 18**. The pipeline uses GitHub Actions and SonarQube Cloud; it never downgrades the Java/JavaFX runtime.
 
 ## Workflow architecture
 
@@ -85,7 +85,7 @@ The harness does not replace a multi-host soak: k6 and the server share one mach
 | Suite | Module | Tests | What it covers |
 | --- | --- | --- | --- |
 | `test` | `server` | 44 | Identity and profile validation, security filters, session and reset rules, admin authorization, group roles, MLS routing, authenticated WebSocket handling |
-| `integrationTest` | `server` | 25 | Flyway migrations from an empty schema, PostgreSQL constraints and transactions, REST auth and CSRF, Redis rate limits and distributed presence |
+| `integrationTest` | `server` | 26 | Flyway migrations from an empty schema, PostgreSQL constraints and transactions, REST auth and CSRF, Redis rate limits and distributed presence, the cost of deleting an account |
 | `test` | `desktop-shared` | 29 | Encrypted cache and key derivation, history sync, MLS crypto and state store, theme contrast |
 | `test` / `fxTest` | `desktop-user` | 4 / 21 | Bundle parity, FXML loading, account and social flows, MLS group chat, goldens, rendered-control contrast |
 | `test` / `fxTest` | `desktop-admin` | 3 / 6 | Resource and design contract, admin flows against a loopback server, goldens |
@@ -108,7 +108,7 @@ Current audit run (JaCoCo 0.8.16, `./gradlew coverageReport`, 2026-11-11) over `
 | `com.haichutieu.chatsystem.desktop.shared.ui` | 0% | 0% |
 | **Bundle** | **75.0%** | **52.3%** |
 
-In the legacy root project — which the gate no longer measures — the UI controllers, the client business controllers, and the remaining large command-switch branches in `SocketServer` are the main uncovered areas. `coverageVerification` now measures the rewritten modules (`:server` plus `:desktop-shared`, using unit and PostgreSQL/Redis integration execution data) and enforces their measured baseline: 74% line / 51% branch for the bundle, plus per-package floors for identity, social, messaging, groups, administration and the shared MLS, cache and messaging packages. The legacy 19%/13% floors above are gone, so coverage of the rewritten code cannot silently regress; `fullTest` depends on the gate. `./gradlew coverageReport` renders the same scope as HTML and XML at `build/reports/jacoco/coverageReport/`. The gate deliberately uses only unit + integration execution data so the Linux CI build job does not depend on a display. These are regression floors, **not** the desired end state. The aspirational targets remain: authentication/security 90%, business services 85%, persistence 80%, socket protocol/networking 80%, configuration/utilities 85%, JavaFX controllers 70%, overall 75-80%. The current gap is dominated by JavaFX/client controller coverage, which needs toolkit-level interaction tests rather than more DAL tests. SonarQube Cloud's **new code** quality gate remains the pull-request gate. The reports are at `build/reports/jacoco/test/jacocoTestReport.xml` and `build/reports/jacoco/test/html/index.html`.
+`coverageVerification` measures only the rewritten modules (`:server` plus `:desktop-shared`, using unit and PostgreSQL/Redis integration execution data) and enforces their measured baseline: 74% line / 51% branch for the bundle, plus per-package floors for identity, social, messaging, groups, administration and the shared MLS, cache and messaging packages. The legacy 19%/13% floors above are gone, so coverage of the rewritten code cannot silently regress; `fullTest` depends on the gate. `./gradlew coverageReport` renders the same scope as HTML and XML at `build/reports/jacoco/coverageReport/`. The gate deliberately uses only unit + integration execution data so the Linux CI build job does not depend on a display. These are regression floors, **not** the desired end state. The aspirational targets remain: authentication/security 90%, business services 85%, persistence 80%, socket protocol/networking 80%, configuration/utilities 85%, JavaFX controllers 70%, overall 75-80%. The current gap is dominated by JavaFX/client controller coverage, which needs toolkit-level interaction tests rather than more DAL tests. SonarQube Cloud's **new code** quality gate remains the pull-request gate. The reports are at `build/reports/jacoco/test/jacocoTestReport.xml` and `build/reports/jacoco/test/html/index.html`.
 
 ### Known coverage gaps
 
@@ -214,12 +214,13 @@ These cannot be set from files:
 
 | Check | Result |
 | --- | --- |
-| `./gradlew test` | Passed, 21 tests |
-| `./gradlew integrationTest` | Passed, 35 tests (PostgreSQL 18 + real TCP + GreenMail); repeated 3x without failure |
-| `./gradlew fxTest` | Passed, 6 tests |
-| `./gradlew jacocoTestReport` | Passed; XML + HTML generated |
+| `./gradlew :server:test` | Passed, 44 tests |
+| `./gradlew :server:integrationTest` | Passed, 26 tests (PostgreSQL 18 + Redis via Testcontainers) |
+| `./gradlew :desktop-shared:test` | Passed, 29 tests |
+| `./gradlew fxTest` | Passed, 27 tests (3 skipped in `desktop-user`, 1 in `desktop-admin`) |
+| `./gradlew coverageReport` | Passed; XML + HTML generated |
 | `./gradlew coverageVerification` | Passed; baseline thresholds enforced (verified the DAL rule fails when raised) |
-| `./gradlew fullTest` | Passed, 62 tests (unit + integration + JavaFX) and coverage gate |
+| `./gradlew fullTest` | Passed, 133 tests across 7 suites (4 skipped by design) plus the coverage gate, on the GA-only stack (Spring Boot 4.1.2, JavaFX 27.0.1) |
 | `./gradlew check` | Passed; standard lifecycle runs unit tests (integration/FX remain separate tasks) |
 | `./gradlew architectureTest` | Not a Gradle task; architecture rules run as 4 `ArchitectureTest` cases inside `test` |
 | `./gradlew cyclonedxBom` | Passed; `build/reports/cyclonedx/bom.json` |

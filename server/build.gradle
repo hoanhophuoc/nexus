@@ -1,7 +1,7 @@
 plugins {
     id 'java'
     id 'jacoco'
-    id 'org.springframework.boot' version '4.2.0-RC2'
+    id 'org.springframework.boot' version '4.1.2'
 }
 
 group = 'com.haichutieu.chatsystem'
@@ -32,7 +32,7 @@ configurations {
 }
 
 dependencies {
-    implementation platform('org.springframework.boot:spring-boot-dependencies:4.2.0-RC2')
+    implementation platform('org.springframework.boot:spring-boot-dependencies:4.1.2')
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'io.micrometer:micrometer-registry-prometheus'
     implementation 'org.springframework.boot:spring-boot-starter-flyway'
@@ -43,16 +43,16 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     implementation 'org.springframework.boot:spring-boot-starter-websocket'
-    // Flyway 13.12.1 is the newest release; the Boot 4.2.0-RC2 BOM still manages 12.11.0.
+    // Flyway 13.12.1 is the newest release; the Boot 4.1.2 BOM still manages the 12.x line.
     implementation 'org.flywaydb:flyway-core:13.12.1'
     implementation 'org.flywaydb:flyway-database-postgresql:13.12.1'
     // Newest Jackson 3 release; the Boot BOM manages an older line.
     implementation 'tools.jackson.core:jackson-databind:3.3.0'
-    // Newest Lettuce release; the Boot 4.2.0-RC2 BOM still manages 7.8.0.
-    implementation 'io.lettuce:lettuce-core:8.0.0.BETA1'
+    // Newest Lettuce release; the Boot 4.1.2 BOM still manages 7.8.0.RELEASE.
+    implementation 'io.lettuce:lettuce-core:7.9.0.RELEASE'
     implementation 'com.password4j:password4j:1.8.4'
     // Newest SLF4J release; the Boot BOM manages the 2.0.x line.
-    implementation 'org.slf4j:slf4j-api:2.1.0-alpha1'
+    implementation 'org.slf4j:slf4j-api:2.0.20'
     runtimeOnly 'org.postgresql:postgresql'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
