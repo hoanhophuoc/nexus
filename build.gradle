@@ -88,8 +88,8 @@ dependencies {
     testImplementation 'com.tngtech.archunit:archunit-junit5:1.5.1'
 
     // Real PostgreSQL 18 for persistence and socket integration tests.
-    integrationTestImplementation 'org.testcontainers:testcontainers:1.21.4'
-    integrationTestImplementation 'org.testcontainers:postgresql:1.21.4'
+    integrationTestImplementation 'org.testcontainers:testcontainers:2.0.5'
+    integrationTestImplementation 'org.testcontainers:testcontainers-postgresql:2.0.5'
     integrationTestImplementation 'org.awaitility:awaitility:4.3.0'
     integrationTestImplementation 'com.icegreen:greenmail:2.1.15'
 
@@ -111,7 +111,7 @@ dependencies {
     implementation 'org.slf4j:slf4j-api:2.0.20'
     runtimeOnly 'org.slf4j:slf4j-simple:2.0.20'
 
-    implementation 'tools.jackson.core:jackson-databind:3.2.4' // json mapper
+    implementation 'tools.jackson.core:jackson-databind:3.3.0' // json mapper
 
     // password reset mail
     implementation 'jakarta.mail:jakarta.mail-api:2.1.5'

@@ -19,7 +19,7 @@ javafx {
 
 dependencies {
     api project(':client-sdk')
-    implementation 'tools.jackson.core:jackson-databind:3.2.4'
+    implementation 'tools.jackson.core:jackson-databind:3.3.0'
     implementation 'org.bouncycastle:bcmls-jdk18on:1.86'
     implementation 'org.bouncycastle:bcprov-jdk18on:1.86'
     testImplementation 'org.junit.jupiter:junit-jupiter:6.1.3'

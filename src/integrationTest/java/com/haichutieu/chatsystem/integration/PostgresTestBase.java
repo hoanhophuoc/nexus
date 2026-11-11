@@ -6,7 +6,7 @@ import com.haichutieu.chatsystem.server.dal.CustomerService;
 import com.haichutieu.chatsystem.server.dal.HibernateUtil;
 import com.haichutieu.chatsystem.util.PasswordUtil;
 import org.junit.jupiter.api.BeforeEach;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import java.sql.Connection;
@@ -24,8 +24,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 public abstract class PostgresTestBase {
 
-    protected static final PostgreSQLContainer<?> POSTGRES =
-            new PostgreSQLContainer<>(DockerImageName.parse("postgres:18-alpine"))
+    protected static final PostgreSQLContainer POSTGRES =
+            new PostgreSQLContainer(DockerImageName.parse("postgres:18-alpine"))
                     .withDatabaseName("chat_test")
                     .withUsername("chat")
                     .withPassword("chat");
