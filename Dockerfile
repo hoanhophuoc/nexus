@@ -24,4 +24,12 @@ WORKDIR /app
 COPY --from=build --chown=chatsystem:chatsystem /workspace/server/build/libs/chat-server.jar ./chat-server.jar
 USER chatsystem
 EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "/app/chat-server.jar"]
+# Heap from the container limit, fail fast on OOM, keep a rolling GC log. JFR is opt-in:
+#   docker run -e JAVA_TOOL_OPTIONS='-XX:StartFlightRecording=filename=/tmp/app.jfr,settings=profile' ...
+ENTRYPOINT ["java", \
+    "-XX:MaxRAMPercentage=70", \
+    "-XX:+ExitOnOutOfMemoryError", \
+    "-XX:+HeapDumpOnOutOfMemoryError", \
+    "-XX:HeapDumpPath=/tmp", \
+    "-Xlog:gc*:file=/tmp/gc.log:time,uptime,level,tags:filecount=3,filesize=10M", \
+    "-jar", "/app/chat-server.jar"]

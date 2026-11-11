@@ -1,0 +1,134 @@
+name: chat-system-perf
+
+# Isolated performance stack. Host ports are offset so it can run beside the
+# development Compose stack.
+#
+#   docker compose -f docker-compose.perf.yml up -d db redis server prometheus
+#   docker compose -f docker-compose.perf.yml exec -T db psql -U chat -d chat_system \
+#       -v users=200 -f /dev/stdin < perf/seed.sql
+#   docker compose -f docker-compose.perf.yml run --rm -e SESSIONS=200 -e RATE=20 \
+#       -e HOLD=30s -e USERS=200 k6
+#
+# The server records a JFR profile to build/perf/app.jfr for offline analysis.
+
+services:
+  db:
+    image: postgres:18-alpine
+    command:
+      - postgres
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - work_mem=16MB
+      - -c
+      - max_connections=300
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - pg_stat_statements.track=all
+      - -c
+      - log_min_duration_statement=200
+    environment:
+      POSTGRES_DB: chat_system
+      POSTGRES_USER: chat
+      POSTGRES_PASSWORD: chat
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    ports:
+      - '127.0.0.1:15432:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U chat -d chat_system']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:8.10-alpine
+    command: ['redis-server', '--save', '', '--appendonly', 'no', '--requirepass', 'perf-redis']
+    healthcheck:
+      test: ['CMD-SHELL', 'REDISCLI_AUTH=perf-redis redis-cli ping | grep -q PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      CHAT_DB_URL: jdbc:postgresql://db:5432/chat_system
+      CHAT_DB_USER: chat
+      CHAT_DB_PASSWORD: chat
+      CHAT_DB_POOL_SIZE: '64'
+      CHAT_REDIS_HOST: redis
+      CHAT_REDIS_PORT: '6379'
+      CHAT_REDIS_PASSWORD: perf-redis
+      CHAT_SECURE_COOKIE: 'false'
+      CHAT_PRESENCE_HEARTBEAT_MS: ${CHAT_PRESENCE_HEARTBEAT_MS:-30000}
+      CHAT_PRESENCE_TTL_SECONDS: ${CHAT_PRESENCE_TTL_SECONDS:-90}
+      CHAT_MAIL_HEALTH_ENABLED: 'false'
+      CHAT_SERVER_HOST: 0.0.0.0
+      CHAT_SERVER_PORT: '8080'
+      # Opt-in JFR: low overhead, dumped on exit for JMC / `jfr view`.
+      JAVA_TOOL_OPTIONS: >-
+        -XX:StartFlightRecording=filename=/perf/app.jfr,settings=profile,dumponexit=true
+    # Run as the invoking user so the JFR recording can be written to ./build/perf.
+    user: '${PERF_UID:-1000}:${PERF_GID:-1000}'
+    volumes:
+      - ./build/perf:/perf
+      # The runtime image is a JRE and has no jcmd; mounting a host JDK read-only makes
+      # on-demand heap dumps possible: docker compose exec -T server /opt/jdk/bin/jcmd 1 GC.heap_dump /perf/x.hprof
+      - ${PERF_JDK_HOME:-/usr/lib/jvm/default-java}:/opt/jdk:ro
+    mem_limit: 3g
+    ports:
+      - '127.0.0.1:18080:8080'
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'curl', '--fail', '--silent', 'http://127.0.0.1:8080/actuator/health']
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 20s
+
+  prometheus:
+    image: prom/prometheus:latest
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - ./perf/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - '127.0.0.1:19090:9090'
+    depends_on:
+      server:
+        condition: service_healthy
+
+  k6:
+    image: grafana/k6:latest
+    profiles: ['load']
+    command: ['run', '/perf/k6/chat-load.js']
+    environment:
+      BASE_URL: http://server:8080
+      WS_URL: ws://server:8080
+      SESSIONS: ${SESSIONS:-10000}
+      USERS: ${USERS:-10000}
+      RATE: ${RATE:-100}
+      # Warm-up traffic at RATE so the measured plateau excludes JIT/class-loading cost.
+      WARMUP: ${WARMUP:-60s}
+      HOLD: ${HOLD:-60s}
+      MSG_BYTES: ${MSG_BYTES:-80}
+    volumes:
+      - ./perf:/perf:ro
+    depends_on:
+      server:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  prometheus-data:
