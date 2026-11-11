@@ -8,7 +8,7 @@ Goal: Replace the current chat system with a production-grade, user-oriented, ac
 
 Architecture: A Spring Boot modular monolith will serve versioned REST operations and secure WebSocket events. Separate JavaFX user and admin apps will use generated API contracts; PostgreSQL stores application data, while Redis supports distributed presence and event fan-out. Group messages use MLS-style end-to-end encryption on Bouncy Castle primitives; RFC 9420 conformance is an open release blocker, so docs and UI must not claim RFC 9420. Message search runs against a locally encrypted history index.
 
-Tech Stack: Java 27, Gradle 9.9.1, JavaFX 27, Spring Boot 4.1.2, PostgreSQL 18, Redis 8.10, Flyway 13.12.1, Spring Security, Bouncy Castle MLS, JUnit Jupiter, Testcontainers, JavaFX UI tests, JaCoCo, GitHub Actions. Performance tooling: JFR/JDK Mission Control, async-profiler, JMH, k6, JMeter, OWASP ZAP, Eclipse MAT, Toxiproxy, Micrometer/Prometheus/Grafana (Task 9).
+Tech Stack: Java 27, Gradle 9.9.1, JavaFX 28-ea, Spring Boot 4.2.0-RC2, PostgreSQL 18, Redis 8.10, Flyway 13.12.1, Spring Security, Bouncy Castle MLS, JUnit Jupiter, Testcontainers, JavaFX UI tests, JaCoCo, GitHub Actions. Performance tooling: JFR/JDK Mission Control, async-profiler, JMH, k6, JMeter, OWASP ZAP, Eclipse MAT, Toxiproxy, Micrometer/Prometheus/Grafana (Task 9).
 
 Spec: Project.pdf plus the approved design decisions in this conversation.
 
@@ -27,7 +27,7 @@ Spec: Project.pdf plus the approved design decisions in this conversation.
 
 ## Version Currency Policy
 
-Every dependency, Gradle plugin, GitHub Action and container image uses the **newest published release**; long-term support is not a selection criterion. The single exception is pre-releases: when a GA release exists, do not adopt alpha/beta/RC/milestone builds. On 2026-11-10 that excludes Spring Boot 4.2.0-RC2, AssertJ 4.0.0-M1, SLF4J 2.1.0-alpha1 and JavaFX 28-ea; they are adopted only once they reach GA.
+Every dependency, Gradle plugin, GitHub Action and container image uses the **newest published release**, including pre-releases; long-term support is not a selection criterion. The owner asked on 2026-11-11 to stop excluding alpha/beta/RC/milestone builds, so Spring Boot 4.2.0-RC2, AssertJ 4.0.0-M1, SLF4J 2.1.0-alpha1, Lettuce 8.0.0.BETA1 and JavaFX 28-ea are in use. Each pre-release must pass `fullTest` on its own before it is kept, and the upgrade is re-checked at GA.
 
 Verified against `repo1.maven.org` metadata, the Gradle Plugin Portal and Docker Hub on 2026-11-10:
 
@@ -35,19 +35,19 @@ Verified against `repo1.maven.org` metadata, the Gradle Plugin Portal and Docker
 | --- | --- | --- | --- |
 | Java | 27.0.1 | 27.0.1 | current |
 | Gradle | 9.9.1 | 9.9.1 | current (wrapper and SHA-256 updated 2026-11-11) |
-| Spring Boot | 4.1.2 | 4.1.2 | current; 4.2.0-RC2 is a pre-release |
-| JavaFX | 27.0.1 | 27.0.1 | current |
+| Spring Boot | 4.2.0-RC2 | 4.2.0-RC2 | newest published build; gated by `fullTest` |
+| JavaFX | 28-ea+12 | 28-ea+12 | newest published build |
 | Testcontainers | 2.0.5 | 2.0.5 | current; artifacts are `testcontainers-postgresql` and `testcontainers-junit-jupiter`, `PostgreSQLContainer` moved to `org.testcontainers.postgresql` |
 | Jackson | 3.3.0 | 3.3.0 | current; also declared in `server` because the Boot BOM still manages 3.1.7 |
 | Flyway | 13.12.1 | 13.12.1 | current; declared explicitly because the Boot 4.1.2 BOM still manages 12.4.0 |
-| Lettuce | 7.9.0.RELEASE | 7.9.0.RELEASE | current; declared in `server` because the Boot 4.1.2 BOM still manages 7.5.2 (8.0.0.BETA1 is a pre-release) |
+| Lettuce | 8.0.0.BETA1 | 8.0.0.BETA1 | newest published build; declared in `server` because the Boot 4.2.0-RC2 BOM still manages 7.8.0 |
 | HikariCP | 7.1.0 | 7.1.0 | current (Boot manages 7.0.2) |
 | PostgreSQL driver | 42.7.14 | 42.7.14 | current |
 | JUnit Jupiter | 6.1.3 | 6.1.3 | current |
-| ArchUnit / AssertJ / awaitility / GreenMail | 1.5.1 / 3.27.7 / 4.3.0 / 2.1.15 | same | current |
+| ArchUnit / AssertJ / awaitility / GreenMail | 1.5.1 / 4.0.0-M1 / 4.3.0 / 2.1.15 | same | current; AssertJ is the newest published build |
 | Bouncy Castle (`bcmls-jdk18on`, `bcprov-jdk18on`) | 1.86 | 1.86 | current |
 | OpenAPI Generator | 7.27.0 | 7.27.0 | current |
-| SLF4J | 2.0.20 | 2.0.20 | current; 2.1.0-alpha1 is a pre-release |
+| SLF4J | 2.1.0-alpha1 | 2.1.0-alpha1 | newest published build; declared in `server` |
 | Gradle plugins (sonarqube, cyclonedx, javafx, foojay, extra-java-module-info) | 7.5.0.8588, 3.5.1, 0.1.0, 1.0.0, 1.14.2 | same | current |
 | Redis image | `redis:8.10-alpine` | `redis:8.10-alpine` | current |
 | Gradle build image | `gradle:9.8.2-jdk27` | `gradle:9.8.2-jdk27` | newest published image; `./gradlew` runs Gradle 9.9.1 inside it |

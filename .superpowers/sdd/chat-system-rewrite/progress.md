@@ -136,6 +136,20 @@
 
 ## Verification log (newest first)
 
+- **2026-11-11 (pre-release adoption: Boot 4.2.0-RC2, JavaFX 28-ea, AssertJ 4.0.0-M1, SLF4J 2.1.0-alpha1, Lettuce 8.0.0.BETA1).**
+  - The owner asked to try the newest published builds without the GA-only restriction. Each
+    pre-release was applied on its own and gated by `xvfb-run -a ./gradlew fullTest`; all five
+    passed and each is its own commit (`e8961cc`, `b68b9bd`, `7e3dc3e`, `2f663b7`, `1404616`).
+  - Versions were verified from the resolved graph, not from the build result: the jar manifest
+    reports `Spring-Boot-Version: 4.2.0-RC2`, `lettuce-core:8.0.0.BETA1` overrides the BOM's
+    7.8.0, `slf4j-api:2.1.0-alpha1` wins over every 2.0.x pin, `flyway-core:13.12.1` still
+    overrides the BOM's 12.11.0, `assertj-core:4.0.0-M1`, and both app inputs carry
+    `javafx-*-28-ea+12-linux.jar`.
+  - `:server:bootJar` (49.1 MB) and `:desktop-user:packageClient` still build, and the packaged
+    apps start headless for 20 s.
+  - Risk carried by this choice: an RC/BETA/alpha can change or break before GA. Reverting is a
+    `git revert` of those five commits; nothing else in the tree depends on them.
+
 - **2026-11-11 (Gradle 9.9.1, setup-java v6.2.0, legacy monolith removed).**
   - Wrapper moved to **Gradle 9.9.1** with the published SHA-256
     (`d8a18a7a841dd5df825d35a685fad6f2d7f12ac0c280e57b67c27b4a520ba228`), produced by the

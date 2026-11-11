@@ -1,6 +1,6 @@
 # CI/CD and Quality Pipeline
 
-This project builds with **JDK 27**, **Gradle 9.9.1**, **JavaFX 27.0.1**, **JUnit Jupiter 6.1.3** and **PostgreSQL 18**. The pipeline uses GitHub Actions and SonarQube Cloud; it never downgrades the Java/JavaFX runtime.
+This project builds with **JDK 27**, **Gradle 9.9.1**, **JavaFX 28-ea+12**, **JUnit Jupiter 6.1.3** and **PostgreSQL 18**. The pipeline uses GitHub Actions and SonarQube Cloud; it never downgrades the Java/JavaFX runtime.
 
 ## Workflow architecture
 
