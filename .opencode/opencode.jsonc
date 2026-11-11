@@ -1,0 +1,24 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  // Spring Tools language server as an MCP server, scoped to the Spring Boot
+  // module. The repo root is a plain JavaFX Gradle build, so the language server
+  // must start in server/ to see the Spring project. It holds a JVM and resolves
+  // the Gradle model, so it is not loaded in other repos.
+  // server/gradlew and server/gradle are symlinks to the root wrapper: the server
+  // only uses a Gradle 9 wrapper when one exists in its project directory.
+  "mcp": {
+    "servers": {
+      "spring-tools": {
+        "type": "local",
+        "command": [
+          "node",
+          "/home/phuochoan/.local/share/spring-tools/plugin/claude-plugins/spring-tools/launcher.js"
+        ],
+        "cwd": "server",
+        "codemode": false,
+        "timeout": { "startup": 120000, "execution": 120000 }
+      }
+    }
+  }
+}
