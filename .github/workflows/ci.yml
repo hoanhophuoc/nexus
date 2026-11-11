@@ -38,6 +38,13 @@ jobs:
         with:
           validate-wrappers: true
 
+      # The release policy is GA only: a pre-release action pin, image tag or dependency fails here.
+      - name: Enforce GA-only versions
+        run: |
+          set -euo pipefail
+          ./scripts/check-ga-pins.sh
+          ./gradlew --no-daemon gaOnlyCheck
+
       # The root project holds no code, so every suite belongs to a module.
       - name: Compile, unit tests and integration tests
         run: >
