@@ -1,6 +1,6 @@
 # CI/CD and Quality Pipeline
 
-This project builds with **JDK 27**, **Gradle 9.8.2**, **JavaFX 27.0.1**, **JUnit Jupiter 6.1.3** and **PostgreSQL 18**. The pipeline uses GitHub Actions and SonarQube Cloud; it never downgrades the Java/JavaFX runtime.
+This project builds with **JDK 27**, **Gradle 9.9.0**, **JavaFX 27.0.1**, **JUnit Jupiter 6.1.3** and **PostgreSQL 18**. The pipeline uses GitHub Actions and SonarQube Cloud; it never downgrades the Java/JavaFX runtime.
 
 ## Workflow architecture
 
@@ -46,6 +46,24 @@ Regenerate `golden-ci/` only on the hosted runner with `GOLDEN_BASELINE=ci` and 
 
 The `Live user journey (isolated Docker)` job requires only Docker and network access. It runs `./scripts/live-journey.sh`, which builds its own server and test-runner images, starts throwaway PostgreSQL/Redis/server containers, provisions a temporary admin, runs `RealServerUserJourneyFxTest` headlessly, and removes the temporary stack. It does not use the Compose stack or an Xvfb display, and the job fails if any `chat-system-live-*` container, network or volume remains afterwards.
 
+## Performance harness
+
+`docker-compose.perf.yml` is an isolated stack (offset host ports 15432/18080/19090) with a tuned PostgreSQL, Redis 8.10, the server under a memory limit, Prometheus scraping `/actuator/prometheus` every 5 s, and a k6 runner behind the `load` profile. The server writes a JFR recording to `build/perf/app.jfr` on exit for JMC or `jfr view`.
+
+```bash
+mkdir -p build/perf
+docker compose -f docker-compose.perf.yml up -d db redis server prometheus
+docker compose -f docker-compose.perf.yml exec -T db psql -U chat -d chat_system \
+    -v users=10000 -f - < perf/seed.sql
+docker compose -f docker-compose.perf.yml run --rm \
+    -e SESSIONS=10000 -e USERS=10000 -e RATE=100 -e RAMP=60s -e WARMUP=60s -e HOLD=60s k6
+docker compose -f docker-compose.perf.yml down   # flushes build/perf/app.jfr
+```
+
+`perf/seed.sql` creates deterministic users, sessions, friendships and one direct conversation per pair, so k6 derives every identifier from an index and needs no fixture file. Sessions are seeded directly, so the run measures socket capacity, message persistence, outbox fan-out and delivery, not the Argon2id login path. `perf/k6/chat-load.js` ramps 0 → `SESSIONS` sockets, holds them, and sends `RATE` messages/second; delivery latency is measured on the receiving socket and fails the run when p95 ≥ 1 s or p99 ≥ 2 s. The run has three phases: `RAMP`, then `WARMUP` seconds of traffic at `RATE`, then the measured plateau of `HOLD` seconds. The warm-up exists because the first load on a fresh JVM pays class loading and JIT compilation: the same binary reported p99 590 ms without it and p99 148 ms on the next run. Warm-up deliveries are reported separately as `chat_delivery_warmup_ms`, so thresholds and the summary only cover the plateau; senders stamp the phase into the message content, so the receiving socket attributes each sample without a shared clock. Values used by the last measured baseline are in `.superpowers/sdd/chat-system-rewrite/progress.md`.
+
+The harness does not replace a multi-host soak: k6 and the server share one machine, there is no network latency injection, and the plateau is much shorter than the one-hour soak the release gate asks for.
+
 ## Test suites and coverage
 
 | Suite | Tests | What it covers |
@@ -66,7 +84,7 @@ Current audit run (JaCoCo 0.8.16; 35 integration tests, 62 tests overall):
 | `com.haichutieu.chatsystem.client` / `.client.bus` | 0% | 0% |
 | Overall | 22.0% | 16.2% |
 
-The UI controllers, the client business controllers, and the remaining large command-switch branches in `SocketServer` are the main uncovered areas. `coverageVerification` enforces the current measured core baseline (19% line/14% branch overall, 68%/60% DAL, 45%/40% server, 85%/80% util) so coverage cannot silently regress; `fullTest` depends on it. The gate deliberately uses only unit + integration execution data so the Linux CI build job does not depend on a display; the JaCoCo HTML report includes JavaFX data when `fxTest` has run. These are regression floors, **not** the desired end state. The aspirational targets remain: authentication/security 90%, business services 85%, persistence 80%, socket protocol/networking 80%, configuration/utilities 85%, JavaFX controllers 70%, overall 75-80%. The current gap is dominated by JavaFX/client controller coverage, which needs toolkit-level interaction tests rather than more DAL tests. SonarQube Cloud's **new code** quality gate remains the pull-request gate. The reports are at `build/reports/jacoco/test/jacocoTestReport.xml` and `build/reports/jacoco/test/html/index.html`.
+In the legacy root project — which the gate no longer measures — the UI controllers, the client business controllers, and the remaining large command-switch branches in `SocketServer` are the main uncovered areas. `coverageVerification` now measures the rewritten modules (`:server` plus `:desktop-shared`, using unit and PostgreSQL/Redis integration execution data) and enforces their measured baseline: 74% line / 51% branch for the bundle, plus per-package floors for identity, social, messaging, groups, administration and the shared MLS, cache and messaging packages. The legacy 19%/13% floors above are gone, so coverage of the rewritten code cannot silently regress; `fullTest` depends on the gate. `./gradlew coverageReport` renders the same scope as HTML and XML at `build/reports/jacoco/coverageReport/`. The gate deliberately uses only unit + integration execution data so the Linux CI build job does not depend on a display. These are regression floors, **not** the desired end state. The aspirational targets remain: authentication/security 90%, business services 85%, persistence 80%, socket protocol/networking 80%, configuration/utilities 85%, JavaFX controllers 70%, overall 75-80%. The current gap is dominated by JavaFX/client controller coverage, which needs toolkit-level interaction tests rather than more DAL tests. SonarQube Cloud's **new code** quality gate remains the pull-request gate. The reports are at `build/reports/jacoco/test/jacocoTestReport.xml` and `build/reports/jacoco/test/html/index.html`.
 
 ### Known coverage gaps
 
@@ -109,7 +127,7 @@ SonarSource's Java documentation states that LTS versions **8, 11, 17, 21, 25 an
 - **Dependabot** updates Gradle dependencies and GitHub Actions weekly in grouped PRs.
 - **Dependency Review** blocks pull requests that introduce high-severity vulnerable dependencies. On private repositories this requires GitHub Advanced Security; on public repositories it is available by default.
 - **CodeQL** scans Java on PRs, `main`, and a weekly schedule. It compiles production sources with `./gradlew compileJava` before analysis.
-- **Gradle wrapper integrity**: `gradle-wrapper.properties` contains the official SHA-256 of `gradle-9.8.2-bin.zip`, and `gradle/actions/setup-gradle` validates the wrapper.
+- **Gradle wrapper integrity**: `gradle-wrapper.properties` contains the official SHA-256 of `gradle-9.9.0-bin.zip`, and `gradle/actions/setup-gradle` validates the wrapper.
 - **SBOM**: CycloneDX JSON is generated at `build/reports/cyclonedx/bom.json` and published with each release.
 - **Secrets**: `SONAR_TOKEN` is the only required secret. Never add signing keys, database passwords or mail credentials to workflow files. Enable GitHub **Secret Scanning** and **Push Protection** in repository settings.
 - Code signing and macOS notarization are not configured. Installers produced by the release workflow are **unsigned** until signing secrets and steps are added.

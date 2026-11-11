@@ -2,7 +2,7 @@
 
 ## Stack
 - Java 27 via the Gradle toolchain; Gradle 9.8.x; JPMS (`system.chatsystem`).
-- Root modules: JavaFX 27.0.1 clients, Hibernate ORM 7.4.14 (Jakarta Persistence 3.2), Jackson 3.2.4, SLF4J 2.0, Password4j (Argon2id), JUnit Jupiter 6.1.
+- Root modules: JavaFX 27.0.1 clients, Hibernate ORM 7.4.14 (Jakarta Persistence 3.2), Jackson 3.3.0, SLF4J 2.0, Password4j (Argon2id), JUnit Jupiter 6.1.
 - `server` module: Spring Boot 4.1.2 — WebMVC, WebSocket, Security, Validation, Actuator, Flyway, JDBC, Data Redis, Mail, Testcontainers.
 - PostgreSQL 18 and Redis 7 via Docker Compose; the socket server uses one virtual thread per connection.
 
@@ -31,6 +31,7 @@
 
 ## Capabilities
 - Skills: `java-spring-service`, `postgres-data`, `container-images`, `mermaid-diagrams`, `systematic-debugging`.
-- Project MCP: none. `postgres-mcp` is unsatisfiable (`pglast==7.2.0`), `mcp-postgres` is broken on Node 26, and the HenkDz server exposes writes; do not retry them. Use `docker exec -i chat-system-db-1 psql -U chat -d chat_system`.
+- Project MCP: `spring-tools` (`.opencode/opencode.jsonc`), started in `server/` with the project name `server`; run `getProjectDiagnostics` before claiming Spring work is done. `server/gradlew` and `server/gradle` are symlinks to the root wrapper so the language server resolves the Gradle 9 model; they are local tooling, not repo code.
+- `postgres-mcp` is unsatisfiable (`pglast==7.2.0`), `mcp-postgres` is broken on Node 26, and the HenkDz server exposes writes; do not retry them. Use `docker exec -i chat-system-db-1 psql -U chat -d chat_system`.
 - Workstream notes: `.superpowers/sdd/chat-system-rewrite/progress.md`.
 - Both a plain Hibernate/JPA layer and a Spring Boot server exist; check which module you are in before applying patterns.

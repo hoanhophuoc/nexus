@@ -57,12 +57,12 @@ Welcome to the **Real-Time Chat System**! This project is a desktop-based chat a
 |---|---|---|
 | Java | **27** | Language/runtime (provisioned by the Gradle toolchain) |
 | JavaFX | **27.0.1** | Graphical user interface |
-| Gradle | **9.8.2** | Build, dependencies and packaging |
+| Gradle | **9.9.0** | Build, dependencies and packaging |
 | Hibernate ORM | **7.4.14.Final** | Persistence (Jakarta Persistence 3.2) |
 | PostgreSQL | **18** (Docker image) | Database |
 | PostgreSQL JDBC | **42.7.14** | Database driver |
 | HikariCP | **7.1.0** | Connection pool |
-| Jackson | **3.2.4** (`tools.jackson`) | JSON messages between client and server |
+| Jackson | **3.3.0** (`tools.jackson`) | JSON messages between client and server |
 | Jakarta Mail + Angus Mail | **2.1.5 / 2.0.5** | Password-reset email |
 | SLF4J | **2.0.20** | Logging |
 | JUnit Jupiter | **6.1.3** | Test framework |

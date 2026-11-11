@@ -8,13 +8,13 @@ Goal: Replace the current chat system with a production-grade, user-oriented, ac
 
 Architecture: A Spring Boot modular monolith will serve versioned REST operations and secure WebSocket events. Separate JavaFX user and admin apps will use generated API contracts; PostgreSQL stores application data, while Redis supports distributed presence and event fan-out. Group messages use MLS-style end-to-end encryption on Bouncy Castle primitives; RFC 9420 conformance is an open release blocker, so docs and UI must not claim RFC 9420. Message search runs against a locally encrypted history index.
 
-Tech Stack: Java 27, Gradle 9.8.2, JavaFX 27, Spring Boot 4.1.2, PostgreSQL 18, Redis, Flyway, Spring Security, Bouncy Castle MLS, JUnit Jupiter, Testcontainers, JavaFX UI tests, JaCoCo, GitHub Actions.
+Tech Stack: Java 27, Gradle 9.9.0, JavaFX 27, Spring Boot 4.1.2, PostgreSQL 18, Redis 8.10, Flyway 13.12.1, Spring Security, Bouncy Castle MLS, JUnit Jupiter, Testcontainers, JavaFX UI tests, JaCoCo, GitHub Actions. Performance tooling: JFR/JDK Mission Control, async-profiler, JMH, k6, JMeter, OWASP ZAP, Eclipse MAT, Toxiproxy, Micrometer/Prometheus/Grafana (Task 9).
 
 Spec: Project.pdf plus the approved design decisions in this conversation.
 
 ## Global Constraints
 
-- Java 27 is the selected baseline. It is compatible with Spring Boot 4.1.2, but it is a short-lived non-LTS release; Java 25 is the current LTS release. Treat the pinned versions as the approved baseline: do not upgrade dependencies ad hoc. Before release, run a version-currency review covering Java 27 versus Java 25 LTS, Spring Boot, JavaFX, Bouncy Castle and PostgreSQL patch levels, and record the decision.
+- Java 27 is the selected baseline and LTS status is not a selection criterion. Every dependency, Gradle plugin, GitHub Action and container image uses the newest published release under the Version Currency Policy below.
 - Keep the product within the declaration: no voice/video, mobile app, channels, or unrelated Telegram features.
 - Treat the existing schema as a clean cutover: create a new versioned schema and make no legacy-data compatibility promise. Back up the old database and leave it intact.
 - Protect the current modified and untracked workspace before implementation; inspect changes and preserve them in a checkpoint before replacing files.
@@ -24,6 +24,37 @@ Spec: Project.pdf plus the approved design decisions in this conversation.
 - Search all synchronized history locally using an encrypted index. The server must not receive plaintext search terms.
 - Admins may review only report metadata and message evidence explicitly selected and submitted by the reporting user.
 - Users can delete messages for themselves; only the sender can delete a message for everyone. Clearing history affects only the requesting user.
+
+## Version Currency Policy
+
+Every dependency, Gradle plugin, GitHub Action and container image uses the **newest published release**; long-term support is not a selection criterion. The single exception is pre-releases: when a GA release exists, do not adopt alpha/beta/RC/milestone builds. On 2026-11-10 that excludes Spring Boot 4.2.0-RC2, AssertJ 4.0.0-M1, SLF4J 2.1.0-alpha1 and JavaFX 28-ea; they are adopted only once they reach GA.
+
+Verified against `repo1.maven.org` metadata, the Gradle Plugin Portal and Docker Hub on 2026-11-10:
+
+| Component | Pinned now | Newest release | Action |
+| --- | --- | --- | --- |
+| Java | 27.0.1 | 27.0.1 | current |
+| Gradle | 9.9.0 | 9.9.0 | current (wrapper and SHA-256 updated 2026-11-10) |
+| Spring Boot | 4.1.2 | 4.1.2 | current; 4.2.0-RC2 is a pre-release |
+| JavaFX | 27.0.1 | 27.0.1 | current |
+| Testcontainers | 2.0.5 | 2.0.5 | current; artifacts are `testcontainers-postgresql` and `testcontainers-junit-jupiter`, `PostgreSQLContainer` moved to `org.testcontainers.postgresql` |
+| Jackson | 3.3.0 | 3.3.0 | current; also declared in `server` because the Boot BOM still manages 3.1.7 |
+| Flyway | 13.12.1 | 13.12.1 | current; declared explicitly because the Boot 4.1.2 BOM still manages 12.4.0 |
+| Lettuce | 7.9.0.RELEASE | 7.9.0.RELEASE | current; declared in `server` because the Boot 4.1.2 BOM still manages 7.5.2 (8.0.0.BETA1 is a pre-release) |
+| HikariCP | 7.1.0 | 7.1.0 | current (Boot manages 7.0.2) |
+| PostgreSQL driver | 42.7.14 | 42.7.14 | current |
+| JUnit Jupiter | 6.1.3 | 6.1.3 | current |
+| ArchUnit / AssertJ / awaitility / GreenMail | 1.5.1 / 3.27.7 / 4.3.0 / 2.1.15 | same | current |
+| Bouncy Castle (`bcmls-jdk18on`, `bcprov-jdk18on`) | 1.86 | 1.86 | current |
+| OpenAPI Generator | 7.27.0 | 7.27.0 | current |
+| SLF4J | 2.0.20 | 2.0.20 | current; 2.1.0-alpha1 is a pre-release |
+| Gradle plugins (sonarqube, cyclonedx, javafx, foojay, extra-java-module-info) | 7.5.0.8588, 3.5.1, 0.1.0, 1.0.0, 1.14.2 | same | current |
+| Redis image | `redis:8.10-alpine` | `redis:8.10-alpine` | current |
+| Gradle build image | `gradle:9.8.2-jdk27` | `gradle:9.8.2-jdk27` | newest published image; `./gradlew` runs Gradle 9.9.0 inside it |
+
+Process: Dependabot keeps its weekly grouped updates; each release cycle re-checks every row against live registry metadata and records the resulting pin or upgrade in the ledger. A version change is accepted only after `fullTest` passes.
+
+Upgrade log: on 2026-11-10 every trailing pin was moved to the newest release — Gradle 9.9.0 (wrapper SHA-256 updated), Testcontainers 2.0.5 with the renamed `testcontainers-postgresql` / `testcontainers-junit-jupiter` artifacts and the `org.testcontainers.postgresql` import, Jackson 3.3.0, Flyway 13.12.1 and Lettuce 7.9.0.RELEASE declared explicitly, `redis:8.10-alpine` and `gradle:9.9.0-jdk27` in the Compose stack, Dockerfile, live-journey scripts and integration tests. Verified 2026-11-10: `fullTest` under Xvfb is green for every suite except two assertions in the pre-existing untracked contrast test (see the ledger entry); Flyway 13.12.1 resolves and the 25 server integration tests pass against PostgreSQL 18, Redis 8.10 and Testcontainers 2.0.5.
 
 ## Review Focus
 
@@ -155,6 +186,14 @@ Acceptance: every Project.pdf user and admin flow is reachable and covered by a 
 - [x] Automated WCAG 2.2 AA audit of both desktop apps covers light/dark text contrast (4.5:1), non-text boundaries and focus indicators (3:1), 24x24 minimum targets with visible focus on shared controls, accessible names on user/admin inputs, lists, tables and charts, and focus restoration for shared/admin confirmation dialogs. `ThemeContrastTest`, `DesignSystemFxTest`, `UserAccountFlowFxTest`, `AdminDesignSystemFxTest` and `AdminInteractionFxTest` assert these behaviours.
 - [ ] Frontend Quality Bar remains open for: manual screen-reader validation on Windows/macOS and best-effort Linux, end-to-end keyboard-only review, startup/interaction/10,000-message scroll performance budgets, and cross-platform packaging/signing.
 
+**Status (2026-11-10) — non-functional evidence:**
+
+- [ ] No JFR/Mission Control, async-profiler, JMH, Micrometer/Prometheus/Grafana, k6, JMeter, ZAP, Toxiproxy or Eclipse MAT usage exists in the repository. Task 9 defines the programme; none of its measurements has been taken.
+- [ ] Actuator exposes `health` only and the container starts the JVM with no tuning, GC-log, heap-dump or JFR flags.
+- [ ] No load-test source or performance baseline exists, so the 10,000-session / 100 msg/s / p95 < 1 s target is unproven. Phase 5 performance is "not measured".
+- [ ] Three ceilings found by inspection: `OutboxPublisher` does three statements plus one Redis publish per event inside a transaction holding `FOR UPDATE SKIP LOCKED` rows on a 100 ms poll; Tomcat's default `max-connections` is 8192; Hikari's default pool is 10.
+- [x] Version currency: every row of the Version Currency Policy table is on the newest release as of 2026-11-10; see the upgrade log there.
+
 ### Task 8: Harden CI/CD and release readiness
 
 - Adapt the existing GitHub Actions, CodeQL, Dependency Review, Dependabot, Sonar, SBOM, and release workflows; retain least-privilege permissions and pinned actions rather than duplicating them.
@@ -165,8 +204,65 @@ Acceptance: every Project.pdf user and admin flow is reachable and covered by a 
 
 - Gate frontend quality in CI: both `fxTest` suites, golden screenshots of core screens in light and dark, accessibility assertions (names, roles, focus, contrast), the hardcoded-string check, and startup/interaction/scroll benchmark trends.
 - Fail the release when a core screen lacks loading/empty/error/offline coverage, when a theme snapshot regresses beyond the reviewed tolerance, or when a performance budget regresses by more than 10%.
+- Add a nightly `performance` workflow (not run on every pull request): start `docker-compose.perf.yml`, run the k6 smoke scenario at 1,000 sessions, store the JFR recording, k6 summary, JMH JSON and MAT report as artifacts, and compare every budget against the recorded baseline.
+- Block a release when no measured performance baseline exists for the tagged commit.
 
 Acceptance: A tagged release can be built reproducibly for all supported desktop platforms and the server container; CI fails on contract breakage, security findings above the agreed gate, failed recovery/load tests, a failed frontend quality gate, or missing release artifacts.
+
+### Task 9: Measure and tune performance and non-functional behaviour
+
+Rationale: the 10,000-session / 100 msg/s target, the p95 delivery budget, the JavaFX startup/scroll budgets and the idle-heap limit currently have no measurement, and three configuration defaults already cap the server below the stated targets. This task adds the measurement programme, fixes the bottlenecks visible in the code, and turns every budget into a number recorded in the ledger.
+
+Instrumentation and tuning with Java-platform tools:
+
+- **JFR + JDK Mission Control 9** — continuous low-overhead recording in staging and on demand: `-XX:StartFlightRecording=filename=...,settings=profile,dumponexit=true`, `jcmd <pid> JFR.start|JFR.dump`, `jfr view`/`jfr print`. Answers CPU, allocation, lock, GC and socket hot spots over time and across restarts.
+- **async-profiler 4.x** — CPU, allocation, lock and wall-clock flamegraphs, including wall mode for I/O-bound and JavaFX threads; emits JFR; differential flamegraphs before and after each fix.
+- **JMH 1.3x** with `-prof gc,perfasm,stack` — microbenchmarks for the WebSocket frame codec, message-envelope JSON, cursor pagination mapping, MLS AES-GCM seal/open and commit handling, Argon2id login cost and JavaFX cell rendering.
+- **JDK diagnostics** — `jcmd GC.class_histogram`, `jcmd Thread.print`, `jcmd VM.native_memory summary`, `jcmd Compiler.perfmap` with Linux `perf`, `-Xlog:gc*`, `-XX:+HeapDumpOnOutOfMemoryError`.
+- **Eclipse MAT** — leak suspects and dominator tree from heap dumps after the one-hour soak and after a 10,000-message conversation in the client.
+
+Load and fault injection:
+
+- **k6** — WebSocket target: ramp to 10,000 sessions, steady 100 msg/s, spike, reconnect storm, 30-minute hold and one-hour soak, with thresholds that fail the run on p95/p99, error rate or any connection failure after ramp.
+- **JMeter** — REST matrix driven by CSV users with the HTML dashboard: history paging, login, admin queries, per-endpoint throughput and latency.
+- **Toxiproxy** (Testcontainers module) — latency, partition, duplicate and reset faults; asserts reconnect with cursor resync and no lost or duplicated message.
+- **PostgreSQL** — `pg_stat_statements`, `auto_explain`, `EXPLAIN (ANALYZE, BUFFERS)` and `pgbench`; no sequential scan on a hot path, plus index and bloat review.
+- **Redis** — `redis-benchmark` on the fan-out channel, `SLOWLOG GET`, `LATENCY DOCTOR`, `INFO commandstats` and `INFO memory`.
+
+Observability:
+
+- **Micrometer + Prometheus + Grafana** — add `micrometer-registry-prometheus` and expose `health,info,metrics,prometheus` (heap and thread dumps stay off the public surface). Meters: outbox lag and pending rows, WebSocket session count, publish latency, Hikari pool usage, Redis listener lag and GC pause time. Grafana dashboards ship in `docker-compose.perf.yml`.
+
+Fixes required before measuring:
+
+1. `OutboxPublisher` issues one target query, one Redis publish and one UPDATE per event, all inside a single transaction holding `FOR UPDATE SKIP LOCKED` rows, polled every 100 ms. Batch the target lookup with `conversation_id = ANY(?)`, batch `UPDATE ... WHERE event_id = ANY(?)`, pipeline the Redis publishes, publish outside the lock window and wake the worker with `LISTEN/NOTIFY`.
+2. Tomcat's default `max-connections` is 8192, below the 10,000 target. Set `server.tomcat.max-connections`, `accept-count`, `threads.max` and `connection-timeout`, then prove them with k6.
+3. Hikari's default pool is 10. Size it from the CPU budget, set `connection-timeout`, `leak-detection-threshold` in staging and `reWriteBatchedInserts=true`.
+4. Enable `spring.threads.virtual.enabled=true` for the blocking JDBC and mail paths.
+5. Actuator exposes `health` only; add the Prometheus registry and the endpoint list above.
+6. The container declares no JVM flags. Add `-XX:MaxRAMPercentage`, `-XX:+ExitOnOutOfMemoryError`, heap-dump flags, `-Xlog:gc*` and an opt-in JFR recording. Choose G1 or ZGC from measurements, not by default.
+7. Redis uses one shared channel, so every instance processes every event. Measure the listener load before changing the topology; use sharded pub/sub only when more than one instance measurably degrades delivery.
+8. Add `docker-compose.perf.yml`: PostgreSQL with `pg_stat_statements` and `auto_explain`, Prometheus, Grafana, k6, Toxiproxy and a server started with JFR enabled.
+
+Acceptance — every item is measured and recorded in the ledger: 10,000 WebSocket sessions with 100 msg/s for 30 minutes and a one-hour soak; zero connection failures after ramp; p95 online delivery below one second and p99 below two seconds; error rate below 0.1%; stable RSS and heap with GC pause p99 below 100 ms; history paging p95 below 200 ms at 200 rps; login p95 recorded against the Argon2id cost; ZAP with zero high findings; JavaFX cold start at most 2.5 s, first meaningful screen at most 1.5 s, 10,000-message scroll at 60 fps, no FX-thread block above 100 ms, idle heap at most 512 MB. A nightly job stores the JFR, k6, JMH and MAT artifacts and fails when a budget regresses by more than 10%.
+
+**Progress (2026-11-10):** the three code-level ceilings and the runtime configuration are fixed — the outbox now batches its membership lookup, Redis publishes and marker update (one shared-connection publish loop and one marker update instead of three statements per event), Tomcat is configured for 20,000 connections, Hikari for 16 connections with batched inserts, virtual threads are enabled, Actuator serves Prometheus with `chat.outbox.*` and `chat.ws.*` meters, and the container runs with heap, OOM, heap-dump and GC-log flags.
+
+**Measured baseline (2026-11-10, single host, `docker-compose.perf.yml`):** 10,000 concurrent WebSocket sessions ramped over 60 s with a constant 100 messages/second — **p95 delivery 106 ms, p99 126 ms, max 244 ms**; server-side send p95 113 ms and p99 142 ms; `POST /messages` p95 4.7 ms, p99 13.8 ms with 0 failed requests; socket connect p95 1.4 ms; outbox batch max 33 ms; server RSS 1.6 GiB of a 3 GiB limit.
+
+JFR analysis of the first run (`jfr summary`, `hot-methods`, `gc-pauses`, `thread-cpu-load`, `latencies-by-type`) ruled out CPU, GC and session revalidation, and showed the real tail: presence heartbeats issued three Redis commands per session on a single scheduler thread (30,000 serial commands per 30 s), which saturated Redis and blocked the outbox poller. Batching the heartbeat into one pipeline and giving the scheduler two threads moved p99 from 605 ms (and 1.88 s server-side) to the numbers above. An earlier attempt at the same target also failed: an instantaneous 10,000-socket burst against a 32-connection pool produced `HikariPool ... request timed out after 3004ms` and stalled at 2,186 sockets, which is why the run now ramps and the pool is 64.
+
+Two client/server mismatches from that run are now fixed. Lettuce 7 opts in to `CLIENT MAINT_NOTIFICATIONS` on every RESP3 handshake, but that subcommand is Redis Enterprise/Cloud only, so OSS Redis 8.10 rejected it and the client surfaced an exception per connection; `lettuce-core` is on 7.9.0.RELEASE and a `LettuceClientOptionsBuilderCustomizer` disables the feature. The outbox also published through `executePipelined`, which borrows a dedicated Lettuce connection — a new TCP connection and handshake per 100 ms batch (552 connections for 549 batches); it now publishes on the shared connection, and `total_connections_received` grows by 34 over a full run. `redis-cli MONITOR` around a restart shows `HELLO 3` + `CLIENT SETINFO` only, and a repeat load run holds at p95 106 ms / p99 148 ms. The first run after a restart also reported a much worse tail (p99 590 ms) because the JVM was cold, so `perf/k6/chat-load.js` gained a third phase: sockets ramp for `RAMP` (60 s), `WARMUP` (60 s) of traffic at `RATE` runs and is reported separately as `chat_delivery_warmup_ms`, and only then does the measured plateau of `HOLD` seconds start, with socket hold extended to cover warm-up plus plateau. Senders stamp the phase into the message content (`t=<epoch>;p=w|m;`), so the receiving socket attributes each sample without a shared clock. With warm-up, a fresh JVM now reports p95 105 ms / p99 116 ms, and the warm-up window itself reports p95 106 ms / p99 116 ms — the cost was in socket ramp and first-message compilation, and it no longer reaches the reported numbers.
+
+**Soak result (2026-11-10, 30-minute plateau at 10,000 sessions and 100 msg/s, 15 s telemetry sampling):** delivery **p95 112 ms, p99 132 ms, max 538 ms**; 180,000 messages sent and 360,000 deliveries with **0 of 188,857 checks failed**; `POST /messages` p95 8.45 ms, p99 13.6 ms; socket connect p95 3.6 ms; outbox lag 0 s with 10–11 rows per batch; Hikari at most 2 active connections. GC: 745 pauses, 2.83 s of total pause in 32 minutes (0.15% of wall time), mean 3.8 ms, worst sampled pause 39 ms — the 100 ms GC budget holds. Heap: median 835 MiB, peak 1,164 MiB. RSS: 1.29–1.40 GiB for the first 28 minutes, then a single step to 1.84 GiB at minute 28 that stays flat to the end, still inside the 3 GiB limit; it coincides with connection churn (11,428 sockets opened for 10,000 VUs, i.e. 1,428 reconnects) and is not yet attributed to a cause — a heap dump at the same point (MAT) is the next step. Raw samples are in `build/perf/soak-samples.tsv` and the k6 summary in `build/perf/k6-soak.log`.
+
+**One-hour soak result (2026-11-11, same profile, 15 s telemetry, heap dumps at minute 15 and 59):** delivery **p95 110 ms, p99 116 ms**, average 62 ms; 359,966 messages sent and 719,932 deliveries with **0 of 368,823 checks failed** (368,823 iterations); `POST /messages` p95 7.3 ms, p99 10.2 ms, max 896 ms; socket connect p95 3.4 ms; 11,428 sockets opened for 10,000 VUs. GC: 1,655 pauses, 4.82 s of total pause in 62 minutes (0.13% of wall time), mean 2.9 ms, longest pause 104.7 ms — inside the 100 ms budget only marginally, and that pause is the full GC that `jcmd GC.heap_dump` forces. RSS averaged 1,416 MiB over the first 30 minutes and 1,456 MiB over the last 30 (+2.8%), peak 1,558 MiB of the 3 GiB limit. Heap used averaged 829 MiB and then 833 MiB; committed heap peaked at 1,100 MiB. The 1.09 s delivery maximum and the 896 ms `POST` maximum both fall on the two dumps, which are stop-the-world, and are harness artifacts rather than server behaviour.
+
+**Who holds the memory (Eclipse MAT 1.17.0, heap dumps at minute 15 and 59):** the live heap after the dump's full GC is 790.7 MiB at minute 15 and 788.4 MiB at minute 59 — a decrease of 2.2 MiB over 44 minutes, and a class-histogram diff between the two dumps shows no class growing by more than 0.4 MiB (the largest deltas are Netty/Lettuce pooled buffers and recycler handles, i.e. churn). The heap is the connections themselves: `WsFrameServer` holds 337.5 MB (40.8%, 10,000 instances with 20,000 `char[]` of 8.3 KB each), `NioEndpoint$NioSocketWrapper` 173.2 MB (20.9%) and `WsRemoteEndpointImplServer` 171.8 MB (20.7%, 40,000 `byte[]` of 4.1 KB each), plus one precomputed `Argon2Function` at 34.2 MB. That is roughly 79 KB of heap per live session, and the top dominators are identical in both dumps, so the one-hour run shows no leak and no retained history accumulating. MAT's leak-suspect report ranks those three connection classes as its three suspects, which is expected for 10,000 idle-but-open sockets, not a defect. The RSS step seen at minute 28 in the earlier 30-minute run did not reproduce on a fresh JVM under identical load: RSS and both dumps stay flat, so it was heap commit/allocation burst behaviour, not retained objects.
+
+The soak was restarted once because the seeded `user_session` rows had expired (12-hour TTL): every handshake returned 401, k6 reconnected in a loop and exhausted the client's ephemeral ports (`connect: cannot assign requested address`), which made that run invalid. Re-extending the fixture sessions fixed it. The perf stack mounts a host JDK read-only at `/opt/jdk` (`PERF_JDK_HOME`) because the runtime image is a JRE without `jcmd`, which is what makes the on-demand dumps and class histograms possible. Still outstanding: JMeter REST matrix, JMH microbenchmarks, ZAP, Toxiproxy fault injection, multi-host testing and the client-side heap check after a 10,000-message conversation.
+
+**Status (2026-11-11):** the WebSocket target has a reproducible harness with warm-up, a stable baseline, a 30-minute soak and a completed one-hour soak (see above): delivery p95 110 ms / p99 116 ms at 10,000 sessions and 100 msg/s, no failed checks, live heap flat and MAT showing that the 790 MiB live set is the 10,000 sockets at ~79 KB each. JFR capture, Prometheus metrics, k6 thresholds and MAT heap analysis are in place; async-profiler, JMH, JMeter, ZAP, Toxiproxy and multi-host testing are still missing, so the delivery and server-heap budgets are proven but the startup/scroll, idle-heap and client-side memory budgets remain partly proven. The JavaFX startup/scroll, idle-heap, REST paging, one-hour soak and fault-injection budgets are therefore unproven — Phase 5 performance work is partly measured, not done. The five trailing pins were moved to the newest release on 2026-11-10, and the three code-level ceilings above (outbox fan-out, Tomcat `max-connections`, Hikari pool size) must be fixed before the load test can be meaningful.
 
 ## Test Plan
 
@@ -175,12 +271,12 @@ Acceptance: A tagged release can be built reproducibly for all supported desktop
 - Crypto/security: MLS-style protocol tests; RFC 9420 interop test vectors only if a conformant implementation is adopted; tamper/replay/state rollback, membership epoch changes, recovery-code restore, storage/log redaction, and dependency review.
 - Frontend: per-screen FXML/controller loading, happy path plus loading/empty/error/offline, keyboard-only journeys, focus management, light/dark theme snapshots, accessibility name/role/contrast assertions, localization fallback, startup and large-history scroll budgets, and packaged-app startup.
 - End to end: register → discover/request/accept → direct chat → offline delivery → group creation → encrypted messages → member removal → report with selected evidence → admin review/lock → password reset.
-- Performance: 10,000 concurrent sessions and 100 messages/second; p95 online delivery under one second; capture resource saturation and reconnect behavior.
+- Performance: 10,000 concurrent sessions and 100 messages/second; p95 online delivery under one second; capture resource saturation and reconnect behavior. Measurement uses the Task 9 programme — JFR/Mission Control and async-profiler for hot spots, JMH for codec/JSON/crypto microbenchmarks, k6 for the WebSocket target, JMeter for the REST matrix, `pg_stat_statements`/`pgbench` for PostgreSQL, `redis-benchmark`/`SLOWLOG`/`LATENCY` for fan-out, Micrometer/Prometheus/Grafana for the budgets, Eclipse MAT for leak suspects and Toxiproxy for network faults. ZAP covers runtime security; the JavaFX budgets are measured from pulse logging, frame-time recording and client JFR.
 
 ## Assumptions and Defaults
 
 - Clean cutover means the new application starts with a fresh schema; existing user/message data is not migrated. Preserve the old database as a backup/archive.
 - Initial release remains JavaFX desktop for users and administrators, with a server deployment; mobile/web clients and multi-device group identity are out of scope.
-- The single Java 27 baseline is retained despite its shorter support window; revisit before release if long-term maintenance outweighs that constraint.
+- Java 27 is the baseline because it is the newest release; LTS status does not drive the choice, and every component follows the Version Currency Policy until a newer release is adopted.
 - The plan began as a documentation-only revision. Implementation has since started; verified status belongs in `.superpowers/sdd/chat-system-rewrite/progress.md`, not in assumptions above.
 - Skipped: voice/video and other features outside Project.pdf. Risk: end-to-end encryption, recovery, and 10,000-user performance require independent security and load validation before release.

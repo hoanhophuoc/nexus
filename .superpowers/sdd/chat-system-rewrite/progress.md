@@ -136,6 +136,237 @@
 
 ## Verification log (newest first)
 
+- **2026-11-11 (one-hour soak + Eclipse MAT heap analysis at 10,000 sessions / 100 msg/s).**
+  - Delivery p95 110 ms, p99 116 ms (avg 62 ms) over a 60-minute plateau; 359,966 sends and
+    719,932 deliveries; 0 of 368,823 checks failed; `POST /messages` p95 7.3 ms / p99 10.2 ms.
+    The 1.09 s delivery maximum and 896 ms `POST` maximum land on the two heap dumps, which are
+    stop-the-world, so they are harness artifacts.
+  - GC: 1,655 pauses / 4.82 s total in 62 minutes (0.13% of wall time), mean 2.9 ms, longest
+    pause 104.7 ms (the full GC that `jcmd GC.heap_dump` forces).
+  - Memory: live heap after the dump's full GC 790.7 MiB at minute 15 and 788.4 MiB at minute 59,
+    i.e. −2.2 MiB over 44 minutes; class-histogram diff shows no class above +0.4 MiB (largest are
+    Netty/Lettuce pooled buffers). RSS 1,416 MiB average over the first 30 minutes and 1,456 MiB
+    over the last (+2.8%), peak 1,558 MiB of a 3 GiB limit; committed heap peak 1,100 MiB.
+  - MAT 1.17.0 (standalone, headless, JDK 27) on both dumps: 789.8 MB live, 3.79M objects; the
+    top dominators are the connections — `WsFrameServer` 337.5 MB (40.8%, 20,000 `char[]` of
+    8.3 KB), `NioEndpoint$NioSocketWrapper` 173.2 MB (20.9%), `WsRemoteEndpointImplServer`
+    171.8 MB (20.7%, 40,000 `byte[]` of 4.1 KB) — plus one `Argon2Function` at 34.2 MB. About
+    79 KB of heap per session, identical in both dumps, so no leak. MAT ranks those three
+    connection classes as its leak suspects, which is expected for 10,000 open sockets.
+  - The RSS step at minute 28 in the earlier 30-minute run did not reproduce on a fresh JVM under
+    identical load; heap commit/allocation burst, not retained objects.
+  - Two invalidated attempts: the seeded sessions carry a 12-hour TTL and had expired, so every
+    handshake returned 401 and k6 exhausted its ephemeral ports
+    (`connect: cannot assign requested address`); and one `pkill -f soak60-monitor.sh` matched the
+    invoking shell's own command line and killed it. Fixed both: sessions re-extended, monitor
+    stopped by recorded PID.
+  - Harness: `docker-compose.perf.yml` mounts `${PERF_JDK_HOME}` read-only at `/opt/jdk` because
+    the runtime image is a JRE with no `jcmd`; dumps and `GC.class_histogram` are taken through it.
+    Evidence: `build/perf/soak60-samples.tsv`, `build/perf/k6-soak60.log`,
+    `build/perf/heap-{ref,end}.hprof`, `build/perf/mat-ref/`, `build/perf/mat-end/`.
+
+- **2026-11-10 (k6 warm-up phase + 30-minute soak at 10,000 sessions / 100 msg/s).**
+  - Added a third phase to the harness: `RAMP` → `WARMUP` (default 60 s) → measured plateau
+    (`HOLD`). Warm-up senders use their own scenario and exec, and the phase travels inside the
+    message content (`t=<epoch>;p=w|m;`) so the receiving socket routes each sample to
+    `chat_delivery_warmup_ms` or `chat_delivery_ms` without a shared clock between VUs. Socket
+    hold is now `RAMP + WARMUP + HOLD`, and `WARMUP` is exposed in the compose k6 env.
+  - Baseline on a fresh JVM with warm-up: delivery p95 105 ms, p99 116 ms, max 320 ms; `POST` p95
+    5.4 ms / p99 9.5 ms; 0 of 14,857 checks failed. Without warm-up the same binary had reported
+    p99 590 ms.
+  - Soak, 30-minute plateau: p95 112 ms, p99 132 ms, max 538 ms; 180,000 sends, 360,000
+    deliveries, 0 of 188,857 checks failed. GC 745 pauses / 2.83 s total (0.15% of wall time),
+    mean 3.8 ms, worst sampled pause 39 ms. Heap median 835 MiB, peak 1,164 MiB. RSS 1.29–1.40 GiB
+    for 28 minutes, then one step to 1.84 GiB that stays flat, still inside the 3 GiB limit; it
+    coincides with 1,428 socket reconnects and is not attributed yet. Outbox lag 0 s, Hikari ≤ 2
+    active. Evidence: `build/perf/k6-warmup-baseline.log`, `build/perf/k6-soak.log`,
+    `build/perf/soak-samples.tsv`.
+  - Sampler bug found and fixed before the recorded run: Prometheus label values contain spaces,
+    so the sample value is `$NF`, not `$2`; with `$2` every heap/GC column read 0.
+
+- **2026-11-10 (Lettuce handshake fix + one Redis connection per deployment, not per batch).**
+  - Root cause of the 1,632 `ERR unknown subcommand 'MAINT_NOTIFICATIONS'` exceptions: Lettuce 7
+    speaks RESP3 by default and, since 7.5, opts in to server maintenance notifications with
+    `CLIENT MAINT_NOTIFICATIONS ON` during the handshake. That subcommand is a Redis
+    Enterprise/Cloud feature; OSS `redis:8.10.3` rejects it, and the rejection surfaced as an
+    exception per connection.
+  - Fixes: `lettuce-core` moved from the BOM-managed 7.5.2 to the newest release **7.9.0.RELEASE**
+    and a new `infrastructure/RedisClientConfiguration` registers Boot's
+    `LettuceClientOptionsBuilderCustomizer` with `MaintNotificationsConfig.disabled()`, so the
+    client neither probes nor listens for maintenance events.
+  - Second fix (connection churn): `OutboxPublisher` published its batch through
+    `executePipelined`, and a pipelined callback borrows a *dedicated* Lettuce connection — a new
+    TCP connection with a full RESP3 handshake for every 100 ms batch (552 connections for 549
+    batches in the JFR run). It now issues the same `PUBLISH` commands inside `execute`, which
+    runs on the shared Lettuce connection.
+  - Verified at runtime, not just by inspection: `redis-cli MONITOR` around a server restart shows
+    `HELLO 3` + `CLIENT SETINFO lib-name Lettuce(spring-data-redis_v4.1.2)` / `lib-ver
+    7.9.0.RELEASE`, and **no** `CLIENT MAINT_NOTIFICATIONS`. `total_connections_received` grows by
+    34 across a full 10,000-socket / 100 msg/s run, against 552 before (the remainder is the
+    listener container and one connection per 30 s presence-heartbeat pipeline).
+  - Load re-measured on the same harness (10,000 sockets, 100 msg/s, sends inside the plateau):
+    second run on a warm JVM gives delivery **p95 106 ms, p99 148 ms, max 317 ms**, 0 failed
+    checks of 16,857, outbox publish avg 5.1 ms / max 120 ms — i.e. no regression from the fix.
+    The first run after the container restart reported p95 129 ms / p99 590 ms; a repeat run on
+    the same binary returned the baseline again, so that tail is cold-JVM variance and the harness
+    should warm up before recording a baseline (recorded as a follow-up, not silently averaged).
+  - `./gradlew :server:compileJava :server:test :server:integrationTest` — 44 unit and 25
+    PostgreSQL/Redis integration tests pass with Lettuce 7.9.0. No commit, push or deploy.
+
+- **2026-11-10 (JFR analysis of the load run + p99 fix).**
+  - Analysed `build/perf/app.jfr` with the JDK 27 `jfr` tool (`summary`, `hot-methods`,
+    `gc-pauses`, `thread-cpu-load`, `latencies-by-type`, `exception-by-type`,
+    `contention-by-thread`, `socket-writes-by-host`).
+  - What JFR ruled out: no application CPU hotspot (top method is 1.9% of 2,247 samples), GC is
+    healthy (93 pauses, 429 ms total, median 3.9 ms), exactly one monitor-blocked event, and
+    session revalidation costs 0.22 ms on average (measured with the new `chat.ws.auth` timer),
+    so auth was not the tail.
+  - What JFR and the new server-side timer exposed: `chat.ws.send` (message creation → socket
+    write) reported p50 65 ms, **p95 805 ms and p99 1.88 s**. The cause was presence heartbeats:
+    every 30 s the single scheduler thread walked all 10,000 sessions and each
+    `RedisPresenceStore.online` issued three Redis commands (ZREMRANGEBYSCORE, ZADD, EXPIRE) —
+    30,000 serial commands per tick. That both saturated Redis and blocked the outbox poller,
+    because the default scheduler pool is one thread. JFR also showed 552 Redis connections for
+    549 publish batches and 1,632 `ERR unknown subcommand 'MAINT_NOTIFICATIONS'` exceptions from
+    the Lettuce client against Redis 8.10.
+  - Fixes: `PresenceStore.refresh(map)` with a pipelined Redis implementation (one round trip,
+    two commands per session) and `spring.task.scheduling.pool.size=2` so a heartbeat can never
+    queue behind the outbox publisher. `chat.ws.auth` and `chat.ws.send` timers are kept as
+    permanent instruments.
+  - After the fix, same target (10,000 sockets, 100 msg/s, heartbeat back at production defaults
+    of 30 s / 90 s TTL, sends confined to the plateau): client-measured delivery
+    **p95 106 ms, p99 126 ms, max 244 ms** (was p95 111-140 ms, p99 605 ms-1.43 s); server-side
+    `chat.ws.send` p95 113 ms / p99 142 ms (was 805 ms / 1.88 s); outbox batch max 33 ms (was
+    139 ms); `POST /messages` p95 4.7 ms / p99 13.8 ms; 0 failed checks of 16,857.
+  - Harness fixes found during this work: `docker-compose.perf.yml` now keeps PostgreSQL in a
+    named volume (a `down` used to delete the fixtures), and the k6 script exposes `SEND_DELAY` /
+    `SEND_DURATION` so delivery can be measured strictly inside the plateau.
+  - Known unresolved: the Lettuce `CLIENT MAINT_NOTIFICATIONS` error against Redis 8.10 is still
+    raised once per new connection; it does not fail requests, but the client/server command
+    support mismatch should be resolved before release. No commit, push, PR, merge or deploy.
+
+- **2026-11-10 (Task 9 load harness + first measured baseline).**
+  - Added `docker-compose.perf.yml`: isolated stack with offset host ports (db 15432, server
+    18080, Prometheus 19090), PostgreSQL tuned (`shared_buffers=512MB`, `max_connections=300`,
+    `pg_stat_statements`, `log_min_duration_statement=200`), `redis:8.10-alpine`, server under a
+    3 GiB limit with an opt-in JFR recording written to `build/perf/app.jfr`, Prometheus scraping
+    `/actuator/prometheus` every 5 s, and a `grafana/k6` runner behind the `load` profile.
+  - Added `perf/seed.sql` (deterministic users, sessions, friendships and one direct conversation
+    per pair so k6 derives every identifier from an index) and `perf/k6/chat-load.js`
+    (`ramping-vus` sockets + `constant-arrival-rate` senders; delivery latency measured on the
+    receiving socket with p95/p99 thresholds). Documented in `docs/CI-CD.md`.
+  - Measured baseline — 10,000 seeded users, 5,000 direct conversations, 0 -> 10,000 sockets
+    ramped over 60 s, held 60 s, 100 messages/second for 60 s:
+    - delivery (receiving socket, 11,016 events): avg 73 ms, **p95 111 ms, p99 605 ms**, max 1.14 s
+      (thresholds p95 < 1 s, p99 < 2 s: pass);
+    - `POST /api/v1/conversations/{id}/messages`: p95 7.1 ms, p99 16.3 ms, max 192 ms,
+      0 failures out of 6,001; `ws_connecting` p95 2.3 ms, p99 5.3 ms;
+    - 21,426 WebSocket handshakes over the run (including reconnects), 18,857 checks, 0 failed;
+    - server: outbox published 6,001 events in 549 batches, avg 4.8 ms and max 142 ms per batch;
+      `chat_ws_delivered_total` 11,016; RSS 1.61 GiB of the 3 GiB limit; Hikari pool 64.
+  - First attempt at the same target failed and drove two fixes: an instantaneous 10,000-socket
+    burst against a 32-connection pool produced `HikariPool-1 - Connection is not available,
+    request timed out after 3004ms (total=32, active=32, waiting=195)` and stalled at 2,186
+    sockets while the server sat at 1.88/2 GiB. The sockets scenario now ramps like real clients,
+    and the perf stack uses pool 64 and a 3 GiB limit.
+  - Boundaries of this baseline: single host (k6 and server share the machine), seeded sessions
+    so the Argon2id login path is not measured, no network-latency injection, 60 s plateau only.
+    The 30-minute hold, one-hour soak, JMeter REST matrix, JMH, ZAP, MAT, Toxiproxy and any
+    multi-host run remain outstanding.
+  - No commit, push, PR, merge or deploy was performed.
+
+- **2026-11-10 (Task 9 first slice: outbox fan-out, metrics, runtime tuning).**
+  - `OutboxPublisher` no longer issues three statements plus one Redis command per event.
+    Membership is fetched once per batch (`conversation_id IN (...)`), MLS recipients are
+    filtered by `joined_epoch` in memory, all publishes go through one pipelined Redis round
+    trip, and `published_at` is set with one batched `UPDATE`. Batch size (100), poll interval
+    (100 ms) and the `SKIP LOCKED` claim are unchanged, so delivery semantics are identical.
+  - New meters: `chat.outbox.publish` (batch timer), `chat.outbox.published` (counter),
+    `chat.outbox.batch_rows`, `chat.outbox.oldest_age_seconds`, `chat.ws.sessions` (gauge) and
+    `chat.ws.delivered` (counter).
+  - Runtime tuning in `application.properties`: virtual threads enabled, Tomcat
+    `max-connections=20000`, `accept-count=500`, `threads.max=200`, `connection-timeout=20s`;
+    Hikari `maximum-pool-size=16`, `minimum-idle=4`, `connection-timeout=3s`,
+    `validation-timeout=1s`, `max-lifetime=30m`, `keepalive=60s`, `reWriteBatchedInserts=true`;
+    Actuator exposes `health,info,metrics,prometheus` with a `chat-server` tag and HTTP
+    percentile histograms. The security chain permits `/actuator/prometheus` and
+    `/actuator/metrics/**`, with a comment that a public ingress must not forward `/actuator/**`.
+  - `Dockerfile` now starts the JVM with `-XX:MaxRAMPercentage=70`, `-XX:+ExitOnOutOfMemoryError`,
+    heap-dump flags and a rolling `-Xlog:gc*`; JFR is opt-in through `JAVA_TOOL_OPTIONS`.
+  - Correction to the version entry below: `gradle:9.9.0-jdk27` is **not published** on Docker Hub
+    (latest is 9.8.2), so the build image stays `gradle:9.8.2-jdk27`; `./gradlew` downloads and runs
+    Gradle 9.9.0 from the wrapper. `redis:8.10-alpine` is running in the Compose stack.
+  - Gate gap fixed: root `fullTest` only depended on root-project suites, so `:server:test`,
+    `:server:integrationTest` and the module unit tests never ran as part of it. `fullTest` now
+    depends on all of them.
+  - Verification: `xvfb-run -a ./gradlew fullTest` → BUILD SUCCESSFUL, 38 actionable tasks.
+    Counts: root unit 22, root integration 35, root fxTest 6, server unit 44, server integration
+    25, desktop-shared 29, desktop-user unit 4 / fxTest 21 (3 opt-in skipped), desktop-admin unit
+    3 / fxTest 6 (1 opt-in skipped); failures/errors 0.
+  - Live stack: `docker compose up -d --build server redis`, server healthy on Postgres 18.6 and
+    `redis:8.10-alpine`; `/actuator/prometheus` returns `chat_outbox_batch_rows`,
+    `chat_outbox_oldest_age_seconds`, `chat_outbox_publish_seconds_*`,
+    `chat_outbox_published_total`, `chat_ws_sessions`, `chat_ws_delivered_total` and
+    `hikaricp_connections_max=16`, confirming the new configuration is active.
+  - Not done yet in Task 9: `docker-compose.perf.yml` (Prometheus/Grafana/k6/Toxiproxy), the k6
+    WebSocket scenario, JMeter matrix, JMH benchmarks, ZAP scan, MAT heap analysis and the
+    recorded 10,000-session measurement. No commit, push, PR, merge or deploy was performed.
+
+- **2026-11-10 (rendered disabled/placeholder contrast).**
+  - `theme.css`: added `.menu-button:disabled > .label { -fx-text-fill: -color-text-muted; }`.
+    MenuButton renders its text through an inner Label, so the existing
+    `.menu-button:disabled { -fx-text-fill: … }` never reached the glyphs and a disabled menu
+    button kept the enabled text colour. Measured after the fix: 5.37:1 light, 6.42:1 dark.
+  - `RenderedControlContrastFxTest` now passes; every failure was a wrong assumption about
+    JavaFX 27, not a weakened assertion: (1) `TextFieldSkin` renders the prompt as a second
+    `.text` node, there is no `.prompt-text` class on a TextField; (2) a DatePicker editor's
+    prompt is bound to `ComboBoxBase.promptText`, so setting it on the editor throws
+    "A bound value cannot be set" — an unvalued picker now carries the placeholder;
+    (3) `DateCell` marks the chosen day with the **style class** `selected`, not a
+    pseudo-class. The compile error was fixed with `List<? extends ListCell<?>>`.
+  - Measured contrast, light/dark: editor text 14.42/13.31, placeholder 4.55/5.08,
+    month label 14.42/13.31, day normal 5.37/6.42, day selected 5.75/6.95, day disabled
+    5.37/6.42, day hover 14.42/13.31 — all at or above 4.5:1.
+  - `xvfb-run -a ./gradlew :desktop-user:fxTest :desktop-admin:fxTest --rerun-tasks` →
+    user 21 tests, 0 failures, 3 opt-in skips; admin 6 tests, 0 failures, 1 opt-in skip;
+    both golden suites pass, so the CSS addition changes no reviewed screen.
+  - `xvfb-run -a ./gradlew fullTest` → BUILD SUCCESSFUL (exit 0). Because a previous
+    filtered run left tasks up-to-date, both fx suites were re-executed with `--rerun-tasks`
+    before claiming the result.
+  - No commit, push, PR, merge or deploy was performed.
+
+- **2026-11-10 (version currency upgrade).**
+  - Gradle 9.8.2 → **9.9.0** (`gradle-wrapper.properties` + official SHA-256), Testcontainers
+    1.21.4 → **2.0.5**, Jackson 3.2.4 → **3.3.0**, Flyway 12.4.0 → **13.12.1** (declared
+    explicitly because the Boot 4.1.2 BOM still manages 12.4.0), `redis:7-alpine` →
+    **`redis:8.10-alpine`**, `gradle:9.8.2-jdk27` → **`gradle:9.9.0-jdk27`**.
+  - Testcontainers 2.x migration: artifacts are now `org.testcontainers:testcontainers-postgresql`
+    and `org.testcontainers:testcontainers-junit-jupiter`; `PostgreSQLContainer` moved to
+    `org.testcontainers.postgresql` and is **no longer generic**, so
+    `PostgreSQLContainer<?>` / `new PostgreSQLContainer<>` had to become raw declarations in
+    `IdentityMigrationIntegrationTest` and `PostgresTestBase`. `GenericContainer` and the
+    `org.testcontainers.junit.jupiter` annotations are unchanged.
+  - Redis image also raised in `docker-compose.yml`, `scripts/live-journey.sh` and both
+    server integration tests; Gradle image raised in `Dockerfile`, `scripts/live-journey.sh`
+    and `scripts/live-journey-test.Dockerfile`.
+  - `./gradlew --version` → Gradle 9.9.0 on JDK 27.0.1. `dependencyInsight` confirms
+    `flyway-core:13.12.1`, `jackson-databind:3.3.0` (the server now declares it explicitly
+    because the Boot BOM still manages 3.1.7, so client and server agree) and the whole
+    `org.testcontainers:*:2.0.5` set resolve.
+  - `xvfb-run -a ./gradlew fullTest --continue` → all suites green except `:desktop-user:fxTest`:
+    root unit 22, root integration 35, root fxTest 6, server unit 44, server integration 25,
+    desktop-shared 29, desktop-user unit 4, desktop-admin unit 3, desktop-admin fxTest 6
+    (1 opt-in skipped), coverageVerification passed. Failures/errors elsewhere: 0.
+  - Pre-existing blockers surfaced, **not** caused by the upgrade: (1) untracked
+    `RenderedControlContrastFxTest` had never compiled — fixed the two
+    `List<ListCell>` / capture errors with `List<? extends ListCell<?>>`; once compiled it
+    fails 2 of 3 assertions (`LIGHT menu button text` colour mismatch and a nil
+    `.prompt-text` node for a DatePicker with no prompt text); (2) golden screenshots only
+    match under `xvfb-run`: the same admin golden test fails 7.8% on `DISPLAY=:0`, and the
+    committed `HEAD` baseline is 8.9% away, so the baselines are Xvfb-rendered, as
+    `docs/CI-CD.md` describes. No golden was regenerated and no assertion was weakened.
+  - No commit, push, PR, merge or deploy was performed.
+
 - **2026-11-09 (CI live journey gate).**
   - Added the `Live user journey (isolated Docker)` job to `.github/workflows/ci.yml`.
     It checks out the repository and runs `./scripts/live-journey.sh` on `ubuntu-latest`,
