@@ -24,7 +24,8 @@ public class IdentitySecurityConfiguration {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/v1/auth/register", "/api/v1/auth/login", "/api/v1/auth/csrf",
                                 "/api/v1/auth/password-reset", "/api/v1/auth/password-reset/confirm",
-                                "/actuator/health").permitAll()
+                                "/actuator/health", "/actuator/prometheus",
+                                "/actuator/metrics", "/actuator/metrics/**").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(errors -> errors.authenticationEntryPoint(
                         (request, response, exception) -> response.sendError(401)))

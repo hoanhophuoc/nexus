@@ -1,37 +1,67 @@
 package com.haichutieu.chatsystem.server.messaging;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.Base64;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Component
 public class OutboxPublisher {
     static final String CHANNEL = "chat_v1:message-events";
+    private static final byte[] CHANNEL_BYTES = CHANNEL.getBytes(StandardCharsets.UTF_8);
     private final JdbcTemplate jdbc;
     private final StringRedisTemplate redis;
     private final ObjectMapper mapper;
+    private final Timer publishTimer;
+    private final Counter publishedEvents;
+    private final AtomicLong batchRows = new AtomicLong();
+    private final AtomicLong oldestAgeSeconds = new AtomicLong();
 
-    public OutboxPublisher(JdbcTemplate jdbc, StringRedisTemplate redis, ObjectMapper mapper) {
+    public OutboxPublisher(JdbcTemplate jdbc, StringRedisTemplate redis, ObjectMapper mapper,
+                           MeterRegistry meters) {
         this.jdbc = jdbc;
         this.redis = redis;
         this.mapper = mapper;
+        this.publishTimer = Timer.builder("chat.outbox.publish")
+                .description("Time to fan out one outbox batch to Redis")
+                .register(meters);
+        this.publishedEvents = Counter.builder("chat.outbox.published")
+                .description("Outbox events published to Redis")
+                .register(meters);
+        Gauge.builder("chat.outbox.batch_rows", batchRows, AtomicLong::get)
+                .description("Outbox rows handled by the last poll (capped at the batch limit)")
+                .register(meters);
+        Gauge.builder("chat.outbox.oldest_age_seconds", oldestAgeSeconds, AtomicLong::get)
+                .description("Age of the oldest row in the last published batch")
+                .register(meters);
     }
 
     @Scheduled(fixedDelayString = "${chat.messaging.outbox-poll-ms:100}")
     @Transactional
     public void publishPending() {
+        long started = System.nanoTime();
         List<OutboxRow> rows = jdbc.query("""
                 SELECT o.event_id, o.conversation_id, o.message_id, o.recipient_user_id, o.event_type,
                        m.sender_id, m.content, m.created_at, m.deleted_for_everyone_at
@@ -41,22 +71,58 @@ public class OutboxPublisher {
                 ORDER BY o.created_at, o.event_id
                 LIMIT 100 FOR UPDATE OF o SKIP LOCKED
                 """, OutboxPublisher::map, new Object[]{});
+        List<MlsOutboxRow> mlsRows = publishMlsPending();
+        long handled = rows.size() + mlsRows.size();
+        batchRows.set(handled);
+        if (handled == 0) {
+            oldestAgeSeconds.set(0);
+            return;
+        }
+
+        // One membership lookup and one Redis round trip per batch instead of per event.
+        Map<UUID, List<UUID>> members = activeMembers(conversationIds(rows, mlsRows));
+        Map<UUID, List<MemberEpoch>> mlsMembers = membersWithEpoch(conversationIds(rows, mlsRows));
+        List<byte[]> payloads = new ArrayList<>(rows.size() + mlsRows.size());
+        List<UUID> messageEventIds = new ArrayList<>(rows.size());
+        List<UUID> mlsEventIds = new ArrayList<>(mlsRows.size());
+        Instant now = Instant.now();
+        long oldest = 0;
         for (OutboxRow row : rows) {
             List<UUID> targets = row.recipientId() == null
-                    ? jdbc.query("""
-                        SELECT user_id FROM chat_v1.conversation_member
-                        WHERE conversation_id = ? AND left_at IS NULL ORDER BY user_id
-                        """, (rs, index) -> rs.getObject(1, UUID.class), row.conversationId())
+                    ? members.getOrDefault(row.conversationId(), List.of())
                     : List.of(row.recipientId());
-            redis.convertAndSend(CHANNEL, encode(envelope(row, targets)));
-            jdbc.update("UPDATE chat_v1.message_outbox SET published_at = clock_timestamp() WHERE event_id = ?",
-                    row.eventId());
+            payloads.add(encode(envelope(row, targets)).getBytes(StandardCharsets.UTF_8));
+            messageEventIds.add(row.eventId());
+            oldest = Math.max(oldest, ageSeconds(row.createdAt(), now));
         }
-        publishMlsPending();
+        for (MlsOutboxRow row : mlsRows) {
+            // only members whose join epoch covers this ciphertext receive the event
+            List<UUID> targets = mlsMembers.getOrDefault(row.conversationId(), List.of()).stream()
+                    .filter(member -> member.joinedEpoch() <= row.epoch())
+                    .map(MemberEpoch::userId)
+                    .toList();
+            payloads.add(encode(mlsEnvelope(row, targets)).getBytes(StandardCharsets.UTF_8));
+            mlsEventIds.add(row.eventId());
+            oldest = Math.max(oldest, ageSeconds(row.createdAt(), now));
+        }
+        oldestAgeSeconds.set(oldest);
+
+        // A pipelined callback borrows a dedicated Lettuce connection, i.e. a new TCP handshake
+        // per batch. Publishing on the shared connection keeps one socket for all batches.
+        redis.execute((RedisCallback<Object>) connection -> {
+            for (byte[] payload : payloads) {
+                connection.publish(CHANNEL_BYTES, payload);
+            }
+            return null;
+        });
+        markPublished(messageEventIds);
+        markPublished(mlsEventIds);
+        publishedEvents.increment(payloads.size());
+        publishTimer.record(Duration.ofNanos(System.nanoTime() - started));
     }
 
-    private void publishMlsPending() {
-        List<MlsOutboxRow> rows = jdbc.query("""
+    private List<MlsOutboxRow> publishMlsPending() {
+        return jdbc.query("""
                 SELECT o.event_id, o.conversation_id, o.mls_message_id, o.event_type,
                        m.sender_id, m.epoch, m.kind, m.ciphertext, m.created_at
                 FROM chat_v1.message_outbox o
@@ -68,18 +134,68 @@ public class OutboxPublisher {
                 rs.getObject("conversation_id", UUID.class), rs.getObject("mls_message_id", UUID.class),
                 rs.getString("event_type"), rs.getObject("sender_id", UUID.class), rs.getLong("epoch"),
                 rs.getString("kind"), rs.getBytes("ciphertext"),
-                rs.getTimestamp("created_at").toInstant().toString()));
-        for (MlsOutboxRow row : rows) {
-            // only members whose join epoch covers this ciphertext receive the event
-            List<UUID> targets = jdbc.query("""
-                    SELECT user_id FROM chat_v1.conversation_member
-                    WHERE conversation_id = ? AND left_at IS NULL AND joined_epoch <= ?
-                    ORDER BY user_id
-                    """, (rs, index) -> rs.getObject(1, UUID.class), row.conversationId(), row.epoch());
-            redis.convertAndSend(CHANNEL, encode(mlsEnvelope(row, targets)));
-            jdbc.update("UPDATE chat_v1.message_outbox SET published_at = clock_timestamp() WHERE event_id = ?",
-                    row.eventId());
+                rs.getTimestamp("created_at").toInstant()));
+    }
+
+    private static List<UUID> conversationIds(List<OutboxRow> rows, List<MlsOutboxRow> mlsRows) {
+        List<UUID> ids = new ArrayList<>(rows.size() + mlsRows.size());
+        for (OutboxRow row : rows) {
+            if (row.recipientId() == null && !ids.contains(row.conversationId())) {
+                ids.add(row.conversationId());
+            }
         }
+        for (MlsOutboxRow row : mlsRows) {
+            if (!ids.contains(row.conversationId())) ids.add(row.conversationId());
+        }
+        return ids;
+    }
+
+    private Map<UUID, List<UUID>> activeMembers(List<UUID> conversationIds) {
+        Map<UUID, List<UUID>> members = new HashMap<>();
+        if (conversationIds.isEmpty()) return members;
+        jdbc.query("""
+                SELECT conversation_id, user_id FROM chat_v1.conversation_member
+                WHERE conversation_id IN (%s) AND left_at IS NULL
+                ORDER BY conversation_id, user_id
+                """.formatted(placeholders(conversationIds.size())),
+                rs -> {
+                    members.computeIfAbsent(rs.getObject(1, UUID.class), ignored -> new ArrayList<>())
+                            .add(rs.getObject(2, UUID.class));
+                },
+                conversationIds.toArray());
+        return members;
+    }
+
+    private Map<UUID, List<MemberEpoch>> membersWithEpoch(List<UUID> conversationIds) {
+        Map<UUID, List<MemberEpoch>> members = new HashMap<>();
+        if (conversationIds.isEmpty()) return members;
+        jdbc.query("""
+                SELECT conversation_id, user_id, joined_epoch FROM chat_v1.conversation_member
+                WHERE conversation_id IN (%s) AND left_at IS NULL
+                ORDER BY conversation_id, user_id
+                """.formatted(placeholders(conversationIds.size())),
+                rs -> {
+                    members.computeIfAbsent(rs.getObject(1, UUID.class), ignored -> new ArrayList<>())
+                            .add(new MemberEpoch(rs.getObject(2, UUID.class), rs.getInt(3)));
+                },
+                conversationIds.toArray());
+        return members;
+    }
+
+    private void markPublished(List<UUID> eventIds) {
+        if (eventIds.isEmpty()) return;
+        jdbc.update("""
+                UPDATE chat_v1.message_outbox SET published_at = clock_timestamp()
+                WHERE event_id IN (%s)
+                """.formatted(placeholders(eventIds.size())), eventIds.toArray());
+    }
+
+    private static String placeholders(int count) {
+        return String.join(",", Collections.nCopies(count, "?"));
+    }
+
+    private static long ageSeconds(Instant createdAt, Instant now) {
+        return Math.max(0, Duration.between(createdAt, now).toSeconds());
     }
 
     private Map<String, Object> mlsEnvelope(MlsOutboxRow row, List<UUID> targets) {
@@ -92,7 +208,7 @@ public class OutboxPublisher {
         payload.put("senderId", row.senderId());
         payload.put("epoch", row.epoch());
         payload.put("kind", row.kind());
-        payload.put("ciphertext", Base64.getEncoder().encodeToString(row.ciphertext()));
+        payload.put("ciphertext", java.util.Base64.getEncoder().encodeToString(row.ciphertext()));
         payload.put("createdAt", row.createdAt());
         return Map.of("targets", targets, "payload", payload);
     }
@@ -108,7 +224,7 @@ public class OutboxPublisher {
             message.put("conversationId", row.conversationId());
             message.put("senderId", row.senderId());
             message.put("content", row.content());
-            message.put("createdAt", row.messageCreatedAt());
+            message.put("createdAt", row.createdAt());
             message.put("deletedForEveryoneAt", row.deletedAt());
             payload.put("message", message);
         } else {
@@ -135,15 +251,18 @@ public class OutboxPublisher {
         return new OutboxRow(rs.getObject("event_id", UUID.class), rs.getObject("conversation_id", UUID.class),
                 rs.getObject("message_id", UUID.class), rs.getObject("recipient_user_id", UUID.class),
                 rs.getString("event_type"), rs.getObject("sender_id", UUID.class), rs.getString("content"),
-                rs.getTimestamp("created_at").toInstant().toString(),
+                rs.getTimestamp("created_at").toInstant(),
                 rs.getTimestamp("deleted_for_everyone_at") == null ? null
-                        : rs.getTimestamp("deleted_for_everyone_at").toInstant().toString());
+                        : rs.getTimestamp("deleted_for_everyone_at").toInstant());
     }
 
+    private record MemberEpoch(UUID userId, int joinedEpoch) { }
+
     private record OutboxRow(UUID eventId, UUID conversationId, UUID messageId, UUID recipientId,
-                             String eventType, UUID senderId, String content, String messageCreatedAt, String deletedAt) { }
+                             String eventType, UUID senderId, String content, Instant createdAt,
+                             Instant deletedAt) { }
 
     private record MlsOutboxRow(UUID eventId, UUID conversationId, UUID messageId, String eventType,
                                 UUID senderId, long epoch, String kind, byte[] ciphertext,
-                                String createdAt) { }
+                                Instant createdAt) { }
 }
