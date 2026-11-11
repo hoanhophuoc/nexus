@@ -38,17 +38,15 @@ jobs:
         with:
           validate-wrappers: true
 
-      # The rewrite lives in the server, desktop-shared, desktop-user and desktop-admin
-      # modules; running only the root project's tasks would leave the new code untested.
-      - name: Compile, unit tests, integration tests and FX test classes
+      # The root project holds no code, so every suite belongs to a module.
+      - name: Compile, unit tests and integration tests
         run: >
-          ./gradlew --no-daemon clean fxTestClasses
-          test integrationTest
+          ./gradlew --no-daemon clean
           :server:test :server:integrationTest
           :desktop-shared:test :desktop-user:test :desktop-admin:test
 
       - name: Generate JaCoCo coverage report
-        run: ./gradlew --no-daemon jacocoTestReport
+        run: ./gradlew --no-daemon coverageReport
 
       - name: Enforce coverage regression floor
         run: ./gradlew --no-daemon coverageVerification
@@ -79,11 +77,9 @@ jobs:
         with:
           name: test-reports
           path: |
-            build/reports/tests
-            build/test-results
-            build/reports/jacoco
             */build/reports/tests
             */build/test-results
+            build/reports/jacoco
           retention-days: 14
 
   fx-test:
@@ -113,7 +109,7 @@ jobs:
       - name: Run JavaFX tests
         env:
           GOLDEN_BASELINE: ci
-        run: xvfb-run -a ./gradlew --no-daemon fxTest :desktop-user:fxTest :desktop-admin:fxTest
+        run: xvfb-run -a ./gradlew --no-daemon :desktop-user:fxTest :desktop-admin:fxTest
 
       - name: Upload JavaFX reports
         if: always()
@@ -121,8 +117,6 @@ jobs:
         with:
           name: fx-test-reports
           path: |
-            build/reports/tests/fxTest
-            build/test-results/fxTest
             desktop-user/build/reports/tests/fxTest
             desktop-user/build/test-results/fxTest
             desktop-admin/build/reports/tests/fxTest

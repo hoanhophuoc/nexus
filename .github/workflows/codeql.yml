@@ -48,7 +48,10 @@ jobs:
           build-mode: manual
 
       - name: Compile production sources
-        run: ./gradlew --no-daemon compileJava
+        run: >
+          ./gradlew --no-daemon
+          :server:compileJava :desktop-shared:compileJava
+          :desktop-user:compileJava :desktop-admin:compileJava
 
       - name: Perform CodeQL analysis
         uses: github/codeql-action/analyze@1fc58d04a4d4374f921bdac573c3811c240f9c26 # v4.39.2

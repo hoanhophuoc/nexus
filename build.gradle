@@ -2,10 +2,7 @@ import org.gradle.testing.jacoco.tasks.JacocoCoverageVerification
 
 plugins {
     id 'java'
-    id 'application'
     id 'jacoco'
-    id 'org.openjfx.javafxplugin' version '0.1.0'
-    id 'org.gradlex.extra-java-module-info' version '1.14.2'
     id 'org.sonarqube' version '7.5.0.8588'
     id 'org.cyclonedx.bom' version '3.5.1'
 }
@@ -20,6 +17,9 @@ repositories {
     mavenCentral()
 }
 
+// This project holds no product code: the Spring Boot server and the two JavaFX apps are
+// the modules in settings.gradle. The root build owns only the aggregate verification
+// task, the coverage gate, and the Sonar/SBOM configuration.
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(27)
@@ -31,166 +31,12 @@ tasks.withType(JavaCompile).configureEach {
     options.release = 27
 }
 
-extraJavaModuleInfo {
-    // Test-only jars (Testcontainers and its dependencies) have no module metadata;
-    // they run on the test classpath and must not fail the production module patch.
-    failOnMissingModuleInfo = false
-    // Password4j has neither a module descriptor nor an Automatic-Module-Name.
-    automaticModule('com.password4j:password4j', 'com.password4j')
-}
-
-application {
-    mainModule = 'system.chatsystem'
-    // Override with -PmainClass=... to build a distribution for another entry point.
-    mainClass = providers.gradleProperty('mainClass')
-            .getOrElse('com.haichutieu.chatsystem.server.ServerApp')
-    // Hibernate and several other dependencies are automatic modules that are not
-    // reachable through 'requires' alone; resolve everything shipped in lib/.
-    applicationDefaultJvmArgs = ['--add-modules', 'ALL-MODULE-PATH', '--enable-native-access=javafx.graphics']
-}
-
-javafx {
-    version = '27.0.1'
-    modules = ['javafx.base', 'javafx.graphics', 'javafx.controls', 'javafx.fxml']
-}
-
-sourceSets {
-    main {
-        resources {
-            srcDirs = ['src/main/resources']
-        }
-    }
-    integrationTest {
-        java.srcDir 'src/integrationTest/java'
-        resources.srcDir 'src/integrationTest/resources'
-        compileClasspath += sourceSets.main.output
-        runtimeClasspath += sourceSets.main.output
-    }
-    fxTest {
-        java.srcDir 'src/fxTest/java'
-        resources.srcDir 'src/fxTest/resources'
-        compileClasspath += sourceSets.main.output
-        runtimeClasspath += sourceSets.main.output
-    }
-}
-
-configurations {
-    integrationTestImplementation.extendsFrom testImplementation
-    integrationTestRuntimeOnly.extendsFrom testRuntimeOnly
-    fxTestImplementation.extendsFrom testImplementation
-    fxTestRuntimeOnly.extendsFrom testRuntimeOnly
-}
-
-dependencies {
-    testImplementation 'org.junit.jupiter:junit-jupiter:6.1.3'
-    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:6.1.3'
-    testImplementation 'org.assertj:assertj-core:3.27.7'
-    testImplementation 'com.tngtech.archunit:archunit-junit5:1.5.1'
-
-    // Real PostgreSQL 18 for persistence and socket integration tests.
-    integrationTestImplementation 'org.testcontainers:testcontainers:2.0.5'
-    integrationTestImplementation 'org.testcontainers:testcontainers-postgresql:2.0.5'
-    integrationTestImplementation 'org.awaitility:awaitility:4.3.0'
-    integrationTestImplementation 'com.icegreen:greenmail:2.1.15'
-
-    // Hibernate ORM (Jakarta Persistence 3.2)
-    implementation platform("org.hibernate.orm:hibernate-platform:7.4.14.Final")
-    implementation "org.hibernate.orm:hibernate-core"
-    implementation "org.hibernate.orm:hibernate-hikaricp"
-    implementation 'com.zaxxer:HikariCP:7.1.0'
-    implementation "jakarta.transaction:jakarta.transaction-api:2.0.1"
-    // jakarta.transaction's module descriptor requires the CDI and interceptor APIs.
-    implementation 'jakarta.interceptor:jakarta.interceptor-api:2.2.0'
-    implementation 'jakarta.enterprise:jakarta.enterprise.cdi-api:4.1.0'
-
-    implementation 'org.postgresql:postgresql:42.7.14' // postgresql driver
-
-    implementation 'com.password4j:password4j:1.8.4' // Argon2id password hashing
-
-    // create log
-    implementation 'org.slf4j:slf4j-api:2.0.20'
-    runtimeOnly 'org.slf4j:slf4j-simple:2.0.20'
-
-    implementation 'tools.jackson.core:jackson-databind:3.3.0' // json mapper
-
-    // password reset mail
-    implementation 'jakarta.mail:jakarta.mail-api:2.1.5'
-    implementation 'org.eclipse.angus:angus-mail:2.0.5'
-}
-
-// Tests run on the classpath: the application module would otherwise hide test
-// dependencies and require --add-opens for Hibernate, ArchUnit and Testcontainers.
-tasks.named('compileTestJava') {
-    modularity.inferModulePath = false
-}
-tasks.matching { it.name in ['compileIntegrationTestJava', 'compileFxTestJava'] }.configureEach {
-    modularity.inferModulePath = false
-}
-
-tasks.withType(Test).configureEach {
-    useJUnitPlatform()
-    modularity.inferModulePath = false
-    testLogging {
-        events 'failed', 'skipped'
-        exceptionFormat = 'full'
-    }
-    reports.junitXml.required = true
-    reports.html.required = true
-    maxHeapSize = '2g'
-}
-
-tasks.named('test') {
-    description = 'Runs fast unit tests (no Docker, no display).'
-    systemProperty 'junit.jupiter.execution.timeout.default', '60 s'
-}
-
-def integrationTest = tasks.register('integrationTest', Test) {
-    description = 'Runs PostgreSQL 18 and TCP socket integration tests (requires Docker).'
-    group = 'verification'
-    testClassesDirs = sourceSets.integrationTest.output.classesDirs
-    classpath = sourceSets.integrationTest.runtimeClasspath
-    shouldRunAfter tasks.named('test')
-    maxParallelForks = 1
-    systemProperty 'junit.jupiter.execution.timeout.default', '5 min'
-}
-
-def fxTest = tasks.register('fxTest', Test) {
-    description = 'Runs JavaFX toolkit and FXML loading tests (requires a display or Xvfb).'
-    group = 'verification'
-    testClassesDirs = sourceSets.fxTest.output.classesDirs
-    classpath = sourceSets.fxTest.runtimeClasspath
-    shouldRunAfter tasks.named('test')
-    systemProperty 'junit.jupiter.execution.timeout.default', '60 s'
-    jvmArgs '--enable-native-access=ALL-UNNAMED'
-}
-
-tasks.register('fullTest') {
-    group = 'verification'
-    description = 'Runs unit, integration and JavaFX test suites.'
-    dependsOn tasks.named('test'), integrationTest, fxTest,
-            ':server:test', ':server:integrationTest', ':desktop-shared:test',
-            ':desktop-user:test', ':desktop-admin:test',
-            ':desktop-user:fxTest', ':desktop-admin:fxTest'
-}
-
 jacoco {
     toolVersion = '0.8.16'
 }
 
-tasks.named('jacocoTestReport', JacocoReport) {
-    // JavaFX coverage is optional here so the Sonar job never needs a display.
-    dependsOn tasks.named('test'), integrationTest
-    executionData fileTree(layout.buildDirectory.get().asFile).include('jacoco/*.exec')
-    reports {
-        xml.required = true
-        html.required = true
-        csv.required = false
-    }
-}
-
-// Coverage for the rewritten modules. The root project's own sources are the legacy
-// monolith, so a gate over them protects code that is scheduled for deletion while
-// leaving the new server and shared desktop modules unguarded.
+// Coverage for the modules that carry the product. The legacy monolith that used to be
+// this project's own source set is gone, so the gate has to name the modules it measures.
 def coverageModules = [':server', ':desktop-shared']
 
 def coverageClassDirectories = { -> coverageModules.collect { project(it).sourceSets.main.output } }
@@ -202,7 +48,7 @@ def coverageExecutionData = { ->
 
 tasks.register('coverageReport', JacocoReport) {
     group = 'verification'
-    description = 'Coverage report for the rewritten server and desktop-shared modules.'
+    description = 'Coverage report for the server and desktop-shared modules.'
     dependsOn ':server:test', ':server:integrationTest', ':desktop-shared:test'
     executionData files(coverageExecutionData)
     classDirectories.setFrom files(coverageClassDirectories)
@@ -214,13 +60,13 @@ tasks.register('coverageReport', JacocoReport) {
     }
 }
 
-// Anti-regression gate over the rewritten modules. The floors are the baseline measured
-// on 2026-11-11 (bundle 74.97% line / 52.32% branch), rounded down, so a regression fails
-// the build instead of demanding coverage the current tests do not have. Raise them as the
+// Anti-regression gate over the product modules. The floors are the baseline measured on
+// 2026-11-11 (bundle 74.97% line / 52.32% branch), rounded down, so a regression fails the
+// build instead of demanding coverage the current tests do not have. Raise them as the
 // remaining workflows gain tests; the aspirational targets are documented in docs/CI-CD.md.
 def coverageVerification = tasks.register('coverageVerification', JacocoCoverageVerification) {
     group = 'verification'
-    description = 'Fails when the rewritten modules drop below their recorded coverage baseline.'
+    description = 'Fails when the product modules drop below their recorded coverage baseline.'
     dependsOn ':server:test', ':server:integrationTest', ':desktop-shared:test'
     executionData files(coverageExecutionData)
     classDirectories.setFrom files(coverageClassDirectories)
@@ -250,8 +96,13 @@ def coverageVerification = tasks.register('coverageVerification', JacocoCoverage
     }
 }
 
-tasks.named('fullTest') {
-    dependsOn coverageVerification
+tasks.register('fullTest') {
+    group = 'verification'
+    description = 'Runs every module suite plus the coverage gate.'
+    dependsOn ':server:test', ':server:integrationTest', ':desktop-shared:test',
+            ':desktop-user:test', ':desktop-admin:test',
+            ':desktop-user:fxTest', ':desktop-admin:fxTest',
+            coverageVerification
 }
 
 sonar {
@@ -261,93 +112,22 @@ sonar {
         property 'sonar.projectKey', 'hoanhophuoc_Chat-System'
         property 'sonar.organization', 'hoanhophuoc'
         property 'sonar.coverage.jacoco.xmlReportPaths',
-                layout.buildDirectory.file('reports/jacoco/test/jacocoTestReport.xml').get().asFile.absolutePath
-        property 'sonar.tests', 'src/test/java,src/integrationTest/java,src/fxTest/java'
+                layout.buildDirectory.file('reports/jacoco/coverageReport/coverageReport.xml').get().asFile.absolutePath
+        property 'sonar.tests',
+                'server/src/test/java,server/src/integrationTest/java,' +
+                        'desktop-shared/src/test/java,' +
+                        'desktop-user/src/test/java,desktop-user/src/fxTest/java,' +
+                        'desktop-admin/src/test/java,desktop-admin/src/fxTest/java'
         property 'sonar.java.test.binaries',
-                'build/classes/java/test,build/classes/java/integrationTest,build/classes/java/fxTest'
+                'server/build/classes/java/test,server/build/classes/java/integrationTest,' +
+                        'desktop-shared/build/classes/java/test,' +
+                        'desktop-user/build/classes/java/test,desktop-user/build/classes/java/fxTest,' +
+                        'desktop-admin/build/classes/java/test,desktop-admin/build/classes/java/fxTest'
         property 'sonar.qualitygate.wait', 'true'
         property 'sonar.qualitygate.timeout', '300'
     }
 }
 
 tasks.named('sonar') {
-    dependsOn tasks.named('jacocoTestReport')
+    dependsOn tasks.named('coverageReport')
 }
-
-
-// IntelliJ's generated run task puts the whole runtime classpath on the module path
-// but does not add the application's default JVM args. Without this, optional
-// modules such as org.jboss.logging (used by Hibernate) are never resolved.
-tasks.withType(JavaExec).configureEach {
-    jvmArgs '--add-modules', 'ALL-MODULE-PATH', '--enable-native-access=javafx.graphics'
-}
-
-tasks.register('runClient', JavaExec) {
-    group = 'application'
-    description = 'Runs the user chat client.'
-    classpath = sourceSets.main.runtimeClasspath
-    mainClass = 'com.haichutieu.chatsystem.client.ClientLauncher'
-}
-
-tasks.register('runAdmin', JavaExec) {
-    group = 'application'
-    description = 'Runs the admin chat client.'
-    classpath = sourceSets.main.runtimeClasspath
-    mainClass = 'com.haichutieu.chatsystem.client.AdminLauncher'
-}
-
-// ---------------------------------------------------------------------------
-// Native desktop packages (jpackage) for the two JavaFX clients.
-// Run each task on its target OS; jpackage never cross-compiles.
-//   ./gradlew packageClient -PpackageType=app-image
-//   ./gradlew packageClient -PpackageType=deb
-// ---------------------------------------------------------------------------
-
-def appImageVersion = providers.gradleProperty('appVersion').getOrElse('1.0.0')
-def packageType = providers.gradleProperty('packageType').getOrElse('app-image')
-// The desktop clients do not use the server persistence or mail stack.
-def desktopExcludes = [
-        'hibernate-*', 'HikariCP-*', 'postgresql-*', 'jakarta.transaction-*',
-        'jakarta.enterprise-*', 'jakarta.interceptor-*', 'jakarta.mail-*',
-        'jakarta.activation-*', 'jakarta.xml.bind-*', 'jakarta.annotation-*',
-        'jakarta.inject-*', 'jakarta.el-*', 'angus-*', 'jaxb-*', 'txw2-*',
-        'istack-*', 'jboss-logging-*', 'byte-buddy-*', 'antlr4-*', 'checker-qual-*'
-]
-
-def registerJpackage = { String taskName, String appName, String mainClass, String description ->
-    tasks.register(taskName, Exec) {
-        group = 'distribution'
-        this.description = description
-        dependsOn tasks.named('jar')
-        def inputDir = layout.buildDirectory.dir("package/${appName}/input")
-        def destDir = layout.buildDirectory.dir("package/${appName}/out")
-        doFirst {
-            delete inputDir.get().asFile, destDir.get().asFile
-            copy {
-                from(configurations.runtimeClasspath) {
-                    desktopExcludes.each { pattern -> exclude pattern }
-                }
-                from tasks.named('jar').get().archiveFile
-                into inputDir
-            }
-            commandLine 'jpackage',
-                    '--type', packageType,
-                    '--name', appName,
-                    '--app-version', appImageVersion,
-                    '--vendor', 'Chat System',
-                    '--input', inputDir.get().asFile.absolutePath,
-                    '--main-jar', tasks.named('jar').get().archiveFileName.get(),
-                    '--main-class', mainClass,
-                    '--dest', destDir.get().asFile.absolutePath,
-                    '--java-options', '-Dfile.encoding=UTF-8',
-                    '--java-options', '--enable-native-access=ALL-UNNAMED'
-        }
-    }
-}
-
-registerJpackage('packageClient', 'ChatSystemClient',
-        'com.haichutieu.chatsystem.client.ClientLauncher',
-        'Builds the user client with jpackage (app-image, deb, msi or dmg).')
-registerJpackage('packageAdmin', 'ChatSystemAdmin',
-        'com.haichutieu.chatsystem.client.AdminLauncher',
-        'Builds the admin client with jpackage (app-image, deb, msi or dmg).')
