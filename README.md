@@ -218,8 +218,11 @@ docker-compose.perf.yml        isolated load-test stack (k6, Prometheus, JFR)
 `docker-compose.perf.yml` runs the server under a memory limit with Prometheus scraping
 `/actuator/prometheus` and a k6 WebSocket scenario behind the `load` profile. The recorded
 baseline is 10,000 concurrent sessions at 100 messages/second: delivery p95 ≈ 110 ms,
-p99 ≈ 116 ms, zero failed checks, and a flat live heap over a one-hour soak. Reproduction
-steps and the full result table are in [docs/CI-CD.md](docs/CI-CD.md).
+p99 ≈ 116 ms, zero failed checks, and a flat live heap over a one-hour soak. A staged ramp
+(`perf/ramp-run.sh`) then walked the session count up until something broke: 20,000 sessions
+is `CHAT_MAX_CONNECTIONS`, not the machine, and with that cap raised the same build holds
+**30,000 sessions at p95 110 ms / p99 189 ms** with no failed requests. Reproduction steps,
+the per-level table and the generator limits are in [docs/CI-CD.md](docs/CI-CD.md).
 
 ## **Troubleshooting**
 

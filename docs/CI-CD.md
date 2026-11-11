@@ -64,6 +64,20 @@ docker compose -f docker-compose.perf.yml down   # flushes build/perf/app.jfr
 
 `perf/seed.sql` creates deterministic users, sessions, friendships and one direct conversation per pair, so k6 derives every identifier from an index and needs no fixture file. Sessions are seeded directly, so the run measures socket capacity, message persistence, outbox fan-out and delivery, not the Argon2id login path. `perf/k6/chat-load.js` ramps 0 → `SESSIONS` sockets, holds them, and sends `RATE` messages/second; delivery latency is measured on the receiving socket and fails the run when p95 ≥ 1 s or p99 ≥ 2 s. The run has three phases: `RAMP`, then `WARMUP` seconds of traffic at `RATE`, then the measured plateau of `HOLD` seconds. The warm-up exists because the first load on a fresh JVM pays class loading and JIT compilation: the same binary reported p99 590 ms without it and p99 148 ms on the next run. Warm-up deliveries are reported separately as `chat_delivery_warmup_ms`, so thresholds and the summary only cover the plateau; senders stamp the phase into the message content, so the receiving socket attributes each sample without a shared clock. Values used by the last measured baseline are in `.superpowers/sdd/chat-system-rewrite/progress.md`.
 
+### Ramp to the ceiling
+
+`perf/k6/chat-ramp.js` holds several session counts in one run and reports delivery latency per stage, which is how the API ceiling was measured instead of assumed:
+
+```bash
+PLAN=20000:60:60,30000:20:90 USERS=30000 PERF_MAX_CONNECTIONS=50000 PERF_SERVER_MEM=6g \
+    bash perf/ramp-run.sh
+python3 perf/ramp-analyze.py 20000:60:60,30000:20:90
+```
+
+`PLAN` is `targetVUs:rampSeconds:holdSeconds` per stage, `USERS` must cover the largest stage, and the three `PERF_*` variables set the ceiling under test rather than editing the Compose file. The runner builds the stack, seeds the fixtures, records the settings in `/tmp/ramp-meta.txt`, runs k6, then dumps the Prometheus ranges that `perf/ramp-analyze.py` reads. Remember that every stage starts from a fresh JVM: a short first stage reports cold-start cost, not capacity.
+
+Two walls are on the generator, not the server, and both are easy to mistake for a server fault. `CHAT_MAX_CONNECTIONS` caps sessions exactly (a 22,000 target stalls at 19,999 and requests then hit the 60 s client timeout while heap, GC and Hikari stay flat). The k6 container's ephemeral port range caps sockets near 28,000 per destination address, which surfaces as `connect: cannot assign requested address` plus a retry storm; the Compose file widens it to 1024-65535. Past roughly 30,000 sessions the generator also needs about 7 GiB of RAM, so a higher ramp needs a second host.
+
 The harness does not replace a multi-host soak: k6 and the server share one machine, there is no network latency injection, and the plateau is much shorter than the one-hour soak the release gate asks for.
 
 ## Test suites and coverage
