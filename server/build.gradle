@@ -51,6 +51,8 @@ dependencies {
     // Newest Lettuce release; the Boot 4.1.2 BOM still manages 7.5.2.
     implementation 'io.lettuce:lettuce-core:7.9.0.RELEASE'
     implementation 'com.password4j:password4j:1.8.4'
+    // Newest SLF4J release; the Boot BOM manages the 2.0.x line.
+    implementation 'org.slf4j:slf4j-api:2.1.0-alpha1'
     runtimeOnly 'org.postgresql:postgresql'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
