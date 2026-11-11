@@ -25,10 +25,14 @@ Every workflow declares least-privilege permissions; write scopes are confined t
 ./gradlew fullTest                         # every module suite plus the coverage gate
 ./gradlew coverageReport                   # XML and HTML coverage for the product modules
 ./gradlew coverageVerification             # anti-regression coverage gate
+./gradlew gaOnlyCheck                      # fail on any pre-release dependency
+./scripts/check-ga-pins.sh                 # fail on a pre-release action, image or base image
 ./gradlew cyclonedxBom                     # CycloneDX SBOM
 ./gradlew :server:bootRun                  # start the server locally
 ./gradlew :desktop-user:run :desktop-admin:run         # start the desktop apps
 ```
+
+The release policy is GA only, so two checks enforce it instead of review. `gaOnlyCheck` resolves every module classpath (`runtime`, `test`, `integrationTest`, `fxTest`) and fails on any alpha, beta, RC, milestone, early-access, preview, snapshot or dev version — it reports the module, the configuration and the offending coordinate. `check-ga-pins.sh` reads the release comment next to each pinned Action commit SHA plus the Compose, Dockerfile and workflow image tags, because those pins never appear in the Gradle graph. The `Build, unit & integration tests` job runs both before compiling, so a pre-release pin cannot reach `main`.
 
 `:server:integrationTest` requires a running Docker daemon. It starts throwaway `postgres:18-alpine` and `redis:8.10-alpine` containers, applies the real Flyway migrations and exercises the REST and WebSocket surfaces. It never reads production credentials.
 

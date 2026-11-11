@@ -1,3 +1,4 @@
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
 import org.gradle.testing.jacoco.tasks.JacocoCoverageVerification
 
 plugins {
@@ -94,6 +95,48 @@ def coverageVerification = tasks.register('coverageVerification', JacocoCoverage
             }
         }
     }
+}
+
+// GA-only policy. Gradle has no built-in "this must be a release" check, so the policy would
+// otherwise be enforced by review alone: resolving a milestone or beta by accident is silent.
+// This task resolves every classpath the modules use and fails on any pre-release version.
+def preReleaseVersion = ~/(?i)(^|[.\-_])(alpha|beta|rc|cr|m\d+|ea|preview|snapshot|dev|canary|nightly|next)(?=[.\-_]|\d|$)/
+
+def gaOnlyCheck = tasks.register('gaOnlyCheck') {
+    group = 'verification'
+    description = 'Fails when any resolved dependency is a pre-release build.'
+    notCompatibleWithConfigurationCache('resolves the dependency graph at execution time')
+    doLast {
+        def classpathNames = ['runtimeClasspath', 'testRuntimeClasspath',
+                              'integrationTestRuntimeClasspath', 'fxTestRuntimeClasspath']
+        def violations = new TreeSet<String>()
+        subprojects.each { subproject ->
+            subproject.configurations
+                    .findAll { it.canBeResolved && classpathNames.contains(it.name) }
+                    .each { configuration ->
+                        configuration.incoming.resolutionResult.allComponents.each { component ->
+                            if (!(component.id instanceof ModuleComponentIdentifier)) {
+                                return
+                            }
+                            def id = component.id
+                            if (preReleaseVersion.matcher(id.version).find()) {
+                                violations << "${subproject.path} ${configuration.name}: " +
+                                        "${id.group}:${id.module}:${id.version}"
+                            }
+                        }
+                    }
+        }
+        if (!violations.isEmpty()) {
+            throw new GradleException('Pre-release dependencies are not allowed (GA-only policy):\n' +
+                    violations.collect { "  - ${it}" }.join('\n') +
+                    '\nReplace each with its newest GA release; see docs/plan.md.')
+        }
+        logger.lifecycle('gaOnlyCheck: every resolved dependency is a GA release')
+    }
+}
+
+tasks.named('check') {
+    dependsOn gaOnlyCheck
 }
 
 tasks.register('fullTest') {
