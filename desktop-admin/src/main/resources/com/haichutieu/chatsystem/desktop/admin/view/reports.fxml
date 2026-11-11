@@ -48,13 +48,13 @@
                                      text="%admin.reports.reporter"/>
                         <TableColumn fx:id="statusColumn" minWidth="75" prefWidth="100"
                                      text="%admin.reports.status"/>
-                        <TableColumn fx:id="reasonColumn" minWidth="150" prefWidth="200"
+                        <TableColumn fx:id="reasonColumn" minWidth="260" prefWidth="280"
                                      text="%admin.reports.reason"/>
                         <TableColumn fx:id="createdColumn" minWidth="125" prefWidth="140"
                                      text="%admin.reports.created"/>
-                        <TableColumn fx:id="evidenceColumn" minWidth="125" prefWidth="130"
+                        <TableColumn fx:id="evidenceColumn" minWidth="160" prefWidth="170"
                                      text="%admin.reports.evidence"/>
-                        <TableColumn fx:id="decisionColumn" minWidth="170" prefWidth="188"
+                        <TableColumn fx:id="decisionColumn" minWidth="220" prefWidth="240"
                                      text="%admin.reports.decision"/>
                     </columns>
                 </TableView>

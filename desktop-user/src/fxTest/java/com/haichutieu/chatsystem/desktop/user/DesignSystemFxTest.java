@@ -7,20 +7,33 @@ import com.haichutieu.chatsystem.desktop.shared.ui.UiComponents;
 import javafx.application.Platform;
 import javafx.css.PseudoClass;
 import javafx.scene.Parent;
+import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
+import javafx.scene.control.ComboBox;
+import javafx.scene.control.DatePicker;
 import javafx.scene.control.Label;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.ProgressIndicator;
+import javafx.scene.control.TextArea;
+import javafx.scene.control.ListCell;
 import javafx.scene.control.TextField;
+import javafx.scene.layout.Background;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
+import javafx.scene.paint.Color;
 import javafx.scene.paint.Paint;
 import javafx.scene.shape.Circle;
+import javafx.scene.text.Text;
 import javafx.stage.Stage;
 import org.junit.jupiter.api.Test;
 
+import javafx.collections.FXCollections;
+
+import java.time.LocalDate;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
@@ -56,6 +69,173 @@ class DesignSystemFxTest {
             assertThat(title.getTextFill()).isNotEqualTo(light);
             return true;
         })).isTrue();
+    }
+
+    @Test
+    void textAreaAndConsentUseThemeTokensInLightAndDark() {
+        assertThat(onFx(() -> {
+            Stage stage = new Stage();
+            ThemeManager theme = new ThemeManager();
+            TextArea input = new TextArea();
+            CheckBox consent = new CheckBox("Consent");
+            VBox root = new VBox(8, input, consent);
+            Scene scene = new Scene(root, 480, 240);
+            theme.apply(scene);
+            stage.setScene(scene);
+            stage.show();
+            try {
+                theme.setTheme(Theme.LIGHT);
+                theme.apply(scene);
+                root.applyCss();
+                root.layout();
+                assertControlSurfaces(input, consent, Color.web("#EEF2F7"),
+                        Color.web("#17212F"));
+
+                consent.setSelected(true);
+                root.applyCss();
+                assertThat(consent.isSelected()).isTrue();
+                assertThat(checkBoxTextFill(consent)).isEqualTo(Color.web("#17212F"));
+
+                consent.setDisable(true);
+                root.applyCss();
+                assertThat(checkBoxTextFill(consent)).isEqualTo(Color.web("#566476"));
+
+                theme.setTheme(Theme.DARK);
+                theme.apply(scene);
+                consent.setDisable(false);
+                consent.setSelected(false);
+                root.applyCss();
+                root.layout();
+                assertControlSurfaces(input, consent, Color.web("#1B2430"),
+                        Color.web("#E8EDF5"));
+
+                consent.setSelected(true);
+                consent.setDisable(true);
+                root.applyCss();
+                assertThat(checkBoxTextFill(consent)).isEqualTo(Color.web("#9AA7BA"));
+                return true;
+            } finally {
+                stage.close();
+            }
+        })).isTrue();
+    }
+
+    @Test
+    void disabledControlsKeepReadableTextInBothThemes() {
+        assertThat(onFx(() -> {
+            Stage stage = new Stage();
+            ThemeManager theme = new ThemeManager();
+            Button button = new Button("Disabled");
+            Button primary = new Button("Primary");
+            primary.getStyleClass().add("primary-button");
+            Button secondary = new Button("Secondary");
+            secondary.getStyleClass().add("secondary-button");
+            Button danger = new Button("Danger");
+            danger.getStyleClass().add("danger-button");
+            TextField field = new TextField("Disabled");
+            ComboBox<String> combo = new ComboBox<>(FXCollections.observableArrayList("One"));
+            combo.setValue("One");
+            DatePicker date = new DatePicker(LocalDate.of(2026, 1, 1));
+            button.setDisable(true);
+            primary.setDisable(true);
+            secondary.setDisable(true);
+            danger.setDisable(true);
+            field.setDisable(true);
+            combo.setDisable(true);
+            date.setDisable(true);
+            VBox root = new VBox(8, button, primary, secondary, danger, field, combo, date);
+            Scene scene = new Scene(root, 420, 260);
+            theme.apply(scene);
+            stage.setScene(scene);
+            stage.show();
+            try {
+                theme.setTheme(Theme.LIGHT);
+                theme.apply(scene);
+                root.applyCss();
+                root.layout();
+                assertDisabledTheme(button, primary, secondary, danger, field, combo, date,
+                        Color.web("#EEF2F7"), Color.web("#566476"));
+
+                theme.setTheme(Theme.DARK);
+                theme.apply(scene);
+                root.applyCss();
+                root.layout();
+                assertDisabledTheme(button, primary, secondary, danger, field, combo, date,
+                        Color.web("#1B2430"), Color.web("#9AA7BA"));
+                return true;
+            } finally {
+                stage.close();
+            }
+        })).isTrue();
+    }
+
+    private static void assertDisabledTheme(Button button, Button primary, Button secondary,
+                                             Button danger, TextField field, ComboBox<String> combo,
+                                             DatePicker date, Color surface, Color muted) {
+        for (Button candidate : List.of(button, primary, secondary, danger)) {
+            assertThat(candidate.getOpacity()).as("%s opacity", candidate.getText()).isEqualTo(1.0);
+            assertThat(candidate.getBackground().getFills().getFirst().getFill())
+                    .as("%s background", candidate.getText()).isEqualTo(surface);
+            assertThat(candidate.getTextFill()).as("%s text fill", candidate.getText())
+                    .isEqualTo(muted);
+        }
+
+        assertThat(field.getOpacity()).isEqualTo(1.0);
+        assertThat(field.getBackground().getFills().getFirst().getFill()).isEqualTo(surface);
+        assertThat(textInputFill(field)).isEqualTo(muted);
+
+        assertThat(combo.getOpacity()).isEqualTo(1.0);
+        assertThat(combo.getBackground().getFills().getFirst().getFill()).isEqualTo(surface);
+        ListCell<?> comboCell = combo.lookupAll(".list-cell").stream()
+                .filter(ListCell.class::isInstance)
+                .map(ListCell.class::cast)
+                .filter(cell -> "One".equals(cell.getText()))
+                .findFirst()
+                .orElse(null);
+        assertThat(comboCell).as("disabled ComboBox button cell").isNotNull();
+        assertThat(listCellTextFill(comboCell)).isEqualTo(muted);
+
+        assertThat(date.getOpacity()).isEqualTo(1.0);
+        assertThat(date.getBackground().getFills().getFirst().getFill()).isEqualTo(surface);
+        TextField editor = (TextField) date.lookup(".text-field");
+        assertThat(editor).as("disabled DatePicker editor").isNotNull();
+        assertThat(editor.getOpacity()).isEqualTo(1.0);
+        assertThat(textInputFill(editor)).isEqualTo(muted);
+    }
+
+    private static void assertControlSurfaces(TextArea input, CheckBox consent,
+                                               Color surface, Color text) {
+        for (String selector : List.of(".scroll-pane", ".scroll-pane .viewport",
+                ".scroll-pane .content")) {
+            Node skin = input.lookup(selector);
+            assertThat(skin).as("TextArea %s", selector).isInstanceOf(Region.class);
+            Background background = ((Region) skin).getBackground();
+            assertThat(background).as("TextArea %s background", selector).isNotNull();
+            assertThat(background.getFills()).as("TextArea %s fills", selector)
+                    .allSatisfy(fill -> assertThat((Color) fill.getFill()).isEqualTo(surface));
+        }
+        Text textNode = (Text) input.lookup(".text");
+        assertThat(textNode).as("TextArea text node").isNotNull();
+        assertThat(textNode.getFill()).as("TextArea text fill").isEqualTo(text);
+        assertThat(checkBoxTextFill(consent)).as("CheckBox normal text fill").isEqualTo(text);
+    }
+
+    private static Paint checkBoxTextFill(CheckBox consent) {
+        Node textNode = consent.lookup(".text");
+        assertThat(textNode).as("CheckBox text node").isInstanceOf(Text.class);
+        return ((Text) textNode).getFill();
+    }
+
+    private static Paint textInputFill(TextField field) {
+        Node textNode = field.lookup(".text");
+        assertThat(textNode).as("text input node").isInstanceOf(Text.class);
+        return ((Text) textNode).getFill();
+    }
+
+    private static Paint listCellTextFill(ListCell<?> cell) {
+        Node textNode = cell.lookup(".text");
+        assertThat(textNode).as("list cell text node").isInstanceOf(Text.class);
+        return ((Text) textNode).getFill();
     }
 
     @Test

@@ -30,15 +30,15 @@
             <Label fx:id="statusLabel" styleClass="admin-status" text="%admin.accounts.loading"/>
             <TableView fx:id="accountsTable" styleClass="admin-table" VBox.vgrow="ALWAYS">
                 <columns>
-                    <TableColumn fx:id="usernameColumn" minWidth="90" prefWidth="150"
+                    <TableColumn fx:id="usernameColumn" minWidth="88" prefWidth="105"
                                  text="%admin.accounts.username"/>
-                    <TableColumn fx:id="fullNameColumn" minWidth="120" prefWidth="180"
+                    <TableColumn fx:id="fullNameColumn" minWidth="140" prefWidth="170"
                                  text="%admin.accounts.fullName"/>
-                    <TableColumn fx:id="emailColumn" minWidth="160" prefWidth="210"
+                    <TableColumn fx:id="emailColumn" minWidth="175" prefWidth="200"
                                  text="%admin.accounts.email"/>
-                    <TableColumn fx:id="statusColumn" minWidth="70" prefWidth="100"
+                    <TableColumn fx:id="statusColumn" minWidth="65" prefWidth="80"
                                  text="%admin.accounts.status"/>
-                    <TableColumn fx:id="actionColumn" minWidth="180" prefWidth="205"
+                    <TableColumn fx:id="actionColumn" minWidth="170" prefWidth="180"
                                  text="%admin.accounts.action"/>
                 </columns>
             </TableView>

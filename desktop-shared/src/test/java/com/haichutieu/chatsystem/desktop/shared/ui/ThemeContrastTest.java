@@ -27,6 +27,35 @@ class ThemeContrastTest {
         assertTheme("dark", ".theme-dark");
     }
 
+    @Test
+    void textAreaAndConsentPairsMeetAaInBothThemes() throws IOException {
+        assertTextAreaAndConsent("light", ".root");
+        assertTextAreaAndConsent("dark", ".theme-dark");
+    }
+
+    @Test
+    void comboAndDatePickerPopupPairsMeetAaInBothThemes() throws IOException {
+        assertPopupContrast("light", ".root");
+        assertPopupContrast("dark", ".theme-dark");
+    }
+
+    private static void assertTextAreaAndConsent(String theme, String selector) throws IOException {
+        Map<String, int[]> tokens = tokens(selector);
+        assertContrast(theme, tokens, "text", "surface-muted", 4.5);
+        assertContrast(theme, tokens, "text-subtle", "surface-muted", 4.5);
+        assertContrast(theme, tokens, "text", "surface", 4.5);
+        assertContrast(theme, tokens, "text-muted", "surface", 4.5);
+    }
+
+    private static void assertPopupContrast(String theme, String selector) throws IOException {
+        Map<String, int[]> tokens = tokens(selector);
+        assertContrast(theme, tokens, "text", "surface", 4.5);
+        assertContrast(theme, tokens, "text", "surface-muted", 4.5);
+        assertContrast(theme, tokens, "text-muted", "surface-muted", 4.5);
+        assertContrast(theme, tokens, "accent", "accent-soft", 4.5);
+        assertContrast(theme, tokens, "on-accent", "accent", 4.5);
+    }
+
     private static void assertTheme(String name, String selector) throws IOException {
         Map<String, int[]> tokens = tokens(selector);
         for (String[] pair : new String[][]{
