@@ -11,7 +11,7 @@ java { toolchain { languageVersion = JavaLanguageVersion.of(27) } }
 repositories { mavenCentral() }
 
 javafx {
-    version = '27.0.1'
+    version = '28-ea+12'
     modules = ['javafx.controls', 'javafx.fxml']
 }
 
