@@ -136,6 +136,23 @@
 
 ## Verification log (newest first)
 
+- **2026-11-11 (Gradle 9.9.1, setup-java v6.2.0, legacy monolith removed).**
+  - Wrapper moved to **Gradle 9.9.1** with the published SHA-256
+    (`d8a18a7a841dd5df825d35a685fad6f2d7f12ac0c280e57b67c27b4a520ba228`), produced by the
+    `wrapper` task rather than hand-edited so `gradlew`, `gradle-wrapper.jar` and the
+    properties stay consistent. `./gradlew --version` -> Gradle 9.9.1 on JDK 27.0.1, and the
+    wrapper validated the downloaded distribution checksum itself.
+  - `actions/setup-java` v6.1.0 -> **v6.2.0**, pinned at commit `77dd5b2ce225ea11469928ac317850245a74ae78`
+    resolved from the tag with `git ls-remote` (3 uses in `ci.yml`, 3 in `release.yml`,
+    1 in `codeql.yml`). All four workflows still parse.
+  - `xvfb-run -a ./gradlew fullTest` on 9.9.1 -> BUILD SUCCESSFUL, 30 tasks executed in 1m27s.
+  - Same session, earlier commits: packaging moved to `:desktop-user:packageClient` /
+    `:desktop-admin:packageAdmin` (both app images built and launched headless for 20 s with
+    `--enable-native-access=ALL-UNNAMED`), the legacy `src/` tree (98 files, 9,404 lines)
+    deleted, the root build reduced to aggregation plus the coverage gate, and README,
+    CI guide and agent profile rewritten for the module layout (`97326f9`, `aa56f16`,
+    `249ca4f`).
+
 - **2026-11-11 (one-hour soak + Eclipse MAT heap analysis at 10,000 sessions / 100 msg/s).**
   - Delivery p95 110 ms, p99 116 ms (avg 62 ms) over a 60-minute plateau; 359,966 sends and
     719,932 deliveries; 0 of 368,823 checks failed; `POST /messages` p95 7.3 ms / p99 10.2 ms.

@@ -1,7 +1,7 @@
 # Chat-System — agent profile
 
 ## Stack
-- Java 27 via the Gradle toolchain; Gradle 9.9.0 (wrapper); the root project holds no code.
+- Java 27 via the Gradle toolchain; Gradle 9.9.1 (wrapper); the root project holds no code.
 - `server`: Spring Boot 4.1.2 — WebMVC, WebSocket, Security, Validation, Actuator, Flyway, JDBC, Data Redis, Mail, Micrometer; PostgreSQL 18 with the `chat_v1` schema (Flyway `V1`–`V6`).
 - `client-sdk`: Java client generated from `api/v1/openapi.yaml` (OpenAPI Generator 7.27.0).
 - `desktop-shared`: JavaFX 27.0.1 design system, i18n, encrypted cache, MLS-style group crypto (Bouncy Castle 1.86).

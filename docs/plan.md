@@ -8,7 +8,7 @@ Goal: Replace the current chat system with a production-grade, user-oriented, ac
 
 Architecture: A Spring Boot modular monolith will serve versioned REST operations and secure WebSocket events. Separate JavaFX user and admin apps will use generated API contracts; PostgreSQL stores application data, while Redis supports distributed presence and event fan-out. Group messages use MLS-style end-to-end encryption on Bouncy Castle primitives; RFC 9420 conformance is an open release blocker, so docs and UI must not claim RFC 9420. Message search runs against a locally encrypted history index.
 
-Tech Stack: Java 27, Gradle 9.9.0, JavaFX 27, Spring Boot 4.1.2, PostgreSQL 18, Redis 8.10, Flyway 13.12.1, Spring Security, Bouncy Castle MLS, JUnit Jupiter, Testcontainers, JavaFX UI tests, JaCoCo, GitHub Actions. Performance tooling: JFR/JDK Mission Control, async-profiler, JMH, k6, JMeter, OWASP ZAP, Eclipse MAT, Toxiproxy, Micrometer/Prometheus/Grafana (Task 9).
+Tech Stack: Java 27, Gradle 9.9.1, JavaFX 27, Spring Boot 4.1.2, PostgreSQL 18, Redis 8.10, Flyway 13.12.1, Spring Security, Bouncy Castle MLS, JUnit Jupiter, Testcontainers, JavaFX UI tests, JaCoCo, GitHub Actions. Performance tooling: JFR/JDK Mission Control, async-profiler, JMH, k6, JMeter, OWASP ZAP, Eclipse MAT, Toxiproxy, Micrometer/Prometheus/Grafana (Task 9).
 
 Spec: Project.pdf plus the approved design decisions in this conversation.
 
@@ -34,7 +34,7 @@ Verified against `repo1.maven.org` metadata, the Gradle Plugin Portal and Docker
 | Component | Pinned now | Newest release | Action |
 | --- | --- | --- | --- |
 | Java | 27.0.1 | 27.0.1 | current |
-| Gradle | 9.9.0 | 9.9.0 | current (wrapper and SHA-256 updated 2026-11-10) |
+| Gradle | 9.9.1 | 9.9.1 | current (wrapper and SHA-256 updated 2026-11-11) |
 | Spring Boot | 4.1.2 | 4.1.2 | current; 4.2.0-RC2 is a pre-release |
 | JavaFX | 27.0.1 | 27.0.1 | current |
 | Testcontainers | 2.0.5 | 2.0.5 | current; artifacts are `testcontainers-postgresql` and `testcontainers-junit-jupiter`, `PostgreSQLContainer` moved to `org.testcontainers.postgresql` |
@@ -50,11 +50,11 @@ Verified against `repo1.maven.org` metadata, the Gradle Plugin Portal and Docker
 | SLF4J | 2.0.20 | 2.0.20 | current; 2.1.0-alpha1 is a pre-release |
 | Gradle plugins (sonarqube, cyclonedx, javafx, foojay, extra-java-module-info) | 7.5.0.8588, 3.5.1, 0.1.0, 1.0.0, 1.14.2 | same | current |
 | Redis image | `redis:8.10-alpine` | `redis:8.10-alpine` | current |
-| Gradle build image | `gradle:9.8.2-jdk27` | `gradle:9.8.2-jdk27` | newest published image; `./gradlew` runs Gradle 9.9.0 inside it |
+| Gradle build image | `gradle:9.8.2-jdk27` | `gradle:9.8.2-jdk27` | newest published image; `./gradlew` runs Gradle 9.9.1 inside it |
 
 Process: Dependabot keeps its weekly grouped updates; each release cycle re-checks every row against live registry metadata and records the resulting pin or upgrade in the ledger. A version change is accepted only after `fullTest` passes.
 
-Upgrade log: on 2026-11-10 every trailing pin was moved to the newest release — Gradle 9.9.0 (wrapper SHA-256 updated), Testcontainers 2.0.5 with the renamed `testcontainers-postgresql` / `testcontainers-junit-jupiter` artifacts and the `org.testcontainers.postgresql` import, Jackson 3.3.0, Flyway 13.12.1 and Lettuce 7.9.0.RELEASE declared explicitly, `redis:8.10-alpine` and `gradle:9.9.0-jdk27` in the Compose stack, Dockerfile, live-journey scripts and integration tests. Verified 2026-11-10: `fullTest` under Xvfb is green for every suite except two assertions in the pre-existing untracked contrast test (see the ledger entry); Flyway 13.12.1 resolves and the 25 server integration tests pass against PostgreSQL 18, Redis 8.10 and Testcontainers 2.0.5.
+Upgrade log: on 2026-11-10 every trailing pin was moved to the newest release — Gradle 9.9.0 (wrapper SHA-256 updated), Testcontainers 2.0.5 with the renamed `testcontainers-postgresql` / `testcontainers-junit-jupiter` artifacts and the `org.testcontainers.postgresql` import, Jackson 3.3.0, Flyway 13.12.1 and Lettuce 7.9.0.RELEASE declared explicitly, `redis:8.10-alpine` and `gradle:9.9.0-jdk27` in the Compose stack, Dockerfile, live-journey scripts and integration tests. On 2026-11-11 the wrapper moved to Gradle 9.9.1 with its published SHA-256 and `actions/setup-java` from v6.1.0 to v6.2.0, pinned at commit `77dd5b2`. Verified 2026-11-10: `fullTest` under Xvfb is green for every suite except two assertions in the pre-existing untracked contrast test (see the ledger entry); Flyway 13.12.1 resolves and the 25 server integration tests pass against PostgreSQL 18, Redis 8.10 and Testcontainers 2.0.5.
 
 ## Review Focus
 
