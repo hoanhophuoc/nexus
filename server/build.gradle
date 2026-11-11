@@ -1,7 +1,7 @@
 plugins {
     id 'java'
     id 'jacoco'
-    id 'org.springframework.boot' version '4.1.2'
+    id 'org.springframework.boot' version '4.2.0-RC2'
 }
 
 group = 'com.haichutieu.chatsystem'
@@ -32,7 +32,7 @@ configurations {
 }
 
 dependencies {
-    implementation platform('org.springframework.boot:spring-boot-dependencies:4.1.2')
+    implementation platform('org.springframework.boot:spring-boot-dependencies:4.2.0-RC2')
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'io.micrometer:micrometer-registry-prometheus'
     implementation 'org.springframework.boot:spring-boot-starter-flyway'
