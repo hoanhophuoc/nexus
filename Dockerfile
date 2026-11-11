@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-# The published image lags the wrapper; ./gradlew downloads and runs Gradle 9.9.0.
+# The published image lags the wrapper; ./gradlew downloads and runs Gradle 9.9.1.
 FROM gradle:9.8.2-jdk27 AS build
 WORKDIR /workspace
 COPY settings.gradle build.gradle gradlew gradlew.bat ./

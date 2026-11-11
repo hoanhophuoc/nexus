@@ -1,6 +1,6 @@
 # CI/CD and Quality Pipeline
 
-This project builds with **JDK 27**, **Gradle 9.9.0**, **JavaFX 27.0.1**, **JUnit Jupiter 6.1.3** and **PostgreSQL 18**. The pipeline uses GitHub Actions and SonarQube Cloud; it never downgrades the Java/JavaFX runtime.
+This project builds with **JDK 27**, **Gradle 9.9.1**, **JavaFX 27.0.1**, **JUnit Jupiter 6.1.3** and **PostgreSQL 18**. The pipeline uses GitHub Actions and SonarQube Cloud; it never downgrades the Java/JavaFX runtime.
 
 ## Workflow architecture
 
@@ -137,7 +137,7 @@ SonarSource's Java documentation states that LTS versions **8, 11, 17, 21, 25 an
 - **Dependabot** updates Gradle dependencies and GitHub Actions weekly in grouped PRs.
 - **Dependency Review** blocks pull requests that introduce high-severity vulnerable dependencies. On private repositories this requires GitHub Advanced Security; on public repositories it is available by default.
 - **CodeQL** scans Java on PRs, `main`, and a weekly schedule. It compiles production sources with `./gradlew compileJava` before analysis.
-- **Gradle wrapper integrity**: `gradle-wrapper.properties` contains the official SHA-256 of `gradle-9.9.0-bin.zip`, and `gradle/actions/setup-gradle` validates the wrapper.
+- **Gradle wrapper integrity**: `gradle-wrapper.properties` contains the official SHA-256 of `gradle-9.9.1-bin.zip`, and `gradle/actions/setup-gradle` validates the wrapper.
 - **SBOM**: CycloneDX JSON is generated at `build/reports/cyclonedx/bom.json` and published with each release.
 - **Secrets**: `SONAR_TOKEN` is the only required secret. Never add signing keys, database passwords or mail credentials to workflow files. Enable GitHub **Secret Scanning** and **Push Protection** in repository settings.
 - Code signing and macOS notarization are not configured. Installers produced by the release workflow are **unsigned** until signing secrets and steps are added.

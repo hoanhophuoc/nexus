@@ -67,7 +67,7 @@ Sonar/SBOM configuration.
 | Technology | Version | Purpose |
 | --- | --- | --- |
 | Java | **27** | Language and runtime (Gradle toolchain) |
-| Gradle | **9.9.0** | Build and packaging (wrapper) |
+| Gradle | **9.9.1** | Build and packaging (wrapper) |
 | Spring Boot | **4.1.2** | Server, WebMVC, WebSocket, Security, Actuator |
 | JavaFX | **27.0.1** | Desktop clients |
 | PostgreSQL | **18** | Primary store, `chat_v1` schema managed by Flyway **13.12.1** |
