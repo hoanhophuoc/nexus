@@ -173,8 +173,7 @@ public class AdminService {
         List<Object> args = new ArrayList<>();
         StringBuilder where = new StringBuilder("WHERE c.type = 'group'");
         if (query != null && !query.isBlank()) {
-            where.append(" AND position(lower(?) in lower(c.name)) > 0");
-            args.add(query.strip());
+            AdminSupport.appendGroupFilter(where, args, query);
         }
         if (cursor != null) {
             AdminSupport.Cursor decoded = AdminSupport.decodeCursor(cursor);

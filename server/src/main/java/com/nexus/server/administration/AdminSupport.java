@@ -69,6 +69,18 @@ final class AdminSupport {
         args.add(pattern);
     }
 
+    /**
+     * Filters groups by a substring of their name. The predicate uses the partial trigram index from
+     * V11, so a term that matches no group reads the index instead of walking every conversation.
+     */
+    static void appendGroupFilter(StringBuilder where, List<Object> args, String query) {
+        if (query == null || query.isBlank()) {
+            return;
+        }
+        where.append(" AND lower(c.name) LIKE ? ESCAPE '\\'");
+        args.add(LikePatterns.containing(query));
+    }
+
     static String encodeCursor(UUID id, String sortKey) {
         return Base64.getUrlEncoder().withoutPadding()
                 .encodeToString((id + "\0" + sortKey).getBytes(StandardCharsets.UTF_8));

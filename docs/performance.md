@@ -67,6 +67,7 @@ Measured with `EXPLAIN (ANALYZE, BUFFERS)` on a fixture of 20,000 accounts, 2,00
 | Member batch for 100 direct chats | Index-only scan on the membership primary key | 3.77 ms |
 | User search, term that matches nobody | BitmapOr of two trigram indexes | 0.127 ms (was 6.6 ms scanning the table) |
 | Admin account filter, same term | BitmapOr of three trigram indexes | index-backed |
+| Admin group filter, same term | Bitmap Index Scan on `conversation_group_name_trgm_idx` | index-backed |
 | Delete one message (400k outbox events) | Index lookups only | was 20.96 ms in the FK trigger, now a seek |
 
 ### What the audits changed
@@ -81,6 +82,9 @@ Measured with `EXPLAIN (ANALYZE, BUFFERS)` on a fixture of 20,000 accounts, 2,00
   because a freshly populated index otherwise stays in the pending list and the planner falls
   back to a sequential scan (4.7 ms measured) until a vacuum runs.
 - `V10` added the email trigram index the admin filter needs.
+- `V11` did the same for the admin group list: its name filter used `POSITION(...) > 0`, which no
+  index can serve, so a term that matched no group walked every conversation. The partial index
+  covers `lower(name)` for `type = 'group'` only, and the filter now uses escaped `LIKE`.
 - The pool sets `plan_cache_mode = force_custom_plan`: PostgreSQL plans a parameterized `LIKE`
   with default selectivity, and the reused generic plan went back to walking the primary key
   (11.2 ms against 0.2 ms).
