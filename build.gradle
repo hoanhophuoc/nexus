@@ -154,8 +154,19 @@ sonar {
         property 'sonar.sourceEncoding', 'UTF-8'
         property 'sonar.projectKey', 'hoanhophuoc_nexus'
         property 'sonar.organization', 'hoanhophuoc'
-        property 'sonar.coverage.jacoco.xmlReportPaths',
-                layout.buildDirectory.file('reports/jacoco/coverageReport/coverageReport.xml').get().asFile.absolutePath
+        // Each module imports its own report. Pointing every module at the aggregate report made
+        // desktop-user and desktop-admin log that none of its files could be matched to theirs.
+        property ':server.sonar.coverage.jacoco.xmlReportPaths', project(':server')
+                .layout.buildDirectory.file('reports/jacoco/serverCoverage/serverCoverage.xml')
+                .get().asFile.absolutePath
+        property ':desktop-shared.sonar.coverage.jacoco.xmlReportPaths', project(':desktop-shared')
+                .layout.buildDirectory.file('reports/jacoco/sharedCoverage/sharedCoverage.xml')
+                .get().asFile.absolutePath
+        // The root project holds no code: without a binary path the scanner warns that
+        // sonar.java.binaries is empty for it. The product binaries are the ones being analysed.
+        property 'sonar.java.binaries', [project(':server'), project(':desktop-shared')].collect {
+            it.layout.buildDirectory.dir('classes/java/main').get().asFile.absolutePath
+        }.join(',')
         // sonar.sources, sonar.tests and sonar.java.test.binaries come from each module's source
         // sets. Listing them here as well made the scanner index the test sources twice and the
         // analysis failed with "can't be indexed twice" for server/src/test.
@@ -166,4 +177,5 @@ sonar {
 
 tasks.named('sonar') {
     dependsOn tasks.named('coverageReport')
+    dependsOn ':server:serverCoverage', ':desktop-shared:sharedCoverage'
 }

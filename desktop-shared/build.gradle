@@ -1,3 +1,5 @@
+import org.gradle.testing.jacoco.tasks.JacocoReport
+
 plugins {
     id 'java-library'
     id 'jacoco'
@@ -34,3 +36,18 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 tasks.withType(Test).configureEach { useJUnitPlatform() }
+
+// One report per module, so SonarQube does not have to guess which files belong to it.
+tasks.register('sharedCoverage', JacocoReport) {
+    description = 'JaCoCo XML of the desktop-shared module for SonarQube.'
+    group = 'verification'
+    dependsOn tasks.named('test')
+    executionData files(layout.buildDirectory.file('jacoco/test.exec'))
+    sourceSets sourceSets.main
+    reports {
+        xml.required = true
+        xml.outputLocation = layout.buildDirectory.file('reports/jacoco/sharedCoverage/sharedCoverage.xml')
+        html.required = false
+        csv.required = false
+    }
+}
