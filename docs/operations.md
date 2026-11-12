@@ -172,7 +172,12 @@ image through `docker run --network host`.
 | 2 | The variables cannot be read or the database cannot be reached | Fix the connection first |
 
 A warning (exit 0) means both the current and the pre-rename schema exist: the server only reads
-`nexus`, so the old rows stay ignored until they are dropped.
+`nexus`, so the old rows stay ignored until they are dropped. A rejected password, an unreachable
+host and an unreadable database all end at exit 2 with the server's own message; none of them is
+reported as a fresh installation.
+
+`./scripts/test-database-identity.sh` runs every branch above against a throwaway PostgreSQL,
+including a wrong password and a port with no database, and fails if an exit status changes.
 
 ### Routine upgrade
 
