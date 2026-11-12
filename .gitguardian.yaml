@@ -3,7 +3,7 @@
 # keep its meaning.
 version: 2
 secret:
-  ignored-matches:
+  ignored_matches:
     # HKDF domain-separation label for the MLS application key. Changing it would change every
     # derived key, so it stays as it is.
     - name: MLS application-key domain label
