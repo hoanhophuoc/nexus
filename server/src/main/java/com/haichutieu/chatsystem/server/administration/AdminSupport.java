@@ -1,5 +1,6 @@
 package com.haichutieu.chatsystem.server.administration;
 
+import com.haichutieu.chatsystem.server.LikePatterns;
 import com.haichutieu.chatsystem.server.identity.SessionIdentity;
 
 import java.nio.charset.StandardCharsets;
@@ -48,19 +49,24 @@ final class AdminSupport {
         };
     }
 
+    /**
+     * Filters accounts by a substring of the username, full name or email. The predicates use the
+     * columns the trigram indexes from V9 and V10 cover, so a term that matches nothing reads the
+     * index instead of walking every account.
+     */
     static void appendUserFilter(StringBuilder where, List<Object> args, String query) {
         if (query == null || query.isBlank()) {
             return;
         }
-        String term = query.strip();
+        String pattern = LikePatterns.containing(query);
         where.append("""
-                 AND (position(lower(?) in lower(u.username)) > 0
-                   OR position(lower(?) in lower(u.full_name)) > 0
-                   OR position(lower(?) in lower(u.email)) > 0)
+                 AND (u.username_normalized LIKE ? ESCAPE '\\'
+                   OR lower(u.full_name) LIKE ? ESCAPE '\\'
+                   OR u.email_normalized LIKE ? ESCAPE '\\')
                 """);
-        args.add(term);
-        args.add(term);
-        args.add(term);
+        args.add(pattern);
+        args.add(pattern);
+        args.add(pattern);
     }
 
     static String encodeCursor(UUID id, String sortKey) {
