@@ -1,6 +1,6 @@
 # CI/CD
 
-Four workflows live in `.github/workflows`. Everything they enforce is reproducible locally with
+Five workflows live in `.github/workflows`. Everything they enforce is reproducible locally with
 the commands below.
 
 ## `ci.yml` — pull requests and main
@@ -8,6 +8,7 @@ the commands below.
 | Job | Runs | Fails when |
 | --- | --- | --- |
 | Build, unit & integration tests | `check-ga-pins.sh`, `gaOnlyCheck`, `check-image-pins.sh`, `:desktop-shared:test`, `:desktop-user:test`, `:desktop-admin:test`, `:server:test`, `:server:integrationTest`, coverage report and `coverageVerification`, SonarQube when a token is configured | A pre-release pin, a floating image, a failing test, or coverage below the floor |
+| Database identity pre-flight | `./scripts/test-database-identity.sh` against a throwaway PostgreSQL | Any documented exit status of `check-database-identity.sh` changes, including a rejected password or an unreachable host being reported as a fresh install |
 | JavaFX FXML tests | `xvfb-run -a ./gradlew :desktop-user:fxTest :desktop-admin:fxTest` | FXML or controller wiring breaks |
 | Live user journey (isolated Docker) | `./scripts/live-journey.sh`, then verifies no temporary container, volume or network survived | The end-to-end journey fails, or it leaks Docker resources |
 | Linux app image | Builds the desktop packaging output on Linux | A packaging step fails |
@@ -22,6 +23,12 @@ the commands below.
 | Coverage floor | `./gradlew coverageVerification` | Silent loss of tested behaviour |
 | Database plans | `:server:integrationTest` | A cascade or search that stops using its index (see [performance.md](performance.md)) |
 | Live journey cleanup | last step of the journey job | Containers, volumes or networks left behind |
+| Secret scan | `ggshield secret scan repo git@github.com:hoanhophuoc/nexus.git` | A credential in a pushed commit |
+
+`gitguardian.yaml` runs the same scan in CI: it checks the commits a push or pull request adds,
+not the whole history, so a finding that is already in the repository does not mask a new one. The
+action and the checkout step are pinned to commit SHAs, and the scan needs the
+`GITGUARDIAN_API_KEY` repository secret.
 
 Container references must carry an exact version tag or a `@sha256:` digest. The current pins:
 

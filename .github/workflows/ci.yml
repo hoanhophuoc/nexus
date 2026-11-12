@@ -135,6 +135,21 @@ jobs:
             desktop-user/build/golden-actual
           retention-days: 14
 
+  database-identity:
+    name: Database identity pre-flight
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Every documented branch of the pre-flight check, including the rejected password and the
+      # unreachable host that used to be reported as a fresh install.
+      - name: Exercise check-database-identity.sh
+        run: ./scripts/test-database-identity.sh
+
   live-journey:
     name: Live user journey (isolated Docker)
     runs-on: ubuntu-latest

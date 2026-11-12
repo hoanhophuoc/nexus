@@ -44,15 +44,17 @@ expect() { # $1 = expected exit, $2 = label, rest = extra environment for the ch
   fi
 }
 
-expect_connection_error() { # $1 = label, rest = environment that breaks the connection
-  local label="$1" output status
-  shift
+expect_connection_error() { # $1 = label, $2 = text the server itself must have produced
+  local label="$1" needle="$2" output status
+  shift 2
   output="$(env "$@" "$CHECK" 2>&1)"
   status=$?
-  if [ "$status" = "2" ] && [[ "$output" != *"fresh installation"* ]] && [[ "$output" == *"cannot query"* ]]; then
-    printf 'ok   %-58s exit 2\n' "$label"
+  if [ "$status" = "2" ] && [[ "$output" == *"cannot query"* ]] \
+      && [[ "$output" != *"fresh installation"* ]] && [[ "$output" == *"$needle"* ]]; then
+    printf 'ok   %-52s exit 2, reported "%s"\n' "$label" "$needle"
   else
-    printf 'FAIL %-58s exit %s, wanted 2 without a fresh-install claim\n%s\n' "$label" "$status" "$output"
+    printf 'FAIL %-52s exit %s, wanted 2 with "%s" and no fresh-install claim\n%s\n' \
+      "$label" "$status" "$needle" "$output"
     failures=$((failures + 1))
   fi
 }
@@ -74,9 +76,12 @@ psql_ postgres "CREATE DATABASE chat_system;" >/dev/null
 psql_ nexus "DROP SCHEMA nexus CASCADE;" >/dev/null
 expect 1 "pre-rename database blocks the start"
 
-expect_connection_error "rejected password is not a fresh install" NEXUS_DB_PASSWORD=wrong-password
+# The message has to carry what PostgreSQL said, not just the script's own wording: a bare
+# "cannot query" would still hide the reason from whoever runs the check.
+expect_connection_error "rejected password is not a fresh install" \
+  "FATAL: password authentication failed" NEXUS_DB_PASSWORD=wrong-password
 expect_connection_error "no postgres on that port is not a fresh install" \
-  NEXUS_DB_URL="jdbc:postgresql://127.0.0.1:1/nexus"
+  "Connection refused" NEXUS_DB_URL="jdbc:postgresql://127.0.0.1:1/nexus"
 
 if [ "$failures" -eq 0 ]; then
   echo "database-identity test: all branches behaved as documented"
