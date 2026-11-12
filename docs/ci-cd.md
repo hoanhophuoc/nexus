@@ -7,17 +7,18 @@ the commands below.
 
 | Job | Runs | Fails when |
 | --- | --- | --- |
-| Build, unit & integration tests | `check-ga-pins.sh`, `gaOnlyCheck`, `check-image-pins.sh`, `:desktop-shared:test`, `:desktop-user:test`, `:desktop-admin:test`, `:server:test`, `:server:integrationTest`, coverage report and `coverageVerification`, SonarQube when a token is configured | A pre-release pin, a floating image, a failing test, or coverage below the floor |
+| Build, unit & integration tests | `check-ga-pins.sh`, `gaOnlyCheck`, `check-image-pins.sh`, `:desktop-shared:test`, `:desktop-user:test`, `:desktop-admin:test`, `:server:test`, `:server:integrationTest`, the JavaFX coverage artifact, coverage report and `coverageVerification`, SonarQube when a token is configured | A pre-release pin, a floating image, a failing test, or coverage below the floor in any of the four product modules |
 | Database identity pre-flight | `./scripts/test-database-identity.sh` against a throwaway PostgreSQL | Any documented exit status of `check-database-identity.sh` changes, including a rejected password or an unreachable host being reported as a fresh install |
 | JavaFX FXML tests | `xvfb-run -a ./gradlew :desktop-user:fxTest :desktop-admin:fxTest` | FXML or controller wiring breaks |
 | Live user journey (isolated Docker) | `./scripts/live-journey.sh`, then verifies no temporary container, volume or network survived | The end-to-end journey fails, or it leaks Docker resources |
 | Linux app image | Builds the desktop packaging output on Linux | A packaging step fails |
 
 The two desktop modules take their coverage from their JavaFX suites, so the `fx-test` job uploads
-their `fxTest.exec` files as the `fx-coverage` artifact and the analysis job downloads them before
-`./gradlew sonar` (`build-test` therefore waits for `fx-test`). Without that data the module
-reports were empty, SonarQube counted both UI modules as 0% covered, and the project sat at 38%.
-With it they measure about 65% and 85%, which takes the reported project coverage from 38% to 67%.
+their `fxTest.exec` files as the `fx-coverage` artifact and the analysis job downloads it before the
+coverage report, the gate and `./gradlew sonar` (`build-test` therefore waits for `fx-test`).
+Without that data the module reports were empty, SonarQube counted both UI modules as 0% covered,
+and the project sat at 38%. With it they measure about 65% and 85%, which takes the reported project
+coverage from 38% to 67%.
 
 `java:S2077` ("Make sure using a dynamically formatted SQL query is safe here") is ignored for the
 SQL-building packages only — `server/administration`, `server/groups/Jdbc*`,
@@ -35,7 +36,7 @@ active in every other package.
 | GA-only dependencies | `./gradlew gaOnlyCheck` | An alpha, beta, milestone, RC, snapshot, preview or EA version on any classpath |
 | GA-only external pins | `./scripts/check-ga-pins.sh` | A pre-release GitHub Action SHA, container tag or Dockerfile base image |
 | Pinned container images | `./scripts/check-image-pins.sh` | `:latest`, an untagged image, or a tag that pins no version |
-| Coverage floor | `./gradlew coverageVerification` | Silent loss of tested behaviour |
+| Coverage floor | `./gradlew coverageVerification` (needs the desktop `fxTest` exec data, so run `fullTest` first) | Silent loss of tested behaviour in any of the four product modules, including `desktop-user` (65% of lines) and `desktop-admin` (84%) |
 | Database plans | `:server:integrationTest` | A cascade or search that stops using its index (see [performance.md](performance.md)) |
 | Live journey cleanup | last step of the journey job | Containers, volumes or networks left behind |
 | Secret scan | `ggshield secret scan repo git@github.com:hoanhophuoc/nexus.git` | A credential in a pushed commit |
@@ -89,9 +90,12 @@ tests rather than trusting an earlier run.
 ```bash
 ./scripts/check-ga-pins.sh
 ./scripts/check-image-pins.sh
-./gradlew gaOnlyCheck coverageVerification
+./gradlew gaOnlyCheck
 xvfb-run -a ./gradlew fullTest
 ```
 
 `fullTest` is the closest local equivalent of the CI build job; the live journey is the only
-step it does not cover, and it needs Docker.
+step it does not cover, and it needs Docker. `coverageVerification` on its own is only meaningful
+after the JavaFX suites ran: the gate measures `desktop-user` and `desktop-admin` from their
+`fxTest.exec`, and it fails with a pointer to `fullTest` when that data is missing rather than
+counting those modules as uncovered.

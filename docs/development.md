@@ -43,7 +43,7 @@ scripts/                gates, live journey, packaging helpers
 | `./gradlew :server:integrationTest` | Testcontainers PostgreSQL 18 + Redis 8.10; applies the real migrations |
 | `./gradlew fxTest` | JavaFX tests; needs a display or Xvfb (`xvfb-run -a ./gradlew fullTest`) |
 | `./gradlew fullTest` | All three suites plus the coverage gate |
-| `./gradlew coverageVerification` | Fails below the recorded coverage floor |
+| `./gradlew coverageVerification` | Fails below the recorded coverage floor; needs the JavaFX exec data, so run `fullTest` first |
 | `./gradlew gaOnlyCheck` | Fails on a pre-release dependency |
 | `./scripts/check-ga-pins.sh` | Fails on a pre-release action SHA, image tag or base image |
 | `./scripts/check-image-pins.sh` | Fails on a floating or untagged container image |

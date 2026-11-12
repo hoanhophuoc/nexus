@@ -38,20 +38,29 @@ jacoco {
 
 // Coverage for the modules that carry the product. The legacy monolith that used to be
 // this project's own source set is gone, so the gate has to name the modules it measures.
-def coverageModules = [':server', ':desktop-shared']
+def coverageModules = [':server', ':desktop-shared', ':desktop-user', ':desktop-admin']
+
+// The two desktop modules are covered by their JavaFX suites, whose exec data is only present
+// after those suites ran (locally through fullTest, in CI as an artifact from the fx-test job).
+def uiCoverageModules = [':desktop-user', ':desktop-admin']
 
 def coverageClassDirectories = { -> coverageModules.collect { project(it).sourceSets.main.output } }
 def coverageSourceDirectories = { -> coverageModules.collect { project(it).sourceSets.main.allSource.srcDirs } }
 def coverageExecutionData = { ->
     coverageModules.collect { project(it).layout.buildDirectory.file('jacoco/test.exec').get().asFile } +
-            [project(':server').layout.buildDirectory.file('jacoco/integrationTest.exec').get().asFile]
+            [project(':server').layout.buildDirectory.file('jacoco/integrationTest.exec').get().asFile] +
+            uiCoverageModules.collect { project(it).layout.buildDirectory.file('jacoco/fxTest.exec').get().asFile }
+}
+// A report can be generated from whatever ran; the gate below refuses to guess.
+def existingCoverageExecutionData = { ->
+    files(provider { coverageExecutionData().findAll { it.exists() } })
 }
 
 tasks.register('coverageReport', JacocoReport) {
     group = 'verification'
-    description = 'Coverage report for the server and desktop-shared modules.'
+    description = 'Coverage report for the server and the desktop modules.'
     dependsOn ':server:test', ':server:integrationTest', ':desktop-shared:test'
-    executionData files(coverageExecutionData)
+    executionData existingCoverageExecutionData()
     classDirectories.setFrom files(coverageClassDirectories)
     sourceDirectories.setFrom files(coverageSourceDirectories)
     reports {
@@ -69,8 +78,21 @@ def coverageVerification = tasks.register('coverageVerification', JacocoCoverage
     group = 'verification'
     description = 'Fails when the product modules drop below their recorded coverage baseline.'
     dependsOn ':server:test', ':server:integrationTest', ':desktop-shared:test'
-    executionData files(coverageExecutionData)
+    // The desktop suites produce the exec data this gate reads; when both are in the task graph
+    // (fullTest) they have to finish first.
+    mustRunAfter ':desktop-user:fxTest', ':desktop-admin:fxTest'
+    executionData existingCoverageExecutionData()
     classDirectories.setFrom files(coverageClassDirectories)
+    doFirst {
+        def missing = uiCoverageModules.collect {
+            project(it).layout.buildDirectory.file('jacoco/fxTest.exec').get().asFile
+        }.findAll { !it.exists() }
+        if (!missing.isEmpty()) {
+            throw new GradleException('The desktop modules are measured by their JavaFX suites, which ' +
+                    'have not run: run "./gradlew fullTest" under a display (xvfb-run -a on a server) ' +
+                    'first. Missing exec data: ' + missing.join(', '))
+        }
+    }
     violationRules {
         rule {
             element = 'BUNDLE'
@@ -85,7 +107,10 @@ def coverageVerification = tasks.register('coverageVerification', JacocoCoverage
                 'com.nexus.server.administration'       : [0.80d, 0.53d],
                 'com.nexus.desktop.shared.mls'          : [0.85d, 0.54d],
                 'com.nexus.desktop.shared.cache'        : [0.88d, 0.57d],
-                'com.nexus.desktop.shared.messaging'    : [0.63d, 0.45d]
+                'com.nexus.desktop.shared.messaging'    : [0.63d, 0.45d],
+                // Measured 2026-11-12: 65.43% and 84.78% of lines.
+                'com.nexus.desktop.user'                : [0.65d, 0.40d],
+                'com.nexus.desktop.admin'               : [0.84d, 0.52d]
         ].each { packageName, floors ->
             rule {
                 element = 'PACKAGE'
