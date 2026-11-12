@@ -151,6 +151,29 @@ Flyway's history table moves with the schema, so it sees the migrations already 
 not re-run them. Verify with `SELECT * FROM nexus.flyway_schema_history` before starting the
 server.
 
+### Check before restarting the server
+
+The server creates its schema when it is missing, which is what a fresh install needs and what a
+pre-rename install must never hit: starting against an untouched database migrates an empty
+`nexus` schema and every existing row stays in `chat_v1`, invisible. Run the pre-flight check first:
+
+```bash
+./scripts/check-database-identity.sh
+```
+
+It reads the same variables the server does (`NEXUS_DB_URL`, `NEXUS_DB_USER`,
+`NEXUS_DB_PASSWORD`), uses `psql` when installed and otherwise the pinned `postgres:18-alpine`
+image through `docker run --network host`.
+
+| Exit | Meaning | Action |
+| --- | --- | --- |
+| 0 | `nexus` is the schema in use, or this is a fresh install | Start the server |
+| 1 | `chat_v1` or `chat_system` still holds the data | Apply the rename above, then re-run the check |
+| 2 | The variables cannot be read or the database cannot be reached | Fix the connection first |
+
+A warning (exit 0) means both the current and the pre-rename schema exist: the server only reads
+`nexus`, so the old rows stay ignored until they are dropped.
+
 ### Routine upgrade
 
 1. Back up the database.

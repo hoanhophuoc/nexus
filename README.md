@@ -1,5 +1,8 @@
 # Nexus
 
+[![CI](https://github.com/hoanhophuoc/nexus/actions/workflows/ci.yml/badge.svg)](https://github.com/hoanhophuoc/nexus/actions/workflows/ci.yml)
+[![Release](https://github.com/hoanhophuoc/nexus/actions/workflows/release.yml/badge.svg)](https://github.com/hoanhophuoc/nexus/actions/workflows/release.yml)
+
 Nexus is a real-time messaging platform: a Spring Boot server, two JavaFX desktop clients
 (user and administrator) and a generated Java client SDK. Direct chats, groups with
 end-to-end encryption, presence, friends, moderation and an operations dashboard all run on
