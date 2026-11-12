@@ -18,18 +18,26 @@ and reports p95/p99 per stage from the receiving socket. The server writes a JFR
 
 ## Capacity
 
-Measured on one server instance with a 20,000-connection ceiling that was later raised, at
-100 messages per second delivered to every session:
+Measured on one server instance (8 vCPU, 31 GiB) with a 20,000-connection ceiling that was later
+raised, while 45 sender VUs pushed 100 messages per second into 9,000 seeded direct conversations:
+
+```bash
+PLAN=10000:90:120,14000:60:90,18000:60:90 USERS=18000 ./perf/ramp-run.sh
+```
 
 | Sessions | p95 | p99 | Notes |
 | --- | --- | --- | --- |
-| 10,000 | 112 ms | 559 ms | |
-| 14,000 | 112 ms | 135 ms | |
-| 18,000 | 115 ms | 176 ms | |
+| 10,000 | 111 ms | 194 ms | Heap 0.85 GiB of 3 GiB |
+| 14,000 | 113 ms | 143 ms | Heap 1.19 GiB |
+| 18,000 | 113 ms | 190 ms | Heap 1.52 GiB, 0 of 51,024 requests failed, outbox lag 0 s |
 | 19,999 | 367 ms | 1.27 s | Hit exactly `NEXUS_MAX_CONNECTIONS`; sends dropped from 100/s to 10.2/s |
 | 22,000 | 108 ms | 817 ms | After raising the cap |
 | 26,000 | 111 ms | 340 ms | Heap 2.08 GiB of 6 GiB |
 | 30,000 | 110 ms | 189 ms | Max 593 ms, 0 of 23,024 requests failed, 30,122 open descriptors, GC pause 0.16% of wall time |
+
+The first stage reports the slowest single delivery (1.6 s) because it also carries the connection
+ramp; per-stage p95 stays at 111–113 ms from 10,000 to 18,000 sessions. Heap grows by roughly
+0.2 GiB per 4,000 sessions, and HikariCP never held more than 8 of its connections.
 
 The 19,999 result is the important one: the first wall was the connection cap, not the server.
 Latency is flat from 10,000 to 30,000 sessions, and CPU stayed far from saturation, so the

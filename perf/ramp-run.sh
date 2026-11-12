@@ -12,7 +12,7 @@ echo "=== build and start the perf stack ==="
 $COMPOSE up -d --build db redis server prometheus > /tmp/ramp-up.log 2>&1
 echo "up_exit=$?"
 
-for i in $(seq 1 80); do
+for _ in $(seq 1 80); do
   cid=$($COMPOSE ps -q server 2>/dev/null)
   st=$(docker inspect -f '{{.State.Health.Status}}' "$cid" 2>/dev/null || echo unknown)
   [ "$st" = "healthy" ] && break
@@ -25,7 +25,9 @@ echo "server_health=$st"
 {
   echo "max_connections=${PERF_MAX_CONNECTIONS:-20000} accept=${PERF_ACCEPT_COUNT:-500} mem=${PERF_SERVER_MEM:-3g}"
   echo "plan=$PLAN users=$USERS rate=$RATE"
-  $COMPOSE exec -T server sh -c 'echo fd_limit=$(ulimit -n)' 2>/dev/null
+  # The exec shell carries its own soft limit; the measurement needs the server process's one.
+  # shellcheck disable=SC2016 # expanded inside the container, not here
+  $COMPOSE exec -T server sh -c 'awk "/Max open files/{print \"fd_limit=\" $4}" /proc/1/limits' 2>/dev/null
 } > /tmp/ramp-meta.txt
 cat /tmp/ramp-meta.txt
 
