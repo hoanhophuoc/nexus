@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs the staged ramp against the isolated perf stack and dumps Prometheus ranges for analysis.
 set -u
-cd /home/phuochoan/Projects/nexus || exit 1
+cd "$(dirname "$0")/.." || exit 1
 mkdir -p build/perf
 PLAN="${PLAN:-10000:90:120,14000:60:90,18000:60:90,22000:60:90}"
 USERS="${USERS:-22000}"
@@ -30,7 +30,7 @@ echo "server_health=$st"
 cat /tmp/ramp-meta.txt
 
 echo "=== seed $USERS users ==="
-$COMPOSE exec -T db psql -U chat -d nexus -v "users=$USERS" -f - < perf/seed.sql > /tmp/ramp-seed.log 2>&1
+$COMPOSE exec -T db psql -U nexus -d nexus -v "users=$USERS" -f - < perf/seed.sql > /tmp/ramp-seed.log 2>&1
 echo "seed_exit=$?"
 tail -3 /tmp/ramp-seed.log
 
@@ -62,11 +62,11 @@ metrics = [
     "jvm_gc_pause_seconds_count",
     "jvm_gc_pause_seconds_sum",
     "jvm_threads_live_threads",
-    "chat_ws_sessions",
+    "nexus_ws_sessions",
     "hikaricp_connections_active",
     "hikaricp_connections_pending",
-    "chat_outbox_oldest_age_seconds",
-    "chat_outbox_batch_rows",
+    "nexus_outbox_oldest_age_seconds",
+    "nexus_outbox_batch_rows",
     "http_server_requests_seconds_count",
 ]
 out = {}
