@@ -27,7 +27,7 @@ echo "server_health=$st"
   echo "plan=$PLAN users=$USERS rate=$RATE"
   # The exec shell carries its own soft limit; the measurement needs the server process's one.
   # shellcheck disable=SC2016 # expanded inside the container, not here
-  $COMPOSE exec -T server sh -c 'awk "/Max open files/{print \"fd_limit=\" $4}" /proc/1/limits' 2>/dev/null
+  $COMPOSE exec -T server sh -c 'awk "/Max open files/{print \"fd_limit=\" \$4}" /proc/1/limits' 2>/dev/null
 } > /tmp/ramp-meta.txt
 cat /tmp/ramp-meta.txt
 
