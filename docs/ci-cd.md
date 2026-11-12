@@ -17,7 +17,7 @@ The two desktop modules take their coverage from their JavaFX suites, so the `fx
 their `fxTest.exec` files as the `fx-coverage` artifact and the analysis job downloads them before
 `./gradlew sonar` (`build-test` therefore waits for `fx-test`). Without that data the module
 reports were empty, SonarQube counted both UI modules as 0% covered, and the project sat at 38%.
-With it they measure about 65% and 85%, so the reported project coverage is about 74%.
+With it they measure about 65% and 85%, which takes the reported project coverage from 38% to 67%.
 
 `java:S2077` ("Make sure using a dynamically formatted SQL query is safe here") is ignored for the
 SQL-building packages only — `server/administration`, `server/groups/Jdbc*`,
