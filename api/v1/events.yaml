@@ -8,13 +8,13 @@ servers:
     host: '{host}'
     pathname: /ws/v1
     protocol: wss
-    description: WebSocket server; authenticate with the HttpOnly Secure CHAT_SESSION cookie from the login response.
+    description: WebSocket server; authenticate with the HttpOnly Secure NEXUS_SESSION cookie from the login response.
     security:
       - $ref: '#/components/securitySchemes/session'
     variables:
       host:
         description: Public API hostname
-        default: chat.example.invalid
+        default: nexus.example.invalid
 channels:
   conversationEvents:
     address: /conversations/{conversationId}
@@ -56,7 +56,7 @@ components:
   securitySchemes:
     session:
       type: httpApiKey
-      name: CHAT_SESSION
+      name: NEXUS_SESSION
       in: cookie
   messages:
     MessageCreated:

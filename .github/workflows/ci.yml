@@ -45,6 +45,9 @@ jobs:
           ./scripts/check-ga-pins.sh
           ./gradlew --no-daemon gaOnlyCheck
 
+      - name: Enforce pinned container images
+        run: ./scripts/check-image-pins.sh
+
       # The root project holds no code, so every suite belongs to a module.
       - name: Compile, unit tests and integration tests
         run: >
@@ -163,9 +166,9 @@ jobs:
           set -euo pipefail
           leftovers="$(
             {
-              docker ps -a --format '{{.Names}}' | grep '^chat-system-live-' || true
-              docker network ls --format '{{.Name}}' | grep '^chat-system-live-' || true
-              docker volume ls --format '{{.Name}}' | grep '^chat-system-live-' || true
+              docker ps -a --format '{{.Names}}' | grep '^nexus-live-' || true
+              docker network ls --format '{{.Name}}' | grep '^nexus-live-' || true
+              docker volume ls --format '{{.Name}}' | grep '^nexus-live-' || true
             } | sort -u
           )"
           if [ -n "$leftovers" ]; then
@@ -206,13 +209,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p build/app-images
-          cp -R desktop-user/build/package/ChatSystemClient/out/ChatSystemClient build/app-images/
-          cp -R desktop-admin/build/package/ChatSystemAdmin/out/ChatSystemAdmin build/app-images/
-          tar -czf build/ChatSystem-linux-x64-appimages.tar.gz -C build/app-images .
+          cp -R desktop-user/build/package/nexusClient/out/nexusClient build/app-images/
+          cp -R desktop-admin/build/package/nexusAdmin/out/nexusAdmin build/app-images/
+          tar -czf build/nexus-linux-x64-appimages.tar.gz -C build/app-images .
 
       - name: Upload application images
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: linux-app-images
-          path: build/ChatSystem-linux-x64-appimages.tar.gz
+          path: build/nexus-linux-x64-appimages.tar.gz
           retention-days: 14

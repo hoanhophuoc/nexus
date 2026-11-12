@@ -4,7 +4,7 @@ plugins {
     id 'org.springframework.boot' version '4.1.2'
 }
 
-group = 'com.haichutieu.chatsystem'
+group = 'com.nexus'
 version = rootProject.version
 
 java {
@@ -74,7 +74,7 @@ tasks.withType(Test).configureEach {
 }
 
 tasks.named('bootJar') {
-    archiveFileName = 'chat-server.jar'
+    archiveFileName = 'nexus-server.jar'
 }
 tasks.named('jar') {
     enabled = false

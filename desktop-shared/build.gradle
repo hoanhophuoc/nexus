@@ -4,7 +4,7 @@ plugins {
     id 'org.openjfx.javafxplugin' version '0.1.0'
 }
 
-group = 'com.haichutieu.chatsystem'
+group = 'com.nexus'
 version = rootProject.version
 
 java {

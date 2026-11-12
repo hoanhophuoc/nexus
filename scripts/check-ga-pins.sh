@@ -48,7 +48,7 @@ for file in "${files[@]}"; do
 done
 
 if [ "$violations" -gt 0 ]; then
-  echo "Found ${violations} pre-release pin(s). Ship the newest GA release instead; see docs/plan.md."
+  echo "Found ${violations} pre-release pin(s). Ship the newest GA release instead; see docs/ci-cd.md."
   exit 1
 fi
 echo "GA-only pins: no pre-release action, image or base image found."

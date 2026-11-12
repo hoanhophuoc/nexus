@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: Chat System API
+  title: Nexus API
   version: 1.0.0
 servers:
   - url: /api/v1
@@ -53,7 +53,7 @@ paths:
           description: Authenticated session
           headers:
             Set-Cookie:
-              description: HttpOnly Secure SameSite=Strict CHAT_SESSION cookie; the opaque token is never returned in the JSON body.
+              description: HttpOnly Secure SameSite=Strict NEXUS_SESSION cookie; the opaque token is never returned in the JSON body.
               schema: { type: string }
           content:
             application/json:
@@ -977,7 +977,7 @@ components:
     session:
       type: apiKey
       in: cookie
-      name: CHAT_SESSION
+      name: NEXUS_SESSION
       description: Opaque revocable session token; servers store only its hash. SameSite=Strict limits ambient cookie use.
   responses:
     BadRequest:

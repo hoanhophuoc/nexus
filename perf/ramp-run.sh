@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs the staged ramp against the isolated perf stack and dumps Prometheus ranges for analysis.
 set -u
-cd /home/phuochoan/Projects/Chat-System || exit 1
+cd /home/phuochoan/Projects/nexus || exit 1
 mkdir -p build/perf
 PLAN="${PLAN:-10000:90:120,14000:60:90,18000:60:90,22000:60:90}"
 USERS="${USERS:-22000}"
@@ -30,7 +30,7 @@ echo "server_health=$st"
 cat /tmp/ramp-meta.txt
 
 echo "=== seed $USERS users ==="
-$COMPOSE exec -T db psql -U chat -d chat_system -v "users=$USERS" -f - < perf/seed.sql > /tmp/ramp-seed.log 2>&1
+$COMPOSE exec -T db psql -U chat -d nexus -v "users=$USERS" -f - < perf/seed.sql > /tmp/ramp-seed.log 2>&1
 echo "seed_exit=$?"
 tail -3 /tmp/ramp-seed.log
 
@@ -41,7 +41,7 @@ echo "RUN_START_MS=$START PLAN=$PLAN USERS=$USERS RATE=$RATE"
 echo "=== k6 ramp ==="
 $COMPOSE --profile load run --rm \
   -e PLAN="$PLAN" -e RUN_START_MS="$START" -e USERS="$USERS" -e RATE="$RATE" \
-  k6 run /perf/k6/chat-ramp.js > /tmp/ramp-k6.log 2>&1
+  k6 run /perf/k6/ramp.js > /tmp/ramp-k6.log 2>&1
 echo "k6_exit=$?" >> /tmp/ramp-k6.log
 END=$(date +%s%3N)
 echo "$END" > /tmp/ramp-end-ms

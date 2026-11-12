@@ -1,13 +1,13 @@
-name: chat-system
+name: nexus
 
 services:
   db:
     image: postgres:18-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-chat_system}
-      POSTGRES_USER: ${POSTGRES_USER:-chat}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chat}
+      POSTGRES_DB: ${POSTGRES_DB:-nexus}
+      POSTGRES_USER: ${POSTGRES_USER:-nexus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nexus}
     volumes:
       # PostgreSQL 18+ keeps its data in a versioned subdirectory of this path.
       - postgres-data:/var/lib/postgresql
@@ -24,13 +24,13 @@ services:
   redis:
     image: redis:8.10-alpine
     restart: unless-stopped
-    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$CHAT_REDIS_PASSWORD\""]
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$NEXUS_REDIS_PASSWORD\""]
     environment:
-      CHAT_REDIS_PASSWORD: ${CHAT_REDIS_PASSWORD:-change-me}
+      NEXUS_REDIS_PASSWORD: ${NEXUS_REDIS_PASSWORD:-change-me}
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=$$CHAT_REDIS_PASSWORD redis-cli ping | grep -q PONG"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$$NEXUS_REDIS_PASSWORD redis-cli ping | grep -q PONG"]
       interval: 5s
       timeout: 3s
       retries: 12
@@ -46,25 +46,25 @@ services:
       redis:
         condition: service_healthy
     environment:
-      CHAT_DB_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-chat_system}
-      CHAT_DB_USER: ${POSTGRES_USER:-chat}
-      CHAT_DB_PASSWORD: ${POSTGRES_PASSWORD:-chat}
-      CHAT_REDIS_HOST: redis
-      CHAT_REDIS_PORT: 6379
-      CHAT_REDIS_PASSWORD: ${CHAT_REDIS_PASSWORD:-change-me}
-      CHAT_EMAIL_HOST: ${CHAT_EMAIL_HOST:-localhost}
-      CHAT_EMAIL_PORT: ${CHAT_EMAIL_PORT:-25}
-      CHAT_EMAIL_USERNAME: ${CHAT_EMAIL_USERNAME:-}
-      CHAT_EMAIL_PASSWORD: ${CHAT_EMAIL_PASSWORD:-}
-      CHAT_EMAIL_AUTH: ${CHAT_EMAIL_AUTH:-false}
-      CHAT_EMAIL_STARTTLS: ${CHAT_EMAIL_STARTTLS:-false}
-      CHAT_EMAIL_FROM: ${CHAT_EMAIL_FROM:-no-reply@localhost}
-      CHAT_MAIL_HEALTH_ENABLED: ${CHAT_MAIL_HEALTH_ENABLED:-false}
-      CHAT_SECURE_COOKIE: ${CHAT_SECURE_COOKIE:-true}
-      CHAT_SERVER_HOST: 0.0.0.0
-      CHAT_SERVER_PORT: 8080
+      NEXUS_DB_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-nexus}
+      NEXUS_DB_USER: ${POSTGRES_USER:-nexus}
+      NEXUS_DB_PASSWORD: ${POSTGRES_PASSWORD:-nexus}
+      NEXUS_REDIS_HOST: redis
+      NEXUS_REDIS_PORT: 6379
+      NEXUS_REDIS_PASSWORD: ${NEXUS_REDIS_PASSWORD:-change-me}
+      NEXUS_EMAIL_HOST: ${NEXUS_EMAIL_HOST:-localhost}
+      NEXUS_EMAIL_PORT: ${NEXUS_EMAIL_PORT:-25}
+      NEXUS_EMAIL_USERNAME: ${NEXUS_EMAIL_USERNAME:-}
+      NEXUS_EMAIL_PASSWORD: ${NEXUS_EMAIL_PASSWORD:-}
+      NEXUS_EMAIL_AUTH: ${NEXUS_EMAIL_AUTH:-false}
+      NEXUS_EMAIL_STARTTLS: ${NEXUS_EMAIL_STARTTLS:-false}
+      NEXUS_EMAIL_FROM: ${NEXUS_EMAIL_FROM:-no-reply@localhost}
+      NEXUS_MAIL_HEALTH_ENABLED: ${NEXUS_MAIL_HEALTH_ENABLED:-false}
+      NEXUS_SECURE_COOKIE: ${NEXUS_SECURE_COOKIE:-true}
+      NEXUS_SERVER_HOST: 0.0.0.0
+      NEXUS_SERVER_PORT: 8080
     ports:
-      - "${CHAT_SERVER_PORT:-8080}:8080"
+      - "${NEXUS_SERVER_PORT:-8080}:8080"
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/actuator/health"]
       interval: 10s
