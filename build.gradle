@@ -156,16 +156,9 @@ sonar {
         property 'sonar.organization', 'hoanhophuoc'
         property 'sonar.coverage.jacoco.xmlReportPaths',
                 layout.buildDirectory.file('reports/jacoco/coverageReport/coverageReport.xml').get().asFile.absolutePath
-        property 'sonar.tests',
-                'server/src/test/java,server/src/integrationTest/java,' +
-                        'desktop-shared/src/test/java,' +
-                        'desktop-user/src/test/java,desktop-user/src/fxTest/java,' +
-                        'desktop-admin/src/test/java,desktop-admin/src/fxTest/java'
-        property 'sonar.java.test.binaries',
-                'server/build/classes/java/test,server/build/classes/java/integrationTest,' +
-                        'desktop-shared/build/classes/java/test,' +
-                        'desktop-user/build/classes/java/test,desktop-user/build/classes/java/fxTest,' +
-                        'desktop-admin/build/classes/java/test,desktop-admin/build/classes/java/fxTest'
+        // sonar.sources, sonar.tests and sonar.java.test.binaries come from each module's source
+        // sets. Listing them here as well made the scanner index the test sources twice and the
+        // analysis failed with "can't be indexed twice" for server/src/test.
         property 'sonar.qualitygate.wait', 'true'
         property 'sonar.qualitygate.timeout', '300'
     }
