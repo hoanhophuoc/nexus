@@ -41,32 +41,30 @@ public class JdbcSocialRepository implements SocialRepository {
                   WHERE (b.blocker_id = ? AND b.blocked_id = u.id)
                      OR (b.blocker_id = u.id AND b.blocked_id = ?)
               )
+              AND u.id > ?
+            ORDER BY u.id LIMIT ?
             """;
 
     @Override
     public UserPage<SocialUser> search(UUID viewerId, String query, UUID cursor, int limit) {
-        String cursorClause = cursor == null ? "" : "AND u.id > ?";
-        String sql = SEARCH_SQL + cursorClause + " ORDER BY u.id LIMIT ?";
         String pattern = LikePatterns.containing(query);
-        List<Object> args = new ArrayList<>(List.of(viewerId, pattern, pattern, viewerId, viewerId));
-        if (cursor != null) args.add(cursor);
-        args.add(limit + 1);
-        List<SocialUser> users = jdbc.query(sql, USER_MAPPER, args.toArray());
+        List<Object> args = new ArrayList<>(List.of(viewerId, pattern, pattern, viewerId, viewerId,
+                firstPage(cursor), limit + 1));
+        List<SocialUser> users = jdbc.query(SEARCH_SQL, USER_MAPPER, args.toArray());
         return page(users, limit);
     }
 
     @Override
     public FriendRequestPage incomingRequests(UUID userId, UUID cursor, int limit) {
-        String cursorClause = cursor == null ? "" : "AND r.id > ?";
         String sql = """
                 SELECT r.id AS request_id, u.id, u.username, u.full_name, u.address, u.birth_date, u.gender
                 FROM nexus.friend_request r
                 JOIN nexus.user_account u ON u.id = r.requester_id
                 WHERE r.target_id = ? AND u.locked = FALSE
-                """ + cursorClause + " ORDER BY r.id LIMIT ?";
-        List<Object> args = new ArrayList<>(List.of(userId));
-        if (cursor != null) args.add(cursor);
-        args.add(limit + 1);
+                  AND r.id > ?
+                ORDER BY r.id LIMIT ?
+                """;
+        List<Object> args = new ArrayList<>(List.of(userId, firstPage(cursor), limit + 1));
         List<IncomingFriendRequest> requests = jdbc.query(sql, (rs, row) -> new IncomingFriendRequest(
                 rs.getObject("request_id", UUID.class), mapUser(rs, row)), args.toArray());
         boolean more = requests.size() > limit;
@@ -76,31 +74,29 @@ public class JdbcSocialRepository implements SocialRepository {
 
     @Override
     public UserPage<SocialUser> friends(UUID userId, UUID cursor, int limit) {
-        String cursorClause = cursor == null ? "" : "AND u.id > ?";
         String sql = """
                 SELECT u.id, u.username, u.full_name, u.address, u.birth_date, u.gender
                 FROM nexus.friendship f
                 JOIN nexus.user_account u ON u.id = CASE WHEN f.user_low_id = ? THEN f.user_high_id ELSE f.user_low_id END
                 WHERE (f.user_low_id = ? OR f.user_high_id = ?) AND u.locked = FALSE
-                """ + cursorClause + " ORDER BY u.id LIMIT ?";
-        List<Object> args = new ArrayList<>(List.of(userId, userId, userId));
-        if (cursor != null) args.add(cursor);
-        args.add(limit + 1);
+                  AND u.id > ?
+                ORDER BY u.id LIMIT ?
+                """;
+        List<Object> args = new ArrayList<>(List.of(userId, userId, userId, firstPage(cursor), limit + 1));
         return page(jdbc.query(sql, USER_MAPPER, args.toArray()), limit);
     }
 
     @Override
     public OutgoingFriendRequestPage outgoingRequests(UUID userId, UUID cursor, int limit) {
-        String cursorClause = cursor == null ? "" : "AND r.id > ?";
         String sql = """
                 SELECT r.id AS request_id, u.id, u.username, u.full_name, u.address, u.birth_date, u.gender
                 FROM nexus.friend_request r
                 JOIN nexus.user_account u ON u.id = r.target_id
                 WHERE r.requester_id = ? AND u.locked = FALSE
-                """ + cursorClause + " ORDER BY r.id LIMIT ?";
-        List<Object> args = new ArrayList<>(List.of(userId));
-        if (cursor != null) args.add(cursor);
-        args.add(limit + 1);
+                  AND r.id > ?
+                ORDER BY r.id LIMIT ?
+                """;
+        List<Object> args = new ArrayList<>(List.of(userId, firstPage(cursor), limit + 1));
         List<OutgoingFriendRequest> requests = jdbc.query(sql, (rs, row) -> new OutgoingFriendRequest(
                 rs.getObject("request_id", UUID.class), mapUser(rs, row)), args.toArray());
         boolean more = requests.size() > limit;
@@ -111,16 +107,15 @@ public class JdbcSocialRepository implements SocialRepository {
 
     @Override
     public UserPage<SocialUser> blocked(UUID userId, UUID cursor, int limit) {
-        String cursorClause = cursor == null ? "" : "AND u.id > ?";
         String sql = """
                 SELECT u.id, u.username, u.full_name, u.address, u.birth_date, u.gender
                 FROM nexus.user_block b
                 JOIN nexus.user_account u ON u.id = b.blocked_id
                 WHERE b.blocker_id = ?
-                """ + cursorClause + " ORDER BY u.id LIMIT ?";
-        List<Object> args = new ArrayList<>(List.of(userId));
-        if (cursor != null) args.add(cursor);
-        args.add(limit + 1);
+                  AND u.id > ?
+                ORDER BY u.id LIMIT ?
+                """;
+        List<Object> args = new ArrayList<>(List.of(userId, firstPage(cursor), limit + 1));
         return page(jdbc.query(sql, USER_MAPPER, args.toArray()), limit);
     }
 
@@ -261,6 +256,15 @@ public class JdbcSocialRepository implements SocialRepository {
         return Boolean.TRUE.equals(jdbc.queryForObject("""
                 SELECT EXISTS (SELECT 1 FROM nexus.friendship WHERE user_low_id = ? AND user_high_id = ?)
                 """, Boolean.class, pair[0], pair[1]));
+    }
+
+    /**
+     * Ids are random UUIDs, so every real id sorts above the nil UUID. Always binding a cursor keeps
+     * each statement a compile-time constant: an "AND ? IS NULL OR ..." guard would make the
+     * planner choose between the trigram indexes and a sequential scan per execution.
+     */
+    private static UUID firstPage(UUID cursor) {
+        return cursor == null ? new UUID(0L, 0L) : cursor;
     }
 
     private static UUID[] pair(UUID firstId, UUID secondId) {

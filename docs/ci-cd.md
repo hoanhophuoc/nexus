@@ -20,14 +20,30 @@ Without that data the module reports were empty, SonarQube counted both UI modul
 and the project sat at 38%. With it they measure about 65% and 85%, which takes the reported project
 coverage from 38% to 67%.
 
-`java:S2077` ("Make sure using a dynamically formatted SQL query is safe here") is ignored for the
-SQL-building packages only — `server/administration`, `server/groups/Jdbc*`,
-`server/messaging/JdbcMessagingRepository`, `server/messaging/OutboxPublisher` and `server/social` —
-via `sonar.issue.ignore.multicriteria` in `build.gradle`. Those repositories concatenate constant
-fragments (cursor and sort clauses chosen from a fixed whitelist) and bind every value as a JDBC
-parameter. Rewriting them into a single constant statement per sort/filter combination would trade
-the predicates that `AdminGroupSearchPlanIntegrationTest` asserts for a green rule; the rule stays
-active in every other package.
+`java:S2077` ("Make sure using a dynamically formatted SQL query is safe here") is still ignored for
+`server/administration`, `server/groups/Jdbc*`, `server/messaging/JdbcMessagingRepository` and
+`server/messaging/OutboxPublisher`, through `sonar.issue.ignore.multicriteria` in `build.gradle`.
+Those statements choose their ORDER BY from a whitelist, so their text is assembled at runtime even
+though every value is a bound parameter.
+
+`server/social` no longer needs the exclusion. `JdbcSocialRepository` now runs five compile-time
+statements and always binds a cursor, using the nil UUID for the first page (`AND u.id > ?` with
+`00000000-0000-0000-0000-000000000000`, below every generated id). `UserSearchPlanIntegrationTest`
+still plans both trigram bitmap scans, so the constant text costs no index.
+
+The measurements behind the remaining exclusions — 20,000 groups on `postgres:18-alpine`, group
+filter planned with `EXPLAIN (ANALYZE, FORMAT TEXT)`:
+
+| Statement | Plan | Execution |
+| --- | --- | --- |
+| constant text, pattern bound, custom plan | `Bitmap Index Scan on conversation_group_name_trgm_idx` | 0.039 ms |
+| `$1::text IS NULL OR lower(c.name) LIKE $2`, custom plan | the same trigram bitmap scan | 0.045 ms |
+| the same statement, generic plan | `Seq Scan on conversation` | 5.433 ms |
+
+Constant text therefore does not cost the index — the datasource sets `plan_cache_mode =
+force_custom_plan` — but only one statement at a time. Finishing the job means giving each remaining
+query a constant statement per sort/direction pair, binding the cursor the same way, and keeping its
+plan test green; until then the rule stays excluded there instead of hiding a regression.
 
 ## The gates
 

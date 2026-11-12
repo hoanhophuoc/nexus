@@ -191,21 +191,19 @@ sonar {
         // sets. Listing them here as well made the scanner index the test sources twice and the
         // analysis failed with "can't be indexed twice" for server/src/test.
         // java:S2077 flags every SQL statement whose text is not a compile-time constant. The
-        // repositories below build paging and sort fragments from constant strings and always bind
-        // values as JDBC parameters, which the rule cannot prove; sort columns come from a fixed
-        // whitelist and are never user input. Rewriting them as one constant statement per
-        // sort/filter combination would remove the index-friendly predicates that
-        // AdminGroupSearchPlanIntegrationTest asserts. The exclusion covers this one rule on those
-        // packages only, so a new dynamically formatted query elsewhere still fails analysis.
+        // repositories below still select their ORDER BY from a whitelist, so their statement text
+        // is assembled at runtime even though every value is a bound parameter. The social package
+        // was converted to constant statements with a nil-UUID first-page cursor and is no longer
+        // excluded; the rest stay excluded until each query gets the same treatment, one plan test
+        // at a time (measurements and the recipe are in docs/ci-cd.md).
         property 'sonar.issue.ignore.multicriteria', [
-                's2077Administration', 's2077Groups', 's2077Messaging', 's2077Outbox', 's2077Social'
+                's2077Administration', 's2077Groups', 's2077Messaging', 's2077Outbox'
         ].join(',')
         [
                 's2077Administration': '**/server/administration/*.java',
                 's2077Groups': '**/server/groups/Jdbc*.java',
                 's2077Messaging': '**/server/messaging/JdbcMessagingRepository.java',
-                's2077Outbox': '**/server/messaging/OutboxPublisher.java',
-                's2077Social': '**/server/social/*.java'
+                's2077Outbox': '**/server/messaging/OutboxPublisher.java'
         ].each { name, resource ->
             property "sonar.issue.ignore.multicriteria.${name}.ruleKey", 'java:S2077'
             property "sonar.issue.ignore.multicriteria.${name}.resourceKey", resource

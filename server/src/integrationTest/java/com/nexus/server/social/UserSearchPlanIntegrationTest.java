@@ -32,6 +32,7 @@ class UserSearchPlanIntegrationTest {
 
     private static final int USERS = 20_000;
     private static final UUID VIEWER = UUID.fromString("00000000-0000-4000-8000-000000000001");
+    private static final UUID FIRST_PAGE = new UUID(0L, 0L);
 
     @Container
     private static final PostgreSQLContainer POSTGRES =
@@ -131,12 +132,12 @@ class UserSearchPlanIntegrationTest {
         String literal = "'" + pattern.replace("'", "''") + "'";
         String viewer = "'" + VIEWER + "'";
         jdbc.execute("DEALLOCATE ALL");
-        jdbc.execute("PREPARE user_search_plan(uuid, text, text, uuid, uuid, int) AS "
-                + numberedParameters(JdbcSocialRepository.SEARCH_SQL) + " ORDER BY u.id LIMIT $6");
+        jdbc.execute("PREPARE user_search_plan(uuid, text, text, uuid, uuid, uuid, int) AS "
+                + numberedParameters(JdbcSocialRepository.SEARCH_SQL));
         return String.join("\n", jdbc.queryForList(
                 "EXPLAIN (ANALYZE, FORMAT TEXT) EXECUTE user_search_plan("
                         + viewer + ", " + literal + ", " + literal + ", "
-                        + viewer + ", " + viewer + ", 51)",
+                        + viewer + ", " + viewer + ", '" + FIRST_PAGE + "', 51)",
                 String.class));
     }
 
