@@ -41,7 +41,7 @@ public final class MlsIdentity {
     }
 
     public static MlsIdentity generate(UUID userId, String deviceId) throws MlsException {
-        return new MlsIdentity(userId, deviceId, MlsCodec.random(32), MlsCodec.random(32));
+        return new MlsIdentity(userId, deviceId, MlsCodec.randomBytes(32), MlsCodec.randomBytes(32));
     }
 
     public static MlsIdentity fromSecrets(UUID userId, String deviceId, byte[] signingSeed, byte[] initSecret)

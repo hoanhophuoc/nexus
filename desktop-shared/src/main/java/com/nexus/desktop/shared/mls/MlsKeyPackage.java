@@ -143,4 +143,9 @@ public record MlsKeyPackage(UUID userId, String deviceId, byte[] identityKey, by
     public int hashCode() {
         return Objects.hash(userId, deviceId, Arrays.hashCode(identityKey), Arrays.hashCode(initKey), createdAt, expiresAt);
     }
+
+    @Override
+    public String toString() {
+        return "MlsKeyPackage[" + userId + ", device=" + deviceId + ", expires=" + expiresAt + "]";
+    }
 }

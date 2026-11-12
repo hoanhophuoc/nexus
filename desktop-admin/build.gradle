@@ -95,7 +95,11 @@ tasks.register('packageAdmin', Exec) {
 // SonarQube imports this module's own report; without it the module inherited the root aggregate
 // report and logged that none of its files could be matched.
 tasks.named('jacocoTestReport') {
-    dependsOn tasks.named('test')
+    // The unit test suite of this module is tiny; the JavaFX suite is where its coverage comes
+    // from. Without this the module reported 0% to SonarQube and dragged the project down.
+    dependsOn tasks.named('test'), tasks.named('fxTest')
+    executionData files(layout.buildDirectory.file('jacoco/test.exec'),
+            layout.buildDirectory.file('jacoco/fxTest.exec'))
     reports {
         xml.required = true
         html.required = false

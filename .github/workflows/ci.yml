@@ -73,13 +73,19 @@ jobs:
             echo "::notice::SONAR_TOKEN is not configured; SonarQube Cloud analysis is skipped."
           fi
 
+      # The UI modules are measured by their JavaFX suites and the analysis imports their JaCoCo
+      # reports, so the toolkit needs a display. Without this they report 0% coverage.
+      - name: Install Xvfb
+        if: steps.sonar-token.outputs.present == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb
+
       # Forked pull requests never receive this secret. Analysis waits for the
       # project quality gate and fails this job when the gate fails.
       - name: SonarQube Cloud analysis and quality gate
         if: steps.sonar-token.outputs.present == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: ./gradlew --no-daemon sonar
+          SONAR_TOKEN: ${ secrets.SONAR_TOKEN }
+        run: xvfb-run -a ./gradlew --no-daemon sonar
 
       - name: Upload test and coverage reports
         if: always()

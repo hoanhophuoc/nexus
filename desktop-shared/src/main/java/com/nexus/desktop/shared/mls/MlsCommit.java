@@ -15,6 +15,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -40,6 +41,25 @@ public record MlsCommit(UUID groupId, long epoch, byte[] previousEpochHash, UUID
             ephemeralKey = ephemeralKey.clone();
             nonce = nonce.clone();
             ciphertext = ciphertext.clone();
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof Welcome welcome
+                    && Arrays.equals(ephemeralKey, welcome.ephemeralKey)
+                    && Arrays.equals(nonce, welcome.nonce)
+                    && Arrays.equals(ciphertext, welcome.ciphertext);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(Arrays.hashCode(ephemeralKey), Arrays.hashCode(nonce),
+                    Arrays.hashCode(ciphertext));
+        }
+
+        @Override
+        public String toString() {
+            return "Welcome[" + ephemeralKey.length + "/" + nonce.length + "/" + ciphertext.length + " bytes]";
         }
     }
 

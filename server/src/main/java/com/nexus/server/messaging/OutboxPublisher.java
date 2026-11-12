@@ -26,6 +26,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.Arrays;
+import java.util.Objects;
 
 @Component
 public class OutboxPublisher {
@@ -262,7 +264,27 @@ public class OutboxPublisher {
                              String eventType, UUID senderId, String content, Instant createdAt,
                              Instant deletedAt) { }
 
-    private record MlsOutboxRow(UUID eventId, UUID conversationId, UUID messageId, String eventType,
+    record MlsOutboxRow(UUID eventId, UUID conversationId, UUID messageId, String eventType,
                                 UUID senderId, long epoch, String kind, byte[] ciphertext,
-                                Instant createdAt) { }
+                                Instant createdAt) {
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof MlsOutboxRow row && Objects.equals(eventId, row.eventId)
+                    && Objects.equals(conversationId, row.conversationId) && Objects.equals(messageId, row.messageId)
+                    && Objects.equals(eventType, row.eventType) && Objects.equals(senderId, row.senderId)
+                    && epoch == row.epoch && Objects.equals(kind, row.kind)
+                    && Arrays.equals(ciphertext, row.ciphertext) && Objects.equals(createdAt, row.createdAt);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(eventId, conversationId, messageId, eventType, senderId, epoch, kind,
+                    Arrays.hashCode(ciphertext), createdAt);
+        }
+
+        @Override
+        public String toString() {
+            return "MlsOutboxRow[" + eventId + ", epoch=" + epoch + ", kind=" + kind + "]";
+        }
+    }
 }

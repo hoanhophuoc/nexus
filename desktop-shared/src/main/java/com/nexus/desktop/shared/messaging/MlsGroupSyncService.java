@@ -40,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.nio.file.attribute.PosixFilePermissions;
 
 /**
  * Keeps the local MLS-style epoch state in step with the server's opaque commit log.
@@ -457,12 +458,21 @@ public final class MlsGroupSyncService {
 
     private static <T> T withTemporaryFileResult(byte[] content, FileFunction<T> action)
             throws IOException, ApiException {
-        Path file = Files.createTempFile("chat-mls-", ".bin");
+        // A private directory instead of a bare file in the shared temp root, with owner-only
+        // permissions where the platform supports them.
+        Path directory = Files.createTempDirectory("chat-mls-");
+        Path file = Files.createTempFile(directory, "chat-mls-", ".bin");
         try {
+            try {
+                Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------"));
+            } catch (UnsupportedOperationException ignored) {
+                // Windows has no POSIX permissions; the per-user temp directory is already private.
+            }
             Files.write(file, content);
             return action.apply(file.toFile());
         } finally {
             Files.deleteIfExists(file);
+            Files.deleteIfExists(directory);
         }
     }
 

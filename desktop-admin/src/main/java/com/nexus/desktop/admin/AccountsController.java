@@ -550,6 +550,25 @@ public final class AccountsController {
         }
     }
 
+    /**
+     * Rejects a malformed address without a pattern: the nested-negated-class version backtracks
+     * super-linearly on input that never matches.
+     */
+    private static boolean looksLikeEmail(String value) {
+        if (value == null || value.isEmpty()) {
+            return false;
+        }
+        int at = value.indexOf('@');
+        if (at <= 0 || at != value.lastIndexOf('@')) {
+            return false;
+        }
+        int dot = value.indexOf('.', at + 2);
+        if (dot <= at + 1 || dot == value.length() - 1) {
+            return false;
+        }
+        return value.chars().noneMatch(Character::isWhitespace);
+    }
+
     private String validationError() {
         String username = usernameField.getText() == null ? "" : usernameField.getText().strip();
         String fullName = fullNameField.getText() == null ? "" : fullNameField.getText().strip();
@@ -562,7 +581,7 @@ public final class AccountsController {
         if (fullName.isBlank() || email.isBlank() || address.isBlank()) {
             return i18n.get("admin.accounts.required");
         }
-        if (!email.matches("[^@\\s]+@[^@\\s]+\\.[^@\\s]+")) {
+        if (!looksLikeEmail(email)) {
             return i18n.get("admin.accounts.emailInvalid");
         }
         if (birthDateField.getValue() == null || !birthDateField.getValue().isBefore(LocalDate.now())) {

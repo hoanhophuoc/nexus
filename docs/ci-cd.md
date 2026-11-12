@@ -13,6 +13,21 @@ the commands below.
 | Live user journey (isolated Docker) | `./scripts/live-journey.sh`, then verifies no temporary container, volume or network survived | The end-to-end journey fails, or it leaks Docker resources |
 | Linux app image | Builds the desktop packaging output on Linux | A packaging step fails |
 
+The analysis job installs Xvfb and runs `xvfb-run -a ./gradlew sonar`. `sonar` depends on each
+module's `jacocoTestReport`, and the two desktop modules take their coverage from their JavaFX
+suites; without a display those reports were empty and SonarQube counted both UI modules as 0%
+covered, which is what held the project at 38%. Measured with a display they are at roughly 65%
+and 85%, so the reported project coverage is about 74%.
+
+`java:S2077` ("Make sure using a dynamically formatted SQL query is safe here") is ignored for the
+SQL-building packages only — `server/administration`, `server/groups/Jdbc*`,
+`server/messaging/JdbcMessagingRepository`, `server/messaging/OutboxPublisher` and `server/social` —
+via `sonar.issue.ignore.multicriteria` in `build.gradle`. Those repositories concatenate constant
+fragments (cursor and sort clauses chosen from a fixed whitelist) and bind every value as a JDBC
+parameter. Rewriting them into a single constant statement per sort/filter combination would trade
+the predicates that `AdminGroupSearchPlanIntegrationTest` asserts for a green rule; the rule stays
+active in every other package.
+
 ## The gates
 
 | Gate | Command | Protects against |

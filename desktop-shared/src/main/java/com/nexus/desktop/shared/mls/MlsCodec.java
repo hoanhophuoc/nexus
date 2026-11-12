@@ -34,7 +34,7 @@ final class MlsCodec {
 
     private MlsCodec() { }
 
-    static byte[] random(int length) {
+    static byte[] randomBytes(int length) {
         byte[] value = new byte[length];
         RANDOM.nextBytes(value);
         return value;

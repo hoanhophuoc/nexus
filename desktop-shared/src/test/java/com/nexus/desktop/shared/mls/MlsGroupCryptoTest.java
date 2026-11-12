@@ -166,7 +166,7 @@ class MlsGroupCryptoTest {
         UUID messageId = UUID.randomUUID();
         byte[] key = MlsCodec.hkdf(bobState.secret(), MlsCodec.uuidBytes(GROUP),
                 MlsCodec.label("chat-mls-app-key-v1", GROUP, bobState.epoch(), alice.userId(), messageId), 32);
-        byte[] nonce = MlsCodec.random(12);
+        byte[] nonce = MlsCodec.randomBytes(12);
         byte[] aad = MlsCodec.label("chat-mls-app-aad-v1", GROUP, bobState.epoch(), alice.userId(), messageId);
         byte[] ciphertext = MlsCodec.gcm(true, key, nonce, aad, bytes("forged"));
         MlsApplicationMessage draft = new MlsApplicationMessage(GROUP, bobState.epoch(), alice.userId(),

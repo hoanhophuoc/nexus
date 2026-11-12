@@ -11,6 +11,7 @@ import javafx.scene.control.TextField;
 import javafx.scene.layout.HBox;
 
 import java.util.List;
+import java.util.Objects;
 
 /** FXML controller for choosing people to chat with or manage in a group. */
 public final class UserPickerController {
@@ -55,7 +56,7 @@ public final class UserPickerController {
 
     void configure(String title, String description, boolean askName, String namePrompt,
                    List<UserPickerItem> items, boolean multiple) {
-        titleLabel.setText(title);
+        Objects.requireNonNull(titleLabel, "titleLabel").setText(title);
         descriptionLabel.setText(description);
         userList.setAccessibleText(title);
         nameField.setPromptText(namePrompt);

@@ -87,7 +87,7 @@ public final class MlsStateStore {
 
     private static void saveEncrypted(Path file, UUID ownerId, byte[] key, MlsIdentity identity,
                                       Collection<MlsGroupState> groups) throws IOException {
-        byte[] nonce = MlsCodec.random(12);
+        byte[] nonce = MlsCodec.randomBytes(12);
         byte[] aad = MlsCodec.concat(STATE_AAD, MlsCodec.uuidBytes(ownerId), new byte[]{VERSION});
         try {
             byte[] plaintext = encodeSnapshot(identity, groups);
@@ -134,7 +134,7 @@ public final class MlsStateStore {
     }
 
     public static String newRecoveryCode() {
-        String hex = HexFormat.of().formatHex(MlsCodec.random(32)).toUpperCase(Locale.ROOT);
+        String hex = HexFormat.of().formatHex(MlsCodec.randomBytes(32)).toUpperCase(Locale.ROOT);
         StringBuilder code = new StringBuilder(hex.length() + 7);
         for (int index = 0; index < hex.length(); index += 8) {
             if (index > 0) code.append('-');
@@ -147,8 +147,8 @@ public final class MlsStateStore {
             throws MlsException {
         byte[] normalized = normalizeCode(code);
         byte[] plaintext = encodeSnapshot(identity, groups);
-        byte[] salt = MlsCodec.random(16);
-        byte[] nonce = MlsCodec.random(12);
+        byte[] salt = MlsCodec.randomBytes(16);
+        byte[] nonce = MlsCodec.randomBytes(12);
         byte[] aad = MlsCodec.concat(RECOVERY_AAD, new byte[]{VERSION});
         try {
             byte[] ciphertext = MlsCodec.gcm(true,

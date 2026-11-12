@@ -60,7 +60,7 @@ public final class MlsGroupCrypto {
         }
         if (roster.size() > MAX_MEMBERS) throw new MlsException("The group is too large.");
         byte[] genesis = epochHash(groupId, 0, new byte[32], roster);
-        byte[] secret = MlsCodec.random(32);
+        byte[] secret = MlsCodec.randomBytes(32);
         long epoch = 1;
         byte[] hash = epochHash(groupId, epoch, genesis, roster);
         MlsCommit unsigned = new MlsCommit(groupId, epoch, genesis, creator.userId(), List.of(), List.of(),
@@ -106,7 +106,7 @@ public final class MlsGroupCrypto {
         Collections.sort(added);
         Collections.sort(removed);
         long epoch = current.epoch() + 1;
-        byte[] secret = MlsCodec.random(32);
+        byte[] secret = MlsCodec.randomBytes(32);
         byte[] hash = epochHash(current.groupId(), epoch, current.hash(), roster);
         MlsCommit unsigned = new MlsCommit(current.groupId(), epoch, current.hash(), committer.userId(),
                 added, removed, memberList(roster),
@@ -175,7 +175,7 @@ public final class MlsGroupCrypto {
         UUID messageId = UUID.randomUUID();
         byte[] key = MlsCodec.hkdf(state.secret(), MlsCodec.uuidBytes(state.groupId()),
                 MlsCodec.label(APP_KEY, state.groupId(), state.epoch(), sender.userId(), messageId), 32);
-        byte[] nonce = MlsCodec.random(12);
+        byte[] nonce = MlsCodec.randomBytes(12);
         byte[] aad = MlsCodec.label(APP_AAD, state.groupId(), state.epoch(), sender.userId(), messageId);
         byte[] ciphertext = MlsCodec.gcm(true, key, nonce, aad, plaintext);
         MlsApplicationMessage draft = new MlsApplicationMessage(state.groupId(), state.epoch(),
@@ -216,7 +216,7 @@ public final class MlsGroupCrypto {
             byte[] shared = agreement(ephemeral, entry.getValue().initPublicKey());
             byte[] key = MlsCodec.hkdf(shared, MlsCodec.uuidBytes(groupId),
                     MlsCodec.label(WELCOME_KEY, groupId, epoch, entry.getKey()), 32);
-            byte[] nonce = MlsCodec.random(12);
+            byte[] nonce = MlsCodec.randomBytes(12);
             byte[] aad = MlsCodec.label(WELCOME_AAD, groupId, epoch, entry.getKey());
             welcomes.put(entry.getKey(), new MlsCommit.Welcome(ephemeral.generatePublicKey().getEncoded(),
                     nonce, MlsCodec.gcm(true, key, nonce, aad, secret)));

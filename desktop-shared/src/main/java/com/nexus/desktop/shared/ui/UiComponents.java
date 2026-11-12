@@ -99,10 +99,14 @@ public final class UiComponents {
     }
 
     static String initials(String name) {
-        if (name == null || name.isBlank()) return "?";
-        String[] parts = name.strip().split("\\s+");
+        if (name == null) return "?";
+        String stripped = name.strip();
+        if (stripped.isEmpty()) return "?";
+        String[] parts = stripped.split("\\s+");
+        if (parts.length == 0 || parts[0].isEmpty()) return "?";
         String first = parts[0].substring(0, 1);
-        String last = parts.length > 1 ? parts[parts.length - 1].substring(0, 1) : "";
+        String tail = parts[parts.length - 1];
+        String last = tail.isEmpty() ? "" : tail.substring(0, 1);
         return (first + last).toUpperCase(Locale.ROOT);
     }
 }
