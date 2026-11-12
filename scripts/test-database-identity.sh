@@ -22,12 +22,16 @@ docker run -d --rm --name "$CONTAINER" \
   -e POSTGRES_DB=nexus -e POSTGRES_USER=nexus -e POSTGRES_PASSWORD=nexus \
   -p "127.0.0.1:$PORT:5432" "$IMAGE" >/dev/null \
   || { echo "cannot start the pinned $IMAGE image" >&2; exit 2; }
+# pg_isready answers while the image is still running its temporary initdb server, and that
+# server is stopped right after: the first check then failed with "server closed the connection
+# unexpectedly". A query against the product database only succeeds once the real server is up
+# and the entrypoint has created that database.
+ready() { docker exec "$CONTAINER" psql -U nexus -d nexus -tAc 'SELECT 1' >/dev/null 2>&1; }
 for _ in $(seq 1 60); do
-  docker exec "$CONTAINER" pg_isready -U nexus -d nexus >/dev/null 2>&1 && break
+  ready && break
   sleep 1
 done
-docker exec "$CONTAINER" pg_isready -U nexus -d nexus >/dev/null 2>&1 \
-  || { echo "the throwaway database did not become ready" >&2; exit 2; }
+ready || { echo "the throwaway database did not become ready" >&2; exit 2; }
 
 psql_() { docker exec -i "$CONTAINER" psql -U nexus -d "$1" -q -v ON_ERROR_STOP=1 -c "$2"; }
 
