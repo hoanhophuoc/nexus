@@ -1,0 +1,17 @@
+# Findings GitGuardian reports on this repository that are not credentials. Each entry is a value
+# the detectors cannot tell apart from a secret; the alternative would be to change code that must
+# keep its meaning.
+version: 2
+secret:
+  ignored-matches:
+    # HKDF domain-separation label for the MLS application key. Changing it would change every
+    # derived key, so it stays as it is.
+    - name: MLS application-key domain label
+      match: chat-mls-app-key-v1
+    # Loopback address used as the mail host in a password-reset test.
+    - name: loopback address in a test host
+      match: 127.0.0.1
+    # Not a password: the plaintext of a legacy bcrypt hash that a test verifies. The hash has to
+    # match this exact string, so the string cannot be changed.
+    - name: plaintext of a legacy bcrypt test hash
+      match: not-admin123

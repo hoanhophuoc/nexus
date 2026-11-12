@@ -30,6 +30,11 @@ not the whole history, so a finding that is already in the repository does not m
 action and the checkout step are pinned to commit SHAs, and the scan needs the
 `GITGUARDIAN_API_KEY` repository secret.
 
+Three values in the history are false positives that cannot be changed without changing behaviour:
+the MLS application-key domain label, the loopback address used as a mail host in a test, and the
+plaintext of a legacy bcrypt hash a test verifies. `.gitguardian.yaml` lists them with the reason;
+the scan reports them as ignored instead of failing.
+
 Container references must carry an exact version tag or a `@sha256:` digest. The current pins:
 
 | Image | Pin |
