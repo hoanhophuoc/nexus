@@ -7,8 +7,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -58,6 +61,30 @@ class AdminServiceTest {
         assertThatThrownBy(() -> admin.users(actor, null, "deleted", "name", "asc", null, 50))
                 .isInstanceOf(IllegalArgumentException.class);
         verifyNoInteractions(jdbc);
+    }
+
+    @Test
+    void groupFilterUsesTheIndexedLikePredicate() {
+        StringBuilder where = new StringBuilder("WHERE c.type = 'group'");
+        List<Object> args = new ArrayList<>();
+
+        AdminSupport.appendGroupFilter(where, args, "  Tea % ");
+        assertThat(where.toString())
+                .as("the group filter must use the trigram-backed predicate, not POSITION")
+                .contains("lower(c.name) LIKE ? ESCAPE '\\'")
+                .doesNotContain("position(");
+        assertThat(args)
+                .as("the term is lower-cased and its wildcard is escaped")
+                .containsExactly("%tea \\%%");
+
+        StringBuilder untouched = new StringBuilder("WHERE c.type = 'group'");
+        List<Object> noArgs = new ArrayList<>();
+        AdminSupport.appendGroupFilter(untouched, noArgs, "   ");
+        AdminSupport.appendGroupFilter(untouched, noArgs, null);
+        assertThat(untouched.toString())
+                .as("a blank or absent term adds no predicate at all")
+                .isEqualTo("WHERE c.type = 'group'");
+        assertThat(noArgs).isEmpty();
     }
 
     @Test

@@ -1,5 +1,8 @@
 package com.nexus.server.administration;
 
+import com.nexus.server.identity.SessionIdentity;
+import com.nexus.server.messaging.ConversationPage;
+import com.nexus.server.messaging.ConversationView;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -13,6 +16,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -47,6 +51,9 @@ class AdminGroupSearchPlanIntegrationTest {
     @Autowired
     private JdbcTemplate jdbc;
 
+    @Autowired
+    private AdminService admin;
+
     @Test
     void adminGroupFilterReadsOnlyMatchingGroups() {
         seed();
@@ -72,6 +79,11 @@ class AdminGroupSearchPlanIntegrationTest {
         assertThat(namesMatching("group 19999"))
                 .as("an existing group is still found")
                 .containsExactly("Group 19999");
+
+        // The service must reach the same rows through the filter that was just planned.
+        ConversationPage page = admin.groups(
+                new SessionIdentity(UUID.randomUUID(), "admin"), "hoa", "name", "asc", null, 10);
+        assertThat(page.items()).extracting(ConversationView::name).containsExactly("Hoa Team");
     }
 
     private void seed() {
