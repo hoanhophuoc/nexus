@@ -64,6 +64,8 @@ public final class MlsGroupSyncService {
     private final String recoveryCode;
     private MlsIdentity identity;
     private final Map<UUID, MlsGroupState> groups = new LinkedHashMap<>();
+    /** Created with the service so a request never adds a directory while the app is shutting down. */
+    private final Path uploadDirectory;
 
     public MlsGroupSyncService(DefaultApi api, EncryptedMessageCache cache, Path stateFile,
                                UUID ownerId, SecretKey key) throws IOException, MlsException {
@@ -76,6 +78,8 @@ public final class MlsGroupSyncService {
         this.ownerId = ownerId;
         this.stateKey = key;
         this.recoveryCode = recoveryCode(key, ownerId);
+        this.uploadDirectory = this.stateFile.getParent().resolve("uploads");
+        Files.createDirectories(this.uploadDirectory);
         var snapshot = MlsStateStore.load(this.stateFile, ownerId, key);
         if (snapshot.isPresent()) {
             if (!ownerId.equals(snapshot.get().identity().userId())) {
@@ -461,9 +465,7 @@ public final class MlsGroupSyncService {
         // The payload goes next to the account state, not into the shared temp directory, so no
         // other local user can observe or race the upload file. The name is unique and the file is
         // created exclusively; it is removed as soon as the request returns.
-        Path directory = stateFile.toAbsolutePath().getParent().resolve("uploads");
-        Files.createDirectories(directory);
-        Path file = directory.resolve("mls-" + UUID.randomUUID() + ".bin");
+        Path file = uploadDirectory.resolve("mls-" + UUID.randomUUID() + ".bin");
         try {
             Files.write(file, content, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
             return action.apply(file.toFile());
