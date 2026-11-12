@@ -86,8 +86,8 @@ def main():
     heap = series_values(prom.get('jvm_memory_used_bytes{area="heap"}'))
     gc_count = series_values(prom.get("jvm_gc_pause_seconds_count"))
     gc_sum = series_values(prom.get("jvm_gc_pause_seconds_sum"))
-    ws = series_values(prom.get("chat_ws_sessions"))
-    outbox = series_values(prom.get("chat_outbox_oldest_age_seconds"))
+    ws = series_values(prom.get("nexus_ws_sessions"))
+    outbox = series_values(prom.get("nexus_outbox_oldest_age_seconds"))
 
     def gb(value):
         return f"{value / 1024 ** 3:.2f}"
@@ -100,9 +100,9 @@ def main():
     for index, stage in enumerate(stages):
         hold_start_s = start_ms / 1000 + stage["hold_start"]
         hold_end_s = start_ms / 1000 + stage["end"]
-        trend = summary.get(f"chat_delivery_stage{index}_ms", {})
+        trend = summary.get(f"nexus_delivery_stage{index}_ms", {})
         stats = trend.get("stats", {})
-        sent = summary.get(f"chat_sent_stage{index}", {}).get("value") or 0
+        sent = summary.get(f"nexus_sent_stage{index}", {}).get("value") or 0
         ws_stage = within(ws, hold_start_s, hold_end_s)
         heap_stage = within(heap, hold_start_s, hold_end_s)
         count_stage = within(gc_count, hold_start_s, hold_end_s)
@@ -124,9 +124,9 @@ def main():
 
     print()
     print("global:")
-    for name in ("checks", "http_req_failed", "chat_sockets_rejected", "dropped_iterations",
-                 "iterations", "vus_max", "http_reqs", "chat_messages_sent", "chat_messages_received",
-                 "http_req_duration", "chat_delivery_ms"):
+    for name in ("checks", "http_req_failed", "nexus_sockets_rejected", "dropped_iterations",
+                 "iterations", "vus_max", "http_reqs", "nexus_messages_sent", "nexus_messages_received",
+                 "http_req_duration", "nexus_delivery_ms"):
         metric = summary.get(name)
         if metric:
             print(f"  {name}: {metric['raw']}")
