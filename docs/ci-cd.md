@@ -13,11 +13,11 @@ the commands below.
 | Live user journey (isolated Docker) | `./scripts/live-journey.sh`, then verifies no temporary container, volume or network survived | The end-to-end journey fails, or it leaks Docker resources |
 | Linux app image | Builds the desktop packaging output on Linux | A packaging step fails |
 
-The analysis job installs Xvfb and runs `xvfb-run -a ./gradlew sonar`. `sonar` depends on each
-module's `jacocoTestReport`, and the two desktop modules take their coverage from their JavaFX
-suites; without a display those reports were empty and SonarQube counted both UI modules as 0%
-covered, which is what held the project at 38%. Measured with a display they are at roughly 65%
-and 85%, so the reported project coverage is about 74%.
+The two desktop modules take their coverage from their JavaFX suites, so the `fx-test` job uploads
+their `fxTest.exec` files as the `fx-coverage` artifact and the analysis job downloads them before
+`./gradlew sonar` (`build-test` therefore waits for `fx-test`). Without that data the module
+reports were empty, SonarQube counted both UI modules as 0% covered, and the project sat at 38%.
+With it they measure about 65% and 85%, so the reported project coverage is about 74%.
 
 `java:S2077` ("Make sure using a dynamically formatted SQL query is safe here") is ignored for the
 SQL-building packages only — `server/administration`, `server/groups/Jdbc*`,

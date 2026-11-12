@@ -98,10 +98,15 @@ tasks.register('packageClient', Exec) {
 // report and logged that none of its files could be matched.
 tasks.named('jacocoTestReport') {
     // The unit test suite of this module is tiny; the JavaFX suite is where its coverage comes
-    // from. Without this the module reported 0% to SonarQube and dragged the project down.
-    dependsOn tasks.named('test'), tasks.named('fxTest')
-    executionData files(layout.buildDirectory.file('jacoco/test.exec'),
-            layout.buildDirectory.file('jacoco/fxTest.exec'))
+    // from. Its exec file arrives as an artifact from the fx-test CI job, so the report picks it
+    // up when it is present and still works for a unit-test-only run.
+    dependsOn tasks.named('test')
+    def fxTestExec = layout.buildDirectory.file('jacoco/fxTest.exec')
+    executionData files(provider {
+        def unitExec = layout.buildDirectory.file('jacoco/test.exec').get().asFile
+        def fxExec = fxTestExec.get().asFile
+        fxExec.exists() ? [unitExec, fxExec] : [unitExec]
+    })
     reports {
         xml.required = true
         html.required = false
