@@ -113,7 +113,7 @@ jobs:
           - os: windows-latest
             package_type: msi
             artifact: windows-x64
-          # macos-26 is the arm64 image: GitHub retired every macOS 14 label on 2026-11-02, which
+          # macos-26 is the arm64 runner: GitHub retired every macOS 14 label on 2026-11-02, which
           # cancelled this job instantly and left the publish step permanently skipped.
           - os: macos-26
             package_type: dmg
