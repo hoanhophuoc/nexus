@@ -28,6 +28,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
@@ -40,7 +41,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.nio.file.attribute.PosixFilePermissions;
 
 /**
  * Keeps the local MLS-style epoch state in step with the server's opaque commit log.
@@ -448,7 +448,7 @@ public final class MlsGroupSyncService {
         }
     }
 
-    private static void withTemporaryFile(byte[] content, FileAction action)
+    private void withTemporaryFile(byte[] content, FileAction action)
             throws IOException, ApiException {
         withTemporaryFileResult(content, body -> {
             action.run(body);
@@ -456,23 +456,19 @@ public final class MlsGroupSyncService {
         });
     }
 
-    private static <T> T withTemporaryFileResult(byte[] content, FileFunction<T> action)
+    private <T> T withTemporaryFileResult(byte[] content, FileFunction<T> action)
             throws IOException, ApiException {
-        // A private directory instead of a bare file in the shared temp root, with owner-only
-        // permissions where the platform supports them.
-        Path directory = Files.createTempDirectory("chat-mls-");
-        Path file = Files.createTempFile(directory, "chat-mls-", ".bin");
+        // The payload goes next to the account state, not into the shared temp directory, so no
+        // other local user can observe or race the upload file. The name is unique and the file is
+        // created exclusively; it is removed as soon as the request returns.
+        Path directory = stateFile.toAbsolutePath().getParent().resolve("uploads");
+        Files.createDirectories(directory);
+        Path file = directory.resolve("mls-" + UUID.randomUUID() + ".bin");
         try {
-            try {
-                Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------"));
-            } catch (UnsupportedOperationException ignored) {
-                // Windows has no POSIX permissions; the per-user temp directory is already private.
-            }
-            Files.write(file, content);
+            Files.write(file, content, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
             return action.apply(file.toFile());
         } finally {
             Files.deleteIfExists(file);
-            Files.deleteIfExists(directory);
         }
     }
 

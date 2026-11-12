@@ -105,8 +105,11 @@ public final class UiComponents {
         String[] parts = stripped.split("\\s+");
         if (parts.length == 0 || parts[0].isEmpty()) return "?";
         String first = parts[0].substring(0, 1);
-        String tail = parts[parts.length - 1];
-        String last = tail.isEmpty() ? "" : tail.substring(0, 1);
+        String last = "";
+        if (parts.length > 1) {
+            String tail = parts[parts.length - 1];
+            last = tail.isEmpty() ? "" : tail.substring(0, 1);
+        }
         return (first + last).toUpperCase(Locale.ROOT);
     }
 }

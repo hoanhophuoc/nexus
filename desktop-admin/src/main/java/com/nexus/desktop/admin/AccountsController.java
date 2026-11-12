@@ -554,7 +554,7 @@ public final class AccountsController {
      * Rejects a malformed address without a pattern: the nested-negated-class version backtracks
      * super-linearly on input that never matches.
      */
-    private static boolean looksLikeEmail(String value) {
+    static boolean looksLikeEmail(String value) {
         if (value == null || value.isEmpty()) {
             return false;
         }
