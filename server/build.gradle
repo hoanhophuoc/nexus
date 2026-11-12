@@ -1,5 +1,3 @@
-import org.gradle.testing.jacoco.tasks.JacocoReport
-
 plugins {
     id 'java'
     id 'jacoco'
@@ -91,18 +89,13 @@ tasks.register('integrationTest', Test) {
     maxParallelForks = 1
 }
 
-// SonarQube imports one report per module; the aggregate report at the root belongs to the
-// coverage gate and lists files of several modules.
-tasks.register('serverCoverage', JacocoReport) {
-    description = 'JaCoCo XML of the server module for SonarQube.'
-    group = 'verification'
+// SonarQube imports this module's XML itself; the integration tests are part of the execution data.
+tasks.named('jacocoTestReport') {
     dependsOn tasks.named('test'), tasks.named('integrationTest')
     executionData files(layout.buildDirectory.file('jacoco/test.exec'),
             layout.buildDirectory.file('jacoco/integrationTest.exec'))
-    sourceSets sourceSets.main
     reports {
         xml.required = true
-        xml.outputLocation = layout.buildDirectory.file('reports/jacoco/serverCoverage/serverCoverage.xml')
         html.required = false
         csv.required = false
     }

@@ -154,14 +154,9 @@ sonar {
         property 'sonar.sourceEncoding', 'UTF-8'
         property 'sonar.projectKey', 'hoanhophuoc_nexus'
         property 'sonar.organization', 'hoanhophuoc'
-        // Each module imports its own report. Pointing every module at the aggregate report made
-        // desktop-user and desktop-admin log that none of its files could be matched to theirs.
-        property ':server.sonar.coverage.jacoco.xmlReportPaths', project(':server')
-                .layout.buildDirectory.file('reports/jacoco/serverCoverage/serverCoverage.xml')
-                .get().asFile.absolutePath
-        property ':desktop-shared.sonar.coverage.jacoco.xmlReportPaths', project(':desktop-shared')
-                .layout.buildDirectory.file('reports/jacoco/sharedCoverage/sharedCoverage.xml')
-                .get().asFile.absolutePath
+        // Every module's own jacocoTestReport is picked up by the plugin and imported by that
+        // module only; a single aggregate report listed for all modules made desktop-user and
+        // desktop-admin warn that none of its files matched their sources.
         // The root project holds no code: without a binary path the scanner warns that
         // sonar.java.binaries is empty for it. The product binaries are the ones being analysed.
         property 'sonar.java.binaries', [project(':server'), project(':desktop-shared')].collect {
@@ -177,5 +172,6 @@ sonar {
 
 tasks.named('sonar') {
     dependsOn tasks.named('coverageReport')
-    dependsOn ':server:serverCoverage', ':desktop-shared:sharedCoverage'
+    dependsOn ':server:jacocoTestReport', ':desktop-shared:jacocoTestReport',
+            ':desktop-user:jacocoTestReport', ':desktop-admin:jacocoTestReport'
 }

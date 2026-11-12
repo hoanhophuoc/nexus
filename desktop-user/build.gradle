@@ -1,4 +1,5 @@
 plugins {
+    id 'jacoco'
     id 'application'
     id 'org.openjfx.javafxplugin' version '0.1.0'
 }
@@ -90,5 +91,16 @@ tasks.register('packageClient', Exec) {
                 // JavaFX loads as an unnamed module here, so the named-module form of this
                 // flag would leave native access blocked.
                 '--java-options', '--enable-native-access=ALL-UNNAMED'
+    }
+}
+
+// SonarQube imports this module's own report; without it the module inherited the root aggregate
+// report and logged that none of its files could be matched.
+tasks.named('jacocoTestReport') {
+    dependsOn tasks.named('test')
+    reports {
+        xml.required = true
+        html.required = false
+        csv.required = false
     }
 }
