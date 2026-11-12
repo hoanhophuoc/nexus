@@ -1,5 +1,6 @@
 package com.haichutieu.chatsystem.server.social;
 
+import com.haichutieu.chatsystem.server.LikePatterns;
 import com.haichutieu.chatsystem.server.identity.UserNotFoundException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -11,7 +12,6 @@ import java.sql.SQLException;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.UUID;
 
 @Repository
@@ -47,7 +47,7 @@ public class JdbcSocialRepository implements SocialRepository {
     public UserPage<SocialUser> search(UUID viewerId, String query, UUID cursor, int limit) {
         String cursorClause = cursor == null ? "" : "AND u.id > ?";
         String sql = SEARCH_SQL + cursorClause + " ORDER BY u.id LIMIT ?";
-        String pattern = containsPattern(query);
+        String pattern = LikePatterns.containing(query);
         List<Object> args = new ArrayList<>(List.of(viewerId, pattern, pattern, viewerId, viewerId));
         if (cursor != null) args.add(cursor);
         args.add(limit + 1);
@@ -261,14 +261,6 @@ public class JdbcSocialRepository implements SocialRepository {
         return Boolean.TRUE.equals(jdbc.queryForObject("""
                 SELECT EXISTS (SELECT 1 FROM chat_v1.friendship WHERE user_low_id = ? AND user_high_id = ?)
                 """, Boolean.class, pair[0], pair[1]));
-    }
-
-    private static String containsPattern(String query) {
-        String escaped = query.toLowerCase(Locale.ROOT)
-                .replace("\\", "\\\\")
-                .replace("%", "\\%")
-                .replace("_", "\\_");
-        return "%" + escaped + "%";
     }
 
     private static UUID[] pair(UUID firstId, UUID secondId) {

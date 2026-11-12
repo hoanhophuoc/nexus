@@ -89,7 +89,7 @@ The harness does not replace a multi-host soak: k6 and the server share one mach
 | Suite | Module | Tests | What it covers |
 | --- | --- | --- | --- |
 | `test` | `server` | 44 | Identity and profile validation, security filters, session and reset rules, admin authorization, group roles, MLS routing, authenticated WebSocket handling |
-| `integrationTest` | `server` | 29 | Flyway migrations from an empty schema, PostgreSQL constraints and transactions, REST auth and CSRF, Redis rate limits and distributed presence, the cost of deleting an account and of deleting a message, the plan of the user search |
+| `integrationTest` | `server` | 30 | Flyway migrations from an empty schema, PostgreSQL constraints and transactions, REST auth and CSRF, Redis rate limits and distributed presence, the cost of deleting an account and of deleting a message, the plan of the user search and of the admin account filter |
 | `test` | `desktop-shared` | 29 | Encrypted cache and key derivation, history sync, MLS crypto and state store, theme contrast |
 | `test` / `fxTest` | `desktop-user` | 4 / 21 | Bundle parity, FXML loading, account and social flows, MLS group chat, goldens, rendered-control contrast |
 | `test` / `fxTest` | `desktop-admin` | 3 / 6 | Resource and design contract, admin flows against a loopback server, goldens |
@@ -219,12 +219,12 @@ These cannot be set from files:
 | Check | Result |
 | --- | --- |
 | `./gradlew :server:test` | Passed, 44 tests |
-| `./gradlew :server:integrationTest` | Passed, 29 tests (PostgreSQL 18 + Redis via Testcontainers) |
+| `./gradlew :server:integrationTest` | Passed, 30 tests (PostgreSQL 18 + Redis via Testcontainers) |
 | `./gradlew :desktop-shared:test` | Passed, 29 tests |
 | `./gradlew fxTest` | Passed, 27 tests (3 skipped in `desktop-user`, 1 in `desktop-admin`) |
 | `./gradlew coverageReport` | Passed; XML + HTML generated |
 | `./gradlew coverageVerification` | Passed; baseline thresholds enforced (verified the DAL rule fails when raised) |
-| `./gradlew fullTest` | Passed, 136 tests across 7 suites (4 skipped by design) plus the coverage gate, on the GA-only stack (Spring Boot 4.1.2, JavaFX 27.0.1) |
+| `./gradlew fullTest` | Passed, 137 tests across 7 suites (4 skipped by design) plus the coverage gate, on the GA-only stack (Spring Boot 4.1.2, JavaFX 27.0.1) |
 | `./gradlew check` | Passed; standard lifecycle runs unit tests (integration/FX remain separate tasks) |
 | Architecture rules | Not a Gradle task; `ServerArchitectureTest` runs them inside `./gradlew :server:test` |
 | `./gradlew cyclonedxBom` | Passed; `build/reports/cyclonedx/bom.json` |
