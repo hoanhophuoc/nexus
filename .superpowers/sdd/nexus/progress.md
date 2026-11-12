@@ -1,4 +1,4 @@
-# SDD ledger — plan: docs/plan.md
+# SDD ledger — history only; current documentation: docs/README.md
 
 ## Scope & Constraints
 - Baseline: Java 27, Gradle 9.8.2, JavaFX 27, Spring Boot 4.1.2.
