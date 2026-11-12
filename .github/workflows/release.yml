@@ -239,5 +239,5 @@ jobs:
         run: |
           set -euo pipefail
           gh release create "$GITHUB_REF_NAME" release-assets/* \
-            --title "Chat System $VERSION" \
+            --title "Nexus $VERSION" \
             --generate-notes

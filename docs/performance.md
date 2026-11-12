@@ -67,7 +67,7 @@ Measured with `EXPLAIN (ANALYZE, BUFFERS)` on a fixture of 20,000 accounts, 2,00
 | Member batch for 100 direct chats | Index-only scan on the membership primary key | 3.77 ms |
 | User search, term that matches nobody | BitmapOr of two trigram indexes | 0.127 ms (was 6.6 ms scanning the table) |
 | Admin account filter, same term | BitmapOr of three trigram indexes | index-backed |
-| Admin group filter, same term | Bitmap Index Scan on `conversation_group_name_trgm_idx` | index-backed |
+| Admin group filter, same term | Bitmap Index Scan on `conversation_group_name_trgm_idx` | 0.23 ms, was 1.12 ms; measured on 11,000 conversations, 2,000 of them groups |
 | Delete one message (400k outbox events) | Index lookups only | was 20.96 ms in the FK trigger, now a seek |
 
 ### What the audits changed
