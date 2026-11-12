@@ -39,13 +39,13 @@ for (const stage of stages) {
 const TOTAL_MS = cursorMs;
 const SOCKET_LIFE_MS = TOTAL_MS + 60000;
 
-const deliveryByStage = stages.map((_, index) => new Trend(`chat_delivery_stage${index}_ms`, true));
-const sentByStage = stages.map((_, index) => new Counter(`chat_sent_stage${index}`));
-const delivery = new Trend('chat_delivery_ms', true);
-const received = new Counter('chat_messages_received');
-const sent = new Counter('chat_messages_sent');
-const rejected = new Counter('chat_sockets_rejected');
-const invalid = new Counter('chat_messages_invalid');
+const deliveryByStage = stages.map((_, index) => new Trend(`nexus_delivery_stage${index}_ms`, true));
+const sentByStage = stages.map((_, index) => new Counter(`nexus_sent_stage${index}`));
+const delivery = new Trend('nexus_delivery_ms', true);
+const received = new Counter('nexus_messages_received');
+const sent = new Counter('nexus_messages_sent');
+const rejected = new Counter('nexus_sockets_rejected');
+const invalid = new Counter('nexus_messages_invalid');
 
 function stageIndex(epochMs) {
   const elapsed = epochMs - RUN_START;

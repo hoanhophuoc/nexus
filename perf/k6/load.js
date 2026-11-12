@@ -8,8 +8,8 @@ import { Counter, Trend } from 'k6/metrics';
 // receiving socket, so delivery latency includes persistence, outbox fan-out and the send.
 //
 // Phases: sockets ramp over RAMP, then WARMUP seconds of traffic at RATE that only feeds
-// chat_delivery_warmup_ms, then the measured plateau of PLATEAU (HOLD) seconds that feeds
-// chat_delivery_ms. Warm-up traffic exists because the first load on a fresh JVM pays for class
+// nexus_delivery_warmup_ms, then the measured plateau of PLATEAU (HOLD) seconds that feeds
+// nexus_delivery_ms. Warm-up traffic exists because the first load on a fresh JVM pays for class
 // loading and JIT compilation; a baseline taken without it reports a much worse p99.
 const BASE = __ENV.BASE_URL || 'http://127.0.0.1:8080';
 const WS_BASE = __ENV.WS_URL || BASE.replace('http', 'ws');
@@ -38,12 +38,12 @@ function seconds(millis) {
   return `${millis / 1000}s`;
 }
 
-const delivery = new Trend('chat_delivery_ms', true);
-const warmupDelivery = new Trend('chat_delivery_warmup_ms', true);
-const received = new Counter('chat_messages_received');
-const sent = new Counter('chat_messages_sent');
-const warmupSent = new Counter('chat_warmup_sent');
-const invalid = new Counter('chat_messages_invalid');
+const delivery = new Trend('nexus_delivery_ms', true);
+const warmupDelivery = new Trend('nexus_delivery_warmup_ms', true);
+const received = new Counter('nexus_messages_received');
+const sent = new Counter('nexus_messages_sent');
+const warmupSent = new Counter('nexus_warmup_sent');
+const invalid = new Counter('nexus_messages_invalid');
 
 function uuid(block, index) {
   return `00000000-0000-4000-${block}-${String(index).padStart(12, '0')}`;
@@ -115,7 +115,7 @@ export const options = {
     },
   },
   thresholds: {
-    chat_delivery_ms: ['p(95)<1000', 'p(99)<2000'],
+    nexus_delivery_ms: ['p(95)<1000', 'p(99)<2000'],
     http_req_failed: ['rate<0.001'],
     checks: ['rate>0.999'],
   },
