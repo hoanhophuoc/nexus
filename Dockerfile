@@ -18,11 +18,11 @@ FROM eclipse-temurin:27-jre
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/* \
-    && groupadd --system --gid 10001 chatsystem \
-    && useradd --system --uid 10001 --gid chatsystem --home-dir /app --shell /usr/sbin/nologin chatsystem
+    && groupadd --system --gid 10001 nexus \
+    && useradd --system --uid 10001 --gid nexus --home-dir /app --shell /usr/sbin/nologin nexus
 WORKDIR /app
-COPY --from=build --chown=chatsystem:chatsystem /workspace/server/build/libs/chat-server.jar ./chat-server.jar
-USER chatsystem
+COPY --from=build --chown=nexus:nexus /workspace/server/build/libs/nexus-server.jar ./nexus-server.jar
+USER nexus
 EXPOSE 8080
 # Heap from the container limit, fail fast on OOM, keep a rolling GC log. JFR is opt-in:
 #   docker run -e JAVA_TOOL_OPTIONS='-XX:StartFlightRecording=filename=/tmp/app.jfr,settings=profile' ...
@@ -32,4 +32,4 @@ ENTRYPOINT ["java", \
     "-XX:+HeapDumpOnOutOfMemoryError", \
     "-XX:HeapDumpPath=/tmp", \
     "-Xlog:gc*:file=/tmp/gc.log:time,uptime,level,tags:filecount=3,filesize=10M", \
-    "-jar", "/app/chat-server.jar"]
+    "-jar", "/app/nexus-server.jar"]

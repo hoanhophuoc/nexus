@@ -1,0 +1,70 @@
+# CI/CD
+
+Four workflows live in `.github/workflows`. Everything they enforce is reproducible locally with
+the commands below.
+
+## `ci.yml` — pull requests and main
+
+| Job | Runs | Fails when |
+| --- | --- | --- |
+| Build, unit & integration tests | `check-ga-pins.sh`, `gaOnlyCheck`, `check-image-pins.sh`, `:desktop-shared:test`, `:desktop-user:test`, `:desktop-admin:test`, `:server:test`, `:server:integrationTest`, coverage report and `coverageVerification`, SonarQube when a token is configured | A pre-release pin, a floating image, a failing test, or coverage below the floor |
+| JavaFX FXML tests | `xvfb-run -a ./gradlew :desktop-user:fxTest :desktop-admin:fxTest` | FXML or controller wiring breaks |
+| Live user journey (isolated Docker) | `./scripts/live-journey.sh`, then verifies no temporary container, volume or network survived | The end-to-end journey fails, or it leaks Docker resources |
+| Linux app image | Builds the desktop packaging output on Linux | A packaging step fails |
+
+## The gates
+
+| Gate | Command | Protects against |
+| --- | --- | --- |
+| GA-only dependencies | `./gradlew gaOnlyCheck` | An alpha, beta, milestone, RC, snapshot, preview or EA version on any classpath |
+| GA-only external pins | `./scripts/check-ga-pins.sh` | A pre-release GitHub Action SHA, container tag or Dockerfile base image |
+| Pinned container images | `./scripts/check-image-pins.sh` | `:latest`, an untagged image, or a tag that pins no version |
+| Coverage floor | `./gradlew coverageVerification` | Silent loss of tested behaviour |
+| Database plans | `:server:integrationTest` | A cascade or search that stops using its index (see [performance.md](performance.md)) |
+| Live journey cleanup | last step of the journey job | Containers, volumes or networks left behind |
+
+Container references must carry an exact version tag or a `@sha256:` digest. The current pins:
+
+| Image | Pin |
+| --- | --- |
+| `postgres` | `18-alpine` |
+| `redis` | `8.10-alpine` |
+| `gradle` (build stage) | `9.8.2-jdk27` |
+| `eclipse-temurin` (runtime stage) | `27-jre` |
+| `prom/prometheus` | `v3.16.0` |
+| `grafana/k6` | `2.3.0` |
+
+The build image stays on Gradle 9.8.2 because Docker Hub publishes no `9.9.1-jdk27` tag; the
+wrapper inside it runs 9.9.1, which is what compiles the project.
+
+## `codeql.yml` and `dependency-review.yml`
+
+CodeQL analyses the Java sources for security defects on a schedule and for pull requests.
+Dependency review blocks a pull request that introduces a dependency with a known vulnerability
+or an incompatible licence.
+
+## `release.yml` — tags `v*`
+
+1. **Validate**: the tag must be semantic version (`vMAJOR.MINOR.PATCH`) and the commit must be
+   on `main`; then the unit and integration suites run.
+2. **SBOM**: CycloneDX SBOM for the whole build, uploaded as an artifact.
+3. **Package**: native installers for the desktop clients in a matrix build.
+4. **Server image**: builds and pushes the versioned image to GHCR. The tag comes from the
+   release version; there is no moving `latest` tag in the pipeline.
+5. **Publish**: downloads the assets, writes SHA-256 checksums, attests build provenance and
+   creates the GitHub release.
+
+A release is only cut from a commit whose gates all passed; the release workflow re-runs the
+tests rather than trusting an earlier run.
+
+## Running the gates locally
+
+```bash
+./scripts/check-ga-pins.sh
+./scripts/check-image-pins.sh
+./gradlew gaOnlyCheck coverageVerification
+xvfb-run -a ./gradlew fullTest
+```
+
+`fullTest` is the closest local equivalent of the CI build job; the live journey is the only
+step it does not cover, and it needs Docker.

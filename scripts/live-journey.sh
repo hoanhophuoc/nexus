@@ -19,14 +19,14 @@
 #   ./scripts/live-journey.sh [--skip-build]
 #
 # Optional overrides:
-#   CHAT_REAL_ADMIN_USERNAME  Admin username to provision (default: generated)
-#   CHAT_REAL_ADMIN_PASSWORD  Admin password to provision (default: generated)
-#   CHAT_LIVE_SERVER_IMAGE    Server image tag (default: chat-system-live-server:latest)
-#   CHAT_LIVE_TEST_IMAGE      Test runner image tag (default: chat-system-live-test:latest)
-#   CHAT_LIVE_GRADLE_IMAGE    Base Gradle image for the test runner
+#   NEXUS_REAL_ADMIN_USERNAME  Admin username to provision (default: generated)
+#   NEXUS_REAL_ADMIN_PASSWORD  Admin password to provision (default: generated)
+#   NEXUS_LIVE_SERVER_IMAGE    Server image tag (default: nexus-live-server:local)
+#   NEXUS_LIVE_TEST_IMAGE      Test runner image tag (default: nexus-live-test:local)
+#   NEXUS_LIVE_GRADLE_IMAGE    Base Gradle image for the test runner
 #                             (default: gradle:9.8.2-jdk27; the wrapper runs the
 #                              actual Gradle version)
-#   CHAT_LIVE_GRADLE_HOME     Reusable Gradle cache directory; it must not be in
+#   NEXUS_LIVE_GRADLE_HOME     Reusable Gradle cache directory; it must not be in
 #                             use by another Gradle build. A temporary one is
 #                             created and removed when this is not set
 #
@@ -39,14 +39,14 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 RUN_ID="$(date +%s)-$$"
-NETWORK="chat-system-live-$RUN_ID"
-DB_CONTAINER="chat-system-live-db-$RUN_ID"
-REDIS_CONTAINER="chat-system-live-redis-$RUN_ID"
-SERVER_CONTAINER="chat-system-live-server-$RUN_ID"
-TEST_CONTAINER="chat-system-live-test-$RUN_ID"
-SERVER_IMAGE="${CHAT_LIVE_SERVER_IMAGE:-chat-system-live-server:latest}"
-TEST_IMAGE="${CHAT_LIVE_TEST_IMAGE:-chat-system-live-test:latest}"
-GRADLE_BASE_IMAGE="${CHAT_LIVE_GRADLE_IMAGE:-gradle:9.8.2-jdk27}"
+NETWORK="nexus-live-$RUN_ID"
+DB_CONTAINER="nexus-live-db-$RUN_ID"
+REDIS_CONTAINER="nexus-live-redis-$RUN_ID"
+SERVER_CONTAINER="nexus-live-server-$RUN_ID"
+TEST_CONTAINER="nexus-live-test-$RUN_ID"
+SERVER_IMAGE="${NEXUS_LIVE_SERVER_IMAGE:-nexus-live-server:local}"
+TEST_IMAGE="${NEXUS_LIVE_TEST_IMAGE:-nexus-live-test:local}"
+GRADLE_BASE_IMAGE="${NEXUS_LIVE_GRADLE_IMAGE:-gradle:9.8.2-jdk27}"
 SKIP_BUILD=0
 GRADLE_HOME=""
 TEMP_GRADLE_HOME=0
@@ -96,25 +96,25 @@ command -v docker >/dev/null 2>&1 || die "Docker is required and was not found o
 command -v id >/dev/null 2>&1 || die "the id command is required"
 command -v mktemp >/dev/null 2>&1 || die "the mktemp command is required"
 
-ADMIN_USER="${CHAT_REAL_ADMIN_USERNAME:-live_admin_$(random_hex)}"
-ADMIN_PASSWORD="${CHAT_REAL_ADMIN_PASSWORD:-$(random_hex)$(random_hex)$(random_hex)$(random_hex)}"
+ADMIN_USER="${NEXUS_REAL_ADMIN_USERNAME:-live_admin_$(random_hex)}"
+ADMIN_PASSWORD="${NEXUS_REAL_ADMIN_PASSWORD:-$(random_hex)$(random_hex)$(random_hex)$(random_hex)}"
 ADMIN_EMAIL="${ADMIN_USER}@example.test"
 [[ "$ADMIN_USER" =~ ^[A-Za-z0-9_.-]{3,32}$ ]] \
-    || die "CHAT_REAL_ADMIN_USERNAME must be 3-32 characters from A-Z, a-z, 0-9, dot, underscore or hyphen"
+    || die "NEXUS_REAL_ADMIN_USERNAME must be 3-32 characters from A-Z, a-z, 0-9, dot, underscore or hyphen"
 ((${#ADMIN_PASSWORD} >= 12 && ${#ADMIN_PASSWORD} <= 128)) \
-    || die "CHAT_REAL_ADMIN_PASSWORD must be 12-128 characters"
+    || die "NEXUS_REAL_ADMIN_PASSWORD must be 12-128 characters"
 
-GRADLE_HOME="${CHAT_LIVE_GRADLE_HOME:-}"
+GRADLE_HOME="${NEXUS_LIVE_GRADLE_HOME:-}"
 if [[ -z "$GRADLE_HOME" ]]; then
-    GRADLE_HOME="$(mktemp -d "${TMPDIR:-/tmp}/chat-system-live-gradle.XXXXXX")"
+    GRADLE_HOME="$(mktemp -d "${TMPDIR:-/tmp}/nexus-live-gradle.XXXXXX")"
     TEMP_GRADLE_HOME=1
 fi
-[[ -d "$GRADLE_HOME" ]] || die "CHAT_LIVE_GRADLE_HOME is not a directory: $GRADLE_HOME"
+[[ -d "$GRADLE_HOME" ]] || die "NEXUS_LIVE_GRADLE_HOME is not a directory: $GRADLE_HOME"
 
 DB_PASSWORD="$(random_hex)$(random_hex)$(random_hex)$(random_hex)"
 REDIS_PASSWORD="$(random_hex)$(random_hex)$(random_hex)$(random_hex)"
-DB_NAME="chat_system"
-DB_USER="chat"
+DB_NAME="nexus"
+DB_USER="nexus"
 
 cleanup() {
     local status=$?
@@ -196,9 +196,9 @@ echo "live-journey: starting throwaway Redis" >&2
 if ! docker run -d --rm \
     --name "$REDIS_CONTAINER" \
     --network "$NETWORK" \
-    -e CHAT_REDIS_PASSWORD="$REDIS_PASSWORD" \
+    -e NEXUS_REDIS_PASSWORD="$REDIS_PASSWORD" \
     redis:8.10-alpine \
-    sh -c 'exec redis-server --save "" --appendonly no --requirepass "$CHAT_REDIS_PASSWORD"' \
+    sh -c 'exec redis-server --save "" --appendonly no --requirepass "$NEXUS_REDIS_PASSWORD"' \
     >/dev/null; then
     die "could not start the throwaway Redis container"
 fi
@@ -221,18 +221,18 @@ echo "live-journey: starting isolated server" >&2
 if ! docker run -d --rm \
     --name "$SERVER_CONTAINER" \
     --network "$NETWORK" \
-    -e CHAT_DB_URL="jdbc:postgresql://$DB_CONTAINER:5432/$DB_NAME" \
-    -e CHAT_DB_USER="$DB_USER" \
-    -e CHAT_DB_PASSWORD="$DB_PASSWORD" \
-    -e CHAT_REDIS_HOST="$REDIS_CONTAINER" \
-    -e CHAT_REDIS_PORT=6379 \
-    -e CHAT_REDIS_PASSWORD="$REDIS_PASSWORD" \
-    -e CHAT_EMAIL_AUTH=false \
-    -e CHAT_EMAIL_FROM=no-reply@localhost \
-    -e CHAT_MAIL_HEALTH_ENABLED=false \
-    -e CHAT_SECURE_COOKIE=false \
-    -e CHAT_SERVER_HOST=0.0.0.0 \
-    -e CHAT_SERVER_PORT=8080 \
+    -e NEXUS_DB_URL="jdbc:postgresql://$DB_CONTAINER:5432/$DB_NAME" \
+    -e NEXUS_DB_USER="$DB_USER" \
+    -e NEXUS_DB_PASSWORD="$DB_PASSWORD" \
+    -e NEXUS_REDIS_HOST="$REDIS_CONTAINER" \
+    -e NEXUS_REDIS_PORT=6379 \
+    -e NEXUS_REDIS_PASSWORD="$REDIS_PASSWORD" \
+    -e NEXUS_EMAIL_AUTH=false \
+    -e NEXUS_EMAIL_FROM=no-reply@localhost \
+    -e NEXUS_MAIL_HEALTH_ENABLED=false \
+    -e NEXUS_SECURE_COOKIE=false \
+    -e NEXUS_SERVER_HOST=0.0.0.0 \
+    -e NEXUS_SERVER_PORT=8080 \
     "$SERVER_IMAGE" \
     >/dev/null; then
     die "could not start the isolated server container"
@@ -284,7 +284,7 @@ fi
 
 PROMOTED="$(docker exec "$DB_CONTAINER" \
     psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -qAtc \
-    "UPDATE chat_v1.user_account SET role = 'admin' WHERE username_normalized = lower('$ADMIN_USER') RETURNING username;")" \
+    "UPDATE nexus.user_account SET role = 'admin' WHERE username_normalized = lower('$ADMIN_USER') RETURNING username;")" \
     || die "could not promote the temporary admin in the throwaway database"
 [[ "$PROMOTED" == "$ADMIN_USER" ]] \
     || die "temporary admin promotion did not find the registered account"
@@ -297,10 +297,10 @@ if ! docker run --rm \
     -e HOME=/tmp \
     -e GRADLE_USER_HOME=/gradle-home \
     -e JAVA_TOOL_OPTIONS='-Dglass.platform=headless -Dprism.order=sw -Djava.awt.headless=true -Djavafx.cachedir=/tmp/javafx-cache' \
-    -e CHAT_REAL_SERVER=true \
-    -e CHAT_REAL_SERVER_ORIGIN="http://$SERVER_CONTAINER:8080" \
-    -e CHAT_REAL_ADMIN_USERNAME="$ADMIN_USER" \
-    -e CHAT_REAL_ADMIN_PASSWORD="$ADMIN_PASSWORD" \
+    -e NEXUS_REAL_SERVER=true \
+    -e NEXUS_REAL_SERVER_ORIGIN="http://$SERVER_CONTAINER:8080" \
+    -e NEXUS_REAL_ADMIN_USERNAME="$ADMIN_USER" \
+    -e NEXUS_REAL_ADMIN_PASSWORD="$ADMIN_PASSWORD" \
     -v "$ROOT_DIR:/workspace" \
     -v "$GRADLE_HOME:/gradle-home" \
     -w /workspace \

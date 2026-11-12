@@ -3,7 +3,7 @@ plugins {
     id 'org.openapi.generator' version '7.27.0'
 }
 
-group = 'com.haichutieu.chatsystem'
+group = 'com.nexus'
 version = rootProject.version
 
 repositories {
@@ -14,9 +14,9 @@ openApiGenerate {
     generatorName.set('java')
     inputSpec.set("$rootDir/api/v1/openapi.yaml")
     outputDir.set(layout.buildDirectory.dir('generated/openapi').get().asFile.absolutePath)
-    apiPackage.set('com.haichutieu.chatsystem.sdk.api')
-    invokerPackage.set('com.haichutieu.chatsystem.sdk')
-    modelPackage.set('com.haichutieu.chatsystem.sdk.model')
+    apiPackage.set('com.nexus.sdk.api')
+    invokerPackage.set('com.nexus.sdk')
+    modelPackage.set('com.nexus.sdk.model')
     configOptions.set([
             library: 'native',
             dateLibrary: 'java8',
@@ -40,7 +40,7 @@ sourceSets.main.java.srcDir(layout.buildDirectory.dir('generated/openapi/src/mai
 // OpenAPI Generator 7.27 serializes File bodies with Jackson, which sends the temp
 // file path as JSON. The server's binary MLS/key-package endpoints need raw bytes.
 def generatedDefaultApi = layout.buildDirectory.file(
-        'generated/openapi/src/main/java/com/haichutieu/chatsystem/sdk/api/DefaultApi.java')
+        'generated/openapi/src/main/java/com/nexus/sdk/api/DefaultApi.java')
 
 tasks.register('patchGeneratedBinaryBodies') {
     dependsOn tasks.named('openApiGenerate')

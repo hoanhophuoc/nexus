@@ -197,7 +197,7 @@ jobs:
         run: |
           set -euo pipefail
           owner="${GITHUB_REPOSITORY_OWNER,,}"
-          image="ghcr.io/$owner/chat-system-server:$VERSION"
+          image="ghcr.io/$owner/nexus-server:$VERSION"
           docker build -t "$image" .
           docker push "$image"
           echo "Pushed \`$image\`" >> "$GITHUB_STEP_SUMMARY"

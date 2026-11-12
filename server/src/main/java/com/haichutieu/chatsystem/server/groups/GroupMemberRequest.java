@@ -1,7 +1,0 @@
-package com.haichutieu.chatsystem.server.groups;
-
-import jakarta.validation.constraints.NotNull;
-
-import java.util.UUID;
-
-public record GroupMemberRequest(@NotNull UUID userId) { }

@@ -3,7 +3,7 @@ plugins {
     id 'org.openjfx.javafxplugin' version '0.1.0'
 }
 
-group = 'com.haichutieu.chatsystem'
+group = 'com.nexus'
 version = rootProject.version
 
 java { toolchain { languageVersion = JavaLanguageVersion.of(27) } }
@@ -16,7 +16,7 @@ javafx {
 }
 
 application {
-    mainClass = 'com.haichutieu.chatsystem.desktop.user.UserDesktopApplication'
+    mainClass = 'com.nexus.desktop.user.UserDesktopApplication'
     applicationDefaultJvmArgs = ['--enable-native-access=javafx.graphics']
 }
 
@@ -68,8 +68,8 @@ tasks.register('packageClient', Exec) {
     group = 'distribution'
     description = 'Builds the user client with jpackage (app-image, deb, msi or dmg).'
     dependsOn tasks.named('jar')
-    def inputDir = layout.buildDirectory.dir('package/ChatSystemClient/input')
-    def destDir = layout.buildDirectory.dir('package/ChatSystemClient/out')
+    def inputDir = layout.buildDirectory.dir('package/nexusClient/input')
+    def destDir = layout.buildDirectory.dir('package/nexusClient/out')
     doFirst {
         delete inputDir.get().asFile, destDir.get().asFile
         copy {
@@ -79,12 +79,12 @@ tasks.register('packageClient', Exec) {
         }
         commandLine 'jpackage',
                 '--type', packageType,
-                '--name', 'ChatSystemClient',
+                '--name', 'nexusClient',
                 '--app-version', packageVersion,
                 '--vendor', 'Chat System',
                 '--input', inputDir.get().asFile.absolutePath,
                 '--main-jar', tasks.named('jar').get().archiveFileName.get(),
-                '--main-class', 'com.haichutieu.chatsystem.desktop.user.UserDesktopApplication',
+                '--main-class', 'com.nexus.desktop.user.UserDesktopApplication',
                 '--dest', destDir.get().asFile.absolutePath,
                 '--java-options', '-Dfile.encoding=UTF-8',
                 // JavaFX loads as an unnamed module here, so the named-module form of this

@@ -1,8 +1,8 @@
 <component name="ArtifactManager">
   <artifact type="jar" name="Server">
     <output-path>$PROJECT_DIR$/out/artifacts/Server</output-path>
-    <root id="archive" name="Chat-System.main.jar">
-      <element id="module-output" name="Chat-System.main" />
+    <root id="archive" name="nexus.main.jar">
+      <element id="module-output" name="nexus.main" />
       <element id="extracted-dir" path="$USER_HOME$/.gradle/caches/modules-2/files-2.1/net.bytebuddy/byte-buddy/1.14.18/81e9b9a20944626e6757b5950676af901c2485/byte-buddy-1.14.18.jar" path-in-jar="/" />
       <element id="extracted-dir" path="$USER_HOME$/.gradle/caches/modules-2/files-2.1/org.openjfx/javafx-graphics/21.0.5/fff3d317e9e5ef3eda055bf3624720b5c5f4ed49/javafx-graphics-21.0.5-win.jar" path-in-jar="/" />
       <element id="extracted-dir" path="$USER_HOME$/.gradle/caches/modules-2/files-2.1/org.hibernate.orm/hibernate-core/6.6.3.Final/d32d7ef93bb2ecbef8738cda4ead5ee6fa19f5c1/hibernate-core-6.6.3.Final.jar" path-in-jar="/" />

@@ -1,10 +1,10 @@
-name: chat-system-perf
+name: nexus-perf
 
 # Isolated performance stack. Host ports are offset so it can run beside the
 # development Compose stack.
 #
 #   docker compose -f docker-compose.perf.yml up -d db redis server prometheus
-#   docker compose -f docker-compose.perf.yml exec -T db psql -U chat -d chat_system \
+#   docker compose -f docker-compose.perf.yml exec -T db psql -U nexus -d nexus \
 #       -v users=200 -f /dev/stdin < perf/seed.sql
 #   docker compose -f docker-compose.perf.yml run --rm -e SESSIONS=200 -e RATE=20 \
 #       -e HOLD=30s -e USERS=200 k6
@@ -29,15 +29,15 @@ services:
       - -c
       - log_min_duration_statement=200
     environment:
-      POSTGRES_DB: chat_system
-      POSTGRES_USER: chat
-      POSTGRES_PASSWORD: chat
+      POSTGRES_DB: nexus
+      POSTGRES_USER: nexus
+      POSTGRES_PASSWORD: nexus
     volumes:
       - postgres-data:/var/lib/postgresql
     ports:
       - '127.0.0.1:15432:5432'
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U chat -d chat_system']
+      test: ['CMD-SHELL', 'pg_isready -U nexus -d nexus']
       interval: 5s
       timeout: 5s
       retries: 12
@@ -56,23 +56,23 @@ services:
       context: .
       dockerfile: Dockerfile
     environment:
-      CHAT_DB_URL: jdbc:postgresql://db:5432/chat_system
-      CHAT_DB_USER: chat
-      CHAT_DB_PASSWORD: chat
-      CHAT_DB_POOL_SIZE: '64'
-      CHAT_REDIS_HOST: redis
-      CHAT_REDIS_PORT: '6379'
-      CHAT_REDIS_PASSWORD: ${NEXUS_PERF_REDIS_PASSWORD:-local-only}
-      CHAT_SECURE_COOKIE: 'false'
-      CHAT_PRESENCE_HEARTBEAT_MS: ${CHAT_PRESENCE_HEARTBEAT_MS:-30000}
-      CHAT_PRESENCE_TTL_SECONDS: ${CHAT_PRESENCE_TTL_SECONDS:-90}
-      CHAT_MAIL_HEALTH_ENABLED: 'false'
+      NEXUS_DB_URL: jdbc:postgresql://db:5432/nexus
+      NEXUS_DB_USER: nexus
+      NEXUS_DB_PASSWORD: nexus
+      NEXUS_DB_POOL_SIZE: '64'
+      NEXUS_REDIS_HOST: redis
+      NEXUS_REDIS_PORT: '6379'
+      NEXUS_REDIS_PASSWORD: ${NEXUS_PERF_REDIS_PASSWORD:-local-only}
+      NEXUS_SECURE_COOKIE: 'false'
+      NEXUS_PRESENCE_HEARTBEAT_MS: ${NEXUS_PRESENCE_HEARTBEAT_MS:-30000}
+      NEXUS_PRESENCE_TTL_SECONDS: ${NEXUS_PRESENCE_TTL_SECONDS:-90}
+      NEXUS_MAIL_HEALTH_ENABLED: 'false'
       # Ceiling under test. Raising it is how the ramp separates "the connection cap is the
       # limit" from "the server itself is the limit".
-      CHAT_MAX_CONNECTIONS: ${PERF_MAX_CONNECTIONS:-20000}
-      CHAT_ACCEPT_COUNT: ${PERF_ACCEPT_COUNT:-500}
-      CHAT_SERVER_HOST: 0.0.0.0
-      CHAT_SERVER_PORT: '8080'
+      NEXUS_MAX_CONNECTIONS: ${PERF_MAX_CONNECTIONS:-20000}
+      NEXUS_ACCEPT_COUNT: ${PERF_ACCEPT_COUNT:-500}
+      NEXUS_SERVER_HOST: 0.0.0.0
+      NEXUS_SERVER_PORT: '8080'
       # Opt-in JFR: low overhead, dumped on exit for JMC / `jfr view`.
       JAVA_TOOL_OPTIONS: >-
         -XX:StartFlightRecording=filename=/perf/app.jfr,settings=profile,dumponexit=true
@@ -99,7 +99,7 @@ services:
       start_period: 20s
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.16.0
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
@@ -114,9 +114,9 @@ services:
         condition: service_healthy
 
   k6:
-    image: grafana/k6:latest
+    image: grafana/k6:2.3.0
     profiles: ['load']
-    command: ['run', '/perf/k6/chat-load.js']
+    command: ['run', '/perf/k6/load.js']
     environment:
       BASE_URL: http://server:8080
       WS_URL: ws://server:8080

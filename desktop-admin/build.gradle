@@ -3,7 +3,7 @@ plugins {
     id 'org.openjfx.javafxplugin' version '0.1.0'
 }
 
-group = 'com.haichutieu.chatsystem'
+group = 'com.nexus'
 version = rootProject.version
 
 java { toolchain { languageVersion = JavaLanguageVersion.of(27) } }
@@ -16,7 +16,7 @@ javafx {
 }
 
 application {
-    mainClass = 'com.haichutieu.chatsystem.desktop.admin.AdminDesktopApplication'
+    mainClass = 'com.nexus.desktop.admin.AdminDesktopApplication'
     applicationDefaultJvmArgs = ['--enable-native-access=javafx.graphics']
 }
 
@@ -66,8 +66,8 @@ tasks.register('packageAdmin', Exec) {
     group = 'distribution'
     description = 'Builds the admin client with jpackage (app-image, deb, msi or dmg).'
     dependsOn tasks.named('jar')
-    def inputDir = layout.buildDirectory.dir('package/ChatSystemAdmin/input')
-    def destDir = layout.buildDirectory.dir('package/ChatSystemAdmin/out')
+    def inputDir = layout.buildDirectory.dir('package/nexusAdmin/input')
+    def destDir = layout.buildDirectory.dir('package/nexusAdmin/out')
     doFirst {
         delete inputDir.get().asFile, destDir.get().asFile
         copy {
@@ -77,12 +77,12 @@ tasks.register('packageAdmin', Exec) {
         }
         commandLine 'jpackage',
                 '--type', packageType,
-                '--name', 'ChatSystemAdmin',
+                '--name', 'nexusAdmin',
                 '--app-version', packageVersion,
                 '--vendor', 'Chat System',
                 '--input', inputDir.get().asFile.absolutePath,
                 '--main-jar', tasks.named('jar').get().archiveFileName.get(),
-                '--main-class', 'com.haichutieu.chatsystem.desktop.admin.AdminDesktopApplication',
+                '--main-class', 'com.nexus.desktop.admin.AdminDesktopApplication',
                 '--dest', destDir.get().asFile.absolutePath,
                 '--java-options', '-Dfile.encoding=UTF-8',
                 // JavaFX loads as an unnamed module here, so the named-module form of this
