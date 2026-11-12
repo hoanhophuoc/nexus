@@ -14,7 +14,7 @@ import sys
 DEFAULT_PLAN = "10000:90:120,14000:60:90,18000:60:90,22000:60:90"
 UNITS = {"ns": 1e-6, "us": 1e-3, "µs": 1e-3, "ms": 1.0, "s": 1000.0, "m": 60000.0}
 LINE_RE = re.compile(r"^([a-z0-9_]+)\W*:\s*(.*)$", re.IGNORECASE)
-PAIR_RE = re.compile(r"([a-z0-9_()%]+)=([\d.]+(?:ns|us|µs|ms|s|m)|[\d.]+%)")
+PAIR_RE = re.compile(r"([a-z0-9_()%]+)=([\d.]+(?:ns|us|µs|ms|s|m)?)")
 
 
 def to_ms(text):
@@ -33,7 +33,12 @@ def parse_summary(path):
             name, rest = match.group(1).lower(), match.group(2)
             stats = {}
             for key, value in PAIR_RE.findall(rest):
-                stats[key] = float(value.rstrip("%")) / 100 if value.endswith("%") else to_ms(value)
+                if value.endswith("%"):
+                    stats[key] = float(value.rstrip("%")) / 100
+                else:
+                    # A count has no unit; k6 prints it as a bare integer.
+                    milliseconds = to_ms(value)
+                    stats[key] = milliseconds if milliseconds is not None else float(value)
             value = None
             first = rest.split()[0] if rest.split() else None
             if first:
