@@ -199,8 +199,20 @@ jobs:
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           image="ghcr.io/$owner/nexus-server:$VERSION"
           docker build -t "$image" .
-          docker push "$image"
-          echo "Pushed \`$image\`" >> "$GITHUB_STEP_SUMMARY"
+          # GHCR occasionally answers the manifest write with a bare "denied" after accepting every
+          # layer, which failed v1.0.0 and passed unchanged on the retry. Pushing again is safe:
+          # layers are content-addressed, the registry skips the ones it already holds, and the tag
+          # only appears once the manifest lands.
+          for attempt in 1 2 3; do
+            if docker push "$image"; then
+              echo "Pushed \`$image\` on attempt $attempt" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "::warning::Push attempt $attempt of 3 failed for $image"
+            sleep $((attempt * 15))
+          done
+          echo "::error::Could not push $image after 3 attempts."
+          exit 1
 
   publish:
     name: Publish GitHub release

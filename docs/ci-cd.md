@@ -94,7 +94,11 @@ or an incompatible licence.
 2. **SBOM**: CycloneDX SBOM for the whole build, uploaded as an artifact.
 3. **Package**: native installers for the desktop clients in a matrix build.
 4. **Server image**: builds and pushes the versioned image to GHCR. The tag comes from the
-   release version; there is no moving `latest` tag in the pipeline.
+   release version; there is no moving `latest` tag in the pipeline. The push is retried up to three
+   times because GHCR sometimes rejects the manifest write with a bare `denied` after accepting every
+   layer — that is what failed `v1.0.0` on its first attempt, and the same command passed unmodified
+   on the re-run. Retrying is safe: layers are content-addressed and the tag only appears once the
+   manifest lands.
 5. **Publish**: downloads the assets, writes SHA-256 checksums, attests build provenance and
    creates the GitHub release.
 
