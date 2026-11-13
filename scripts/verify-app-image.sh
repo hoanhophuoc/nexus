@@ -60,15 +60,16 @@ fail() {
   failures=$((failures + 1))
 }
 
-# shellcheck disable=SC2012 # these globs name the packaged jars, nothing else.
-shared_jar="$(ls "$jars"/desktop-shared-*.jar 2>/dev/null | head -1)"
+shared_jar="$(find "$jars" -maxdepth 1 -name 'desktop-shared-*.jar' -print 2>/dev/null | head -1)"
 if [ -z "$shared_jar" ]; then
   fail "desktop-shared jar is missing from $jars"
 elif ! list_jar "$shared_jar" | grep -qx 'com/nexus/desktop/shared/ui/ThemeManager.class'; then
   fail "$shared_jar does not contain com/nexus/desktop/shared/ui/ThemeManager.class"
 fi
 
-if [ -z "$(ls "$jars"/desktop-user-*.jar "$jars"/desktop-admin-*.jar 2>/dev/null | head -1)" ]; then
+app_jar="$(find "$jars" -maxdepth 1 \( -name 'desktop-user-*.jar' -o -name 'desktop-admin-*.jar' \) \
+  -print 2>/dev/null | head -1)"
+if [ -z "$app_jar" ]; then
   fail "neither the client nor the admin module jar is in $jars"
 fi
 
