@@ -20,11 +20,11 @@ Without that data the module reports were empty, SonarQube counted both UI modul
 and the project sat at 38%. With it they measure 70.36% and 84.86% of lines, which takes the reported
 project coverage from 38% to 67%. Across the four product modules and both desktop suites the
 aggregate report — the one the bundle floor is checked against — measures 79.72% of lines and 55.49%
-of branches, so the line floor sits about a point and a half below it: 78% of lines and 50% of
-branches. Summing the four per-module reports instead gives 76.14% and 53.58%, because a module's
-report only credits its own suites: `com.nexus.desktop.shared/ui` reads as 11 covered lines of 191
-in the shared report but 175 of 191 in the aggregate, since the desktop FX suites are what exercise
-it. The package floors are rounded down the same way.
+of branches, about a point and a half above both bundle floors. Summing the four per-module reports
+instead gives 76.14% and 53.58%, because a module's report only credits its own suites:
+`com.nexus.desktop.shared/ui` reads as 11 covered lines of 191 in the shared report but 175 of 191 in
+the aggregate, since the desktop FX suites are what exercise it. The package floors are rounded down
+the same way.
 
 `java:S2077` ("Make sure using a dynamically formatted SQL query is safe here") is still ignored for
 `server/administration`, through `sonar.issue.ignore.multicriteria` in `build.gradle`.
@@ -69,7 +69,7 @@ plan test green; until then the rule stays excluded there instead of hiding a re
 | GA-only dependencies | `./gradlew gaOnlyCheck` | An alpha, beta, milestone, RC, snapshot, preview or EA version on any classpath |
 | GA-only external pins | `./scripts/check-ga-pins.sh` | A pre-release GitHub Action SHA, container tag or Dockerfile base image |
 | Pinned container images | `./scripts/check-image-pins.sh` | `:latest`, an untagged image, or a tag that pins no version |
-| Coverage floor | `./gradlew coverageVerification` (needs the desktop `fxTest` exec data, so run `fullTest` first) | Silent loss of tested behaviour in any of the four product modules, including the bundle (78% of lines, 50% of branches), `desktop-user` (70% of lines) and `desktop-admin` (84%) |
+| Coverage floor | `./gradlew coverageVerification` (needs the desktop `fxTest` exec data, so run `fullTest` first) | Silent loss of tested behaviour in any of the four product modules, including the bundle (78% of lines, 54% of branches); the per-package floors are in `build.gradle` |
 | Database plans | `:server:integrationTest` | A cascade or search that stops using its index (see [performance.md](performance.md)) |
 | Live journey cleanup | last step of the journey job | Containers, volumes or networks left behind |
 | Secret scan | `ggshield secret scan repo git@github.com:hoanhophuoc/nexus.git` | A credential in a pushed commit |

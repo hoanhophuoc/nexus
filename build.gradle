@@ -78,10 +78,9 @@ tasks.register('coverageReport', JacocoReport) {
 // Anti-regression gate over the product modules. The floors are the baseline measured on
 // 2026-11-13 across all four product modules and both desktop suites (bundle 79.72% line /
 // 55.49% branch, from the aggregate coverageReport the BUNDLE rule reads), rounded down so a
-// small refactor cannot fail the build on a fraction of a point. The bundle floor keeps about a
+// small refactor cannot fail the build on a fraction of a point. Both bundle floors keep about a
 // point and a half of headroom, like the package floors below.
-// Raise them as the remaining workflows gain tests; the aspirational targets are documented in
-// docs/ci-cd.md.
+// Raise them as the remaining workflows gain tests.
 def coverageVerification = tasks.register('coverageVerification', JacocoCoverageVerification) {
     group = 'verification'
     description = 'Fails when the product modules drop below their recorded coverage baseline.'
@@ -105,7 +104,7 @@ def coverageVerification = tasks.register('coverageVerification', JacocoCoverage
         rule {
             element = 'BUNDLE'
             limit { counter = 'LINE'; value = 'COVEREDRATIO'; minimum = 0.78 }
-            limit { counter = 'BRANCH'; value = 'COVEREDRATIO'; minimum = 0.50 }
+            limit { counter = 'BRANCH'; value = 'COVEREDRATIO'; minimum = 0.54 }
         }
         [
                 'com.nexus.server.identity'             : [0.69d, 0.50d],
