@@ -16,12 +16,10 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The chat list and the message history both page by cursor, and both used to build their cursor
- * comparison by concatenating a clause. The statements are now constant and bind a first-page
- * sentinel instead (a nil UUID, and sequence 0), so this test pins what the rewrite must not lose:
- * the list still reads {@code conversation_member_user_idx} rather than walking every conversation,
- * and the history still reads {@code message_conversation_cursor_idx} rather than the whole message
- * table. The outbox fan-out keeps reading its partial pending index.
+ * Pins the indexes behind the statements the messaging package and the outbox fan-out really run:
+ * the chat list, the message history and both pending outbox polls. Everything here is about plan
+ * shape, not row counts — a statement that starts walking a table still returns the right rows, so
+ * only the plan catches the regression.
  */
 @Testcontainers
 @SpringBootTest
@@ -49,6 +47,8 @@ class MessagingPlanIntegrationTest {
     @Autowired
     private JdbcTemplate jdbc;
 
+    private static boolean seeded;
+
     @Test
     void chatListReadsTheMemberIndexInsteadOfEveryConversation() {
         seed();
@@ -66,24 +66,29 @@ class MessagingPlanIntegrationTest {
     void messageHistoryReadsTheCursorIndexInsteadOfEveryMessage() {
         seed();
 
+        String conversationId = jdbc.queryForObject(
+                "SELECT c.id FROM nexus.conversation c JOIN nexus.message m ON m.conversation_id = c.id"
+                        + " GROUP BY c.id ORDER BY count(*) DESC LIMIT 1", UUID.class).toString();
         String plan = explain(JdbcMessagingRepository.MESSAGES_SQL,
-                "'" + VIEWER + "', '" + VIEWER + "', 0, 26");
+                "'" + conversationId + "', '" + VIEWER + "', 0, 26");
 
         assertThat(plan)
                 .as("the history must reach message_conversation_cursor_idx: %s", plan)
                 .contains("message_conversation_cursor_idx")
-                .doesNotContain("Seq Scan on message ");
+                .doesNotContain("Seq Scan on message");
     }
 
     @Test
-    void outboxFanOutReadsThePendingIndex() {
+    void bothPendingOutboxPollsReadThePendingIndex() {
         seed();
 
-        String plan = explain(OutboxPublisher.PENDING_MLS_SQL, "");
-
-        assertThat(plan)
-                .as("the fan-out must reach message_outbox_pending_idx: %s", plan)
-                .contains("message_outbox_pending_idx");
+        for (String sql : new String[]{OutboxPublisher.PENDING_MESSAGES_SQL, OutboxPublisher.PENDING_MLS_SQL}) {
+            String plan = explain(sql, "");
+            assertThat(plan)
+                    .as("the fan-out must reach message_outbox_pending_idx: %s", plan)
+                    .contains("message_outbox_pending_idx")
+                    .doesNotContain("Seq Scan on message_outbox");
+        }
     }
 
     /**
@@ -111,8 +116,10 @@ class MessagingPlanIntegrationTest {
         return numbered.toString();
     }
 
+    /** Test methods share one database, so the rows are inserted once, whichever test runs first. */
     private void seed() {
-        if (!jdbc.queryForList("SELECT 1 FROM nexus.conversation LIMIT 1", Integer.class).isEmpty()) return;
+        if (seeded) return;
+        seeded = true;
 
         jdbc.update("""
                 INSERT INTO nexus.user_account
@@ -152,9 +159,9 @@ class MessagingPlanIntegrationTest {
         jdbc.update("""
                 INSERT INTO nexus.message
                     (id, conversation_id, sender_id, conversation_sequence, idempotency_key, content)
-                SELECT gen_random_uuid(), c.id, ?, s, 'k' || c.n || '-' || s, 'hello'
-                FROM (SELECT id, row_number() OVER () AS n FROM nexus.conversation) c
-                JOIN generate_series(1, 5) AS s ON TRUE
+                SELECT gen_random_uuid(), (SELECT id FROM nexus.conversation ORDER BY id LIMIT 1), ?, s,
+                       'k' || s, 'hello'
+                FROM generate_series(1, 20_000) AS s
                 """, VIEWER);
         jdbc.update("""
                 INSERT INTO nexus.mls_message (id, conversation_id, sender_id, epoch, kind, ciphertext)
@@ -165,6 +172,11 @@ class MessagingPlanIntegrationTest {
                 INSERT INTO nexus.message_outbox (event_id, conversation_id, mls_message_id, event_type)
                 SELECT gen_random_uuid(), m.conversation_id, m.id, 'mls.message'
                 FROM nexus.mls_message m
+                """);
+        jdbc.update("""
+                INSERT INTO nexus.message_outbox (event_id, conversation_id, message_id, event_type)
+                SELECT gen_random_uuid(), m.conversation_id, m.id, 'message.created'
+                FROM nexus.message m LIMIT 2000
                 """);
         for (String table : new String[]{"user_account", "conversation", "conversation_member", "message",
                 "mls_message", "message_outbox"}) {

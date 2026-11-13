@@ -34,7 +34,17 @@ import java.util.Objects;
 public class OutboxPublisher {
     static final String CHANNEL = "nexus:message-events";
     private static final byte[] CHANNEL_BYTES = CHANNEL.getBytes(StandardCharsets.UTF_8);
-    /** Package-private so the plan test can explain the exact statement the fan-out runs. */
+    /** Both pending polls are package-private so the plan test explains the statements the fan-out runs. */
+    static final String PENDING_MESSAGES_SQL = """
+            SELECT o.event_id, o.conversation_id, o.message_id, o.recipient_user_id, o.event_type,
+                   m.sender_id, m.content, m.created_at, m.deleted_for_everyone_at
+            FROM nexus.message_outbox o
+            JOIN nexus.message m ON m.id = o.message_id
+            WHERE o.published_at IS NULL
+            ORDER BY o.created_at, o.event_id
+            LIMIT 100 FOR UPDATE OF o SKIP LOCKED
+            """;
+
     static final String PENDING_MLS_SQL = """
             SELECT o.event_id, o.conversation_id, o.mls_message_id, o.event_type,
                    m.sender_id, m.epoch, m.kind, m.ciphertext, m.created_at
@@ -95,15 +105,7 @@ public class OutboxPublisher {
     @Transactional
     public void publishPending() {
         long started = System.nanoTime();
-        List<OutboxRow> rows = jdbc.query("""
-                SELECT o.event_id, o.conversation_id, o.message_id, o.recipient_user_id, o.event_type,
-                       m.sender_id, m.content, m.created_at, m.deleted_for_everyone_at
-                FROM nexus.message_outbox o
-                JOIN nexus.message m ON m.id = o.message_id
-                WHERE o.published_at IS NULL
-                ORDER BY o.created_at, o.event_id
-                LIMIT 100 FOR UPDATE OF o SKIP LOCKED
-                """, OutboxPublisher::map, new Object[]{});
+        List<OutboxRow> rows = jdbc.query(PENDING_MESSAGES_SQL, OutboxPublisher::map);
         List<MlsOutboxRow> mlsRows = publishMlsPending();
         long handled = rows.size() + mlsRows.size();
         batchRows.set(handled);
@@ -148,8 +150,9 @@ public class OutboxPublisher {
             }
             return null;
         });
-        markPublished(messageEventIds);
-        markPublished(mlsEventIds);
+        List<UUID> eventIds = new ArrayList<>(messageEventIds);
+        eventIds.addAll(mlsEventIds);
+        markPublished(eventIds);
         publishedEvents.increment(payloads.size());
         publishTimer.record(Duration.ofNanos(System.nanoTime() - started));
     }

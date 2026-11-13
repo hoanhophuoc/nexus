@@ -12,6 +12,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -75,14 +76,16 @@ class MessagingPaginationIntegrationTest {
         assertThat(ids(first.items())).containsExactly(id(101), id(102));
         assertThat(first.nextCursor()).isEqualTo(id(102).toString());
 
-        ConversationPage second = messaging.conversations(LISTER, UUID.fromString(first.nextCursor()), 2);
-        assertThat(ids(second.items()))
-                .as("the second page continues after the last id of the first one")
-                .containsExactly(id(103), id(104));
-
-        ConversationPage last = messaging.conversations(LISTER, UUID.fromString(second.nextCursor()), 2);
-        assertThat(ids(last.items())).containsExactly(id(105));
-        assertThat(last.nextCursor()).as("the probe row said there is nothing left").isNull();
+        List<UUID> walked = new ArrayList<>(ids(first.items()));
+        String cursor = first.nextCursor();
+        while (cursor != null) {
+            ConversationPage page = messaging.conversations(LISTER, UUID.fromString(cursor), 2);
+            walked.addAll(ids(page.items()));
+            cursor = page.nextCursor();
+        }
+        assertThat(walked)
+                .as("walking every page visits each conversation once, in id order")
+                .containsExactly(id(101), id(102), id(103), id(104), id(105));
 
         ConversationPage sentinel = messaging.conversations(LISTER, new UUID(0L, 0L), 2);
         assertThat(ids(sentinel.items()))
@@ -113,14 +116,16 @@ class MessagingPaginationIntegrationTest {
                 .containsExactly("message 1", "message 2");
         assertThat(first.nextCursor()).isEqualTo(id(201 * 100 + 2).toString());
 
-        MessagePage second = messaging.messages(VIEWER, id(201), UUID.fromString(first.nextCursor()), 2);
-        assertThat(second.items()).extracting(MessageView::content)
-                .as("the cursor row itself is not repeated")
-                .containsExactly("message 3", "message 4");
-
-        MessagePage last = messaging.messages(VIEWER, id(201), UUID.fromString(second.nextCursor()), 2);
-        assertThat(last.items()).extracting(MessageView::content).containsExactly("message 5");
-        assertThat(last.nextCursor()).isNull();
+        List<String> walked = new ArrayList<>(contents(first.items()));
+        String cursor = first.nextCursor();
+        while (cursor != null) {
+            MessagePage page = messaging.messages(VIEWER, id(201), UUID.fromString(cursor), 2);
+            walked.addAll(contents(page.items()));
+            cursor = page.nextCursor();
+        }
+        assertThat(walked)
+                .as("walking every page returns each message once, oldest first, with none lost")
+                .containsExactly("message 1", "message 2", "message 3", "message 4", "message 5");
     }
 
     @Test
@@ -181,6 +186,10 @@ class MessagingPaginationIntegrationTest {
                 ON CONFLICT (id) DO NOTHING
                 """, id(conversation * 100 + sequence), id(conversation), VIEWER, sequence, "k" + sequence,
                 "message " + sequence);
+    }
+
+    private static List<String> contents(List<MessageView> messages) {
+        return messages.stream().map(MessageView::content).toList();
     }
 
     private static List<UUID> ids(List<ConversationView> conversations) {

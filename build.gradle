@@ -71,8 +71,8 @@ tasks.register('coverageReport', JacocoReport) {
 }
 
 // Anti-regression gate over the product modules. The floors are the baseline measured on
-// 2026-11-13 across all four product modules and both desktop suites (bundle 75.20% line /
-// 51.96% branch, summing the four module reports), rounded down so a small refactor cannot fail the build on a fraction of a
+// 2026-11-13 across all four product modules and both desktop suites (bundle 75.40% line /
+// 52.45% branch, summing the four module reports), rounded down so a small refactor cannot fail the build on a fraction of a
 // point. The bundle floor keeps a full point of headroom, like the package floors below.
 // Raise them as the remaining workflows gain tests; the aspirational targets are documented in
 // docs/ci-cd.md.
