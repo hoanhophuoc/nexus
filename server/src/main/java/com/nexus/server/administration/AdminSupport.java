@@ -69,16 +69,162 @@ final class AdminSupport {
         args.add(pattern);
     }
 
+    private static final String GROUP_CREATED_AT_ASC = """
+            SELECT c.id, c.name, c.created_at FROM nexus.conversation c
+            WHERE c.type = 'group'
+            ORDER BY c.created_at ASC, c.id ASC
+            LIMIT ?
+            """;
+
+    private static final String GROUP_CREATED_AT_ASC_CURSOR = """
+            SELECT c.id, c.name, c.created_at FROM nexus.conversation c
+            WHERE c.type = 'group'
+              AND (c.created_at, c.id) > (?, ?)
+            ORDER BY c.created_at ASC, c.id ASC
+            LIMIT ?
+            """;
+
+    private static final String GROUP_CREATED_AT_ASC_FILTERED = """
+            SELECT c.id, c.name, c.created_at FROM nexus.conversation c
+            WHERE c.type = 'group'
+              AND lower(c.name) LIKE ? ESCAPE '\\'
+            ORDER BY c.created_at ASC, c.id ASC
+            LIMIT ?
+            """;
+
+    private static final String GROUP_CREATED_AT_ASC_FILTERED_CURSOR = """
+            SELECT c.id, c.name, c.created_at FROM nexus.conversation c
+            WHERE c.type = 'group'
+              AND lower(c.name) LIKE ? ESCAPE '\\'
+              AND (c.created_at, c.id) > (?, ?)
+            ORDER BY c.created_at ASC, c.id ASC
+            LIMIT ?
+            """;
+
+    private static final String GROUP_CREATED_AT_DESC = """
+            SELECT c.id, c.name, c.created_at FROM nexus.conversation c
+            WHERE c.type = 'group'
+            ORDER BY c.created_at DESC, c.id DESC
+            LIMIT ?
+            """;
+
+    private static final String GROUP_CREATED_AT_DESC_CURSOR = """
+            SELECT c.id, c.name, c.created_at FROM nexus.conversation c
+            WHERE c.type = 'group'
+              AND (c.created_at, c.id) < (?, ?)
+            ORDER BY c.created_at DESC, c.id DESC
+            LIMIT ?
+            """;
+
+    private static final String GROUP_CREATED_AT_DESC_FILTERED = """
+            SELECT c.id, c.name, c.created_at FROM nexus.conversation c
+            WHERE c.type = 'group'
+              AND lower(c.name) LIKE ? ESCAPE '\\'
+            ORDER BY c.created_at DESC, c.id DESC
+            LIMIT ?
+            """;
+
+    private static final String GROUP_CREATED_AT_DESC_FILTERED_CURSOR = """
+            SELECT c.id, c.name, c.created_at FROM nexus.conversation c
+            WHERE c.type = 'group'
+              AND lower(c.name) LIKE ? ESCAPE '\\'
+              AND (c.created_at, c.id) < (?, ?)
+            ORDER BY c.created_at DESC, c.id DESC
+            LIMIT ?
+            """;
+
+    private static final String GROUP_NAME_ASC = """
+            SELECT c.id, c.name, c.created_at FROM nexus.conversation c
+            WHERE c.type = 'group'
+            ORDER BY lower(c.name) ASC, c.id ASC
+            LIMIT ?
+            """;
+
+    private static final String GROUP_NAME_ASC_CURSOR = """
+            SELECT c.id, c.name, c.created_at FROM nexus.conversation c
+            WHERE c.type = 'group'
+              AND (lower(c.name), c.id) > (?, ?)
+            ORDER BY lower(c.name) ASC, c.id ASC
+            LIMIT ?
+            """;
+
+    private static final String GROUP_NAME_ASC_FILTERED = """
+            SELECT c.id, c.name, c.created_at FROM nexus.conversation c
+            WHERE c.type = 'group'
+              AND lower(c.name) LIKE ? ESCAPE '\\'
+            ORDER BY lower(c.name) ASC, c.id ASC
+            LIMIT ?
+            """;
+
+    private static final String GROUP_NAME_ASC_FILTERED_CURSOR = """
+            SELECT c.id, c.name, c.created_at FROM nexus.conversation c
+            WHERE c.type = 'group'
+              AND lower(c.name) LIKE ? ESCAPE '\\'
+              AND (lower(c.name), c.id) > (?, ?)
+            ORDER BY lower(c.name) ASC, c.id ASC
+            LIMIT ?
+            """;
+
+    private static final String GROUP_NAME_DESC = """
+            SELECT c.id, c.name, c.created_at FROM nexus.conversation c
+            WHERE c.type = 'group'
+            ORDER BY lower(c.name) DESC, c.id DESC
+            LIMIT ?
+            """;
+
+    private static final String GROUP_NAME_DESC_CURSOR = """
+            SELECT c.id, c.name, c.created_at FROM nexus.conversation c
+            WHERE c.type = 'group'
+              AND (lower(c.name), c.id) < (?, ?)
+            ORDER BY lower(c.name) DESC, c.id DESC
+            LIMIT ?
+            """;
+
+    private static final String GROUP_NAME_DESC_FILTERED = """
+            SELECT c.id, c.name, c.created_at FROM nexus.conversation c
+            WHERE c.type = 'group'
+              AND lower(c.name) LIKE ? ESCAPE '\\'
+            ORDER BY lower(c.name) DESC, c.id DESC
+            LIMIT ?
+            """;
+
+    private static final String GROUP_NAME_DESC_FILTERED_CURSOR = """
+            SELECT c.id, c.name, c.created_at FROM nexus.conversation c
+            WHERE c.type = 'group'
+              AND lower(c.name) LIKE ? ESCAPE '\\'
+              AND (lower(c.name), c.id) < (?, ?)
+            ORDER BY lower(c.name) DESC, c.id DESC
+            LIMIT ?
+            """;
+
     /**
-     * Filters groups by a substring of their name. The predicate uses the partial trigram index from
-     * V11, so a term that matches no group reads the index instead of walking every conversation.
+     * The admin group list is four independent choices (sort column, direction, whether a search
+     * term narrows it, whether a cursor continues it). Every combination is written out as a
+     * constant statement instead of being concatenated per request, so the search predicate stays a
+     * plain LIKE the planner can match against conversation_group_name_trgm_idx.
      */
-    static void appendGroupFilter(StringBuilder where, List<Object> args, String query) {
-        if (query == null || query.isBlank()) {
-            return;
-        }
-        where.append(" AND lower(c.name) LIKE ? ESCAPE '\\'");
-        args.add(LikePatterns.containing(query));
+    static String groupPageSql(String sortField, String orderDirection, boolean filtered,
+                               boolean cursor) {
+        return switch (sortField + "-" + orderDirection + (filtered ? "-filtered" : "")
+                + (cursor ? "-cursor" : "")) {
+            case "createdAt-ASC" -> GROUP_CREATED_AT_ASC;
+            case "createdAt-ASC-filtered" -> GROUP_CREATED_AT_ASC_FILTERED;
+            case "createdAt-ASC-cursor" -> GROUP_CREATED_AT_ASC_CURSOR;
+            case "createdAt-ASC-filtered-cursor" -> GROUP_CREATED_AT_ASC_FILTERED_CURSOR;
+            case "createdAt-DESC" -> GROUP_CREATED_AT_DESC;
+            case "createdAt-DESC-filtered" -> GROUP_CREATED_AT_DESC_FILTERED;
+            case "createdAt-DESC-cursor" -> GROUP_CREATED_AT_DESC_CURSOR;
+            case "createdAt-DESC-filtered-cursor" -> GROUP_CREATED_AT_DESC_FILTERED_CURSOR;
+            case "name-ASC" -> GROUP_NAME_ASC;
+            case "name-ASC-filtered" -> GROUP_NAME_ASC_FILTERED;
+            case "name-ASC-cursor" -> GROUP_NAME_ASC_CURSOR;
+            case "name-ASC-filtered-cursor" -> GROUP_NAME_ASC_FILTERED_CURSOR;
+            case "name-DESC" -> GROUP_NAME_DESC;
+            case "name-DESC-filtered" -> GROUP_NAME_DESC_FILTERED;
+            case "name-DESC-cursor" -> GROUP_NAME_DESC_CURSOR;
+            case "name-DESC-filtered-cursor" -> GROUP_NAME_DESC_FILTERED_CURSOR;
+            default -> throw new IllegalArgumentException("Unsupported group page.");
+        };
     }
 
     static String encodeCursor(UUID id, String sortKey) {

@@ -1,5 +1,6 @@
 package com.nexus.server.administration;
 
+import com.nexus.server.LikePatterns;
 import com.nexus.server.groups.GroupMemberPage;
 import com.nexus.server.identity.IdentityService;
 import com.nexus.server.identity.PasswordResetService;
@@ -163,30 +164,26 @@ public class AdminService {
                                    String cursor, int limit) {
         AdminSupport.requireAdmin(actor);
         String sortField = sort == null ? "createdAt" : sort;
-        String order = switch (sortField) {
-            case "name" -> "lower(c.name)";
-            case "createdAt" -> "c.created_at";
-            default -> throw new IllegalArgumentException("Unsupported group sort field.");
-        };
+        if (!"name".equals(sortField) && !"createdAt".equals(sortField)) {
+            throw new IllegalArgumentException("Unsupported group sort field.");
+        }
         String orderDirection = AdminSupport.orderDirection(direction);
         int pageSize = Math.clamp(limit, 1, 100);
+        boolean filtered = query != null && !query.isBlank();
+        AdminSupport.Cursor decoded = cursor == null ? null : AdminSupport.decodeCursor(cursor);
         List<Object> args = new ArrayList<>();
-        StringBuilder where = new StringBuilder("WHERE c.type = 'group'");
-        if (query != null && !query.isBlank()) {
-            AdminSupport.appendGroupFilter(where, args, query);
+        if (filtered) {
+            args.add(LikePatterns.containing(query));
         }
-        if (cursor != null) {
-            AdminSupport.Cursor decoded = AdminSupport.decodeCursor(cursor);
-            where.append(" AND (").append(order).append(", c.id) ")
-                    .append("ASC".equals(orderDirection) ? ">" : "<").append(" (?, ?)");
-            args.add("createdAt".equals(sortField) ? Timestamp.from(AdminSupport.cursorInstant(decoded.sortKey()))
+        if (decoded != null) {
+            args.add("createdAt".equals(sortField)
+                    ? Timestamp.from(AdminSupport.cursorInstant(decoded.sortKey()))
                     : decoded.sortKey());
             args.add(decoded.id());
         }
         args.add(pageSize + 1);
-        List<GroupRow> found = jdbc.query("SELECT c.id, c.name, c.created_at FROM nexus.conversation c "
-                        + where + " ORDER BY " + order + " " + orderDirection + ", c.id " + orderDirection
-                        + " LIMIT ?",
+        List<GroupRow> found = jdbc.query(
+                AdminSupport.groupPageSql(sortField, orderDirection, filtered, decoded != null),
                 (rs, row) -> new GroupRow(rs.getObject("id", UUID.class), rs.getString("name"),
                         rs.getTimestamp("created_at").toInstant()), args.toArray());
         boolean hasMore = found.size() > pageSize;

@@ -1,5 +1,6 @@
 package com.nexus.server.administration;
 
+import com.nexus.server.LikePatterns;
 import com.nexus.server.identity.IdentityService;
 import com.nexus.server.identity.PasswordResetService;
 import com.nexus.server.identity.SessionIdentity;
@@ -7,7 +8,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -65,26 +65,20 @@ class AdminServiceTest {
 
     @Test
     void groupFilterUsesTheIndexedLikePredicate() {
-        StringBuilder where = new StringBuilder("WHERE c.type = 'group'");
-        List<Object> args = new ArrayList<>();
-
-        AdminSupport.appendGroupFilter(where, args, "  Tea % ");
-        assertThat(where.toString())
-                .as("the group filter must use the trigram-backed predicate, not POSITION")
+        assertThat(AdminSupport.groupPageSql("createdAt", "ASC", true, false))
+                .as("the filtered group list must use the trigram-backed predicate, not POSITION")
                 .contains("lower(c.name) LIKE ? ESCAPE '\\'")
                 .doesNotContain("position(");
-        assertThat(args)
+        assertThat(AdminSupport.groupPageSql("createdAt", "ASC", true, true))
+                .as("continuing a search keeps the same predicate")
+                .contains("lower(c.name) LIKE ? ESCAPE '\\'")
+                .contains("(c.created_at, c.id) > (?, ?)");
+        assertThat(AdminSupport.groupPageSql("createdAt", "ASC", false, false))
+                .as("a blank or absent term selects the statement without a predicate")
+                .doesNotContain("LIKE");
+        assertThat(LikePatterns.containing("  Tea % "))
                 .as("the term is lower-cased and its wildcard is escaped")
-                .containsExactly("%tea \\%%");
-
-        StringBuilder untouched = new StringBuilder("WHERE c.type = 'group'");
-        List<Object> noArgs = new ArrayList<>();
-        AdminSupport.appendGroupFilter(untouched, noArgs, "   ");
-        AdminSupport.appendGroupFilter(untouched, noArgs, null);
-        assertThat(untouched.toString())
-                .as("a blank or absent term adds no predicate at all")
-                .isEqualTo("WHERE c.type = 'group'");
-        assertThat(noArgs).isEmpty();
+                .isEqualTo("%tea \\%%");
     }
 
     @Test

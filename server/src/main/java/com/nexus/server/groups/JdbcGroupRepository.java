@@ -191,12 +191,8 @@ public class JdbcGroupRepository implements GroupRepository {
                 """, (rs, row) -> new Object[]{rs.getObject("id", UUID.class), rs.getString("name"),
                 rs.getTimestamp("created_at").toInstant()}, groupId)
                 .stream().findFirst().orElseThrow(UserNotFoundException::new);
-        List<ConversationMemberView> members = jdbc.query("""
-                SELECT u.id, u.username, u.full_name, u.address, u.birth_date, u.gender, m.role, m.joined_epoch
-                FROM nexus.conversation_member m
-                JOIN nexus.user_account u ON u.id = m.user_id
-                WHERE m.conversation_id = ? AND m.left_at IS NULL ORDER BY u.id
-                """, JdbcGroupRepository::mapMember, groupId);
+        List<ConversationMemberView> members = jdbc.query(MEMBERS_SQL, JdbcGroupRepository::mapMember,
+                groupId, FIRST_PAGE, Integer.MAX_VALUE);
         return new ConversationView((UUID) head[0], (String) head[1], "group",
                 (java.time.Instant) head[2], members);
     }

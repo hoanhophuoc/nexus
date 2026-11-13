@@ -24,8 +24,12 @@ point below each: 73% of lines and 50% of branches. The package floors are round
 
 `java:S2077` ("Make sure using a dynamically formatted SQL query is safe here") is still ignored for
 `server/administration`, through `sonar.issue.ignore.multicriteria` in `build.gradle`.
-Those statements choose their ORDER BY from a whitelist, so their text is assembled at runtime even
-though every value is a bound parameter.
+The admin group list no longer depends on it: `AdminSupport.groupPageSql` returns one of sixteen
+constant statements (two sort columns, two directions, with or without a search term, with or without
+a cursor) and `AdminGroupSearchPlanIntegrationTest` now plans the statement the service really runs.
+The remaining statements in that package still choose their ORDER BY from a whitelist and assemble
+optional filters (accounts, reports, audit log, login history, friends, group members, the two
+analytics pages), so their text is built at runtime even though every value is a bound parameter.
 
 `server/social` no longer needs the exclusion. `JdbcSocialRepository` now runs five compile-time
 statements and always binds a cursor, using the nil UUID for the first page (`AND u.id > ?` with
