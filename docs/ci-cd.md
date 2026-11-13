@@ -18,9 +18,13 @@ their `fxTest.exec` files as the `fx-coverage` artifact and the analysis job dow
 coverage report, the gate and `./gradlew sonar` (`build-test` therefore waits for `fx-test`).
 Without that data the module reports were empty, SonarQube counted both UI modules as 0% covered,
 and the project sat at 38%. With it they measure 70.36% and 84.86% of lines, which takes the reported
-project coverage from 38% to 67%. Summing the four module reports, the four product modules and both
-desktop suites measure 76.13% of lines and 53.49% of branches, so the bundle floor is more than a
-point below each: 73% of lines and 50% of branches. The package floors are rounded down the same way.
+project coverage from 38% to 67%. Across the four product modules and both desktop suites the
+aggregate report — the one the bundle floor is checked against — measures 79.72% of lines and 55.45%
+of branches, so the floor sits about a point and a half below the line figure: 78% of lines and 50%
+of branches. Summing
+the four per-module reports instead gives 76.14% and 53.58%, because a module's report only credits
+its own suites: the shared classes exercised through the desktop FX suites read as uncovered there.
+The package floors are rounded down the same way.
 
 `java:S2077` ("Make sure using a dynamically formatted SQL query is safe here") is still ignored for
 `server/administration`, through `sonar.issue.ignore.multicriteria` in `build.gradle`.
@@ -34,8 +38,10 @@ analytics pages), so their text is built at runtime even though every value is a
 `server/messaging` and the outbox no longer need theirs either: the chat list, the message history
 and both pending outbox polls are constant statements, and `MessagingPlanIntegrationTest` explains
 each one against a seeded database (3,000 groups, 20,000 messages, 2,000 outbox rows).
-`OutboxPublisherIntegrationTest` covers the fan-out itself: one batch with a message event and an MLS
-event reaches Redis, both rows are left marked published, and the next poll sends nothing.
+`OutboxPublisherIntegrationTest` covers the fan-out itself: a created message is addressed to every
+member still in the conversation and a hidden one only to the person who hid it, MLS ciphertext goes
+only to members whose join epoch covers it, and a batch whose Redis publish failed stays unpublished
+so the next poll delivers it.
 
 `server/social` no longer needs the exclusion. `JdbcSocialRepository` now runs five compile-time
 statements and always binds a cursor, using the nil UUID for the first page (`AND u.id > ?` with
@@ -63,7 +69,7 @@ plan test green; until then the rule stays excluded there instead of hiding a re
 | GA-only dependencies | `./gradlew gaOnlyCheck` | An alpha, beta, milestone, RC, snapshot, preview or EA version on any classpath |
 | GA-only external pins | `./scripts/check-ga-pins.sh` | A pre-release GitHub Action SHA, container tag or Dockerfile base image |
 | Pinned container images | `./scripts/check-image-pins.sh` | `:latest`, an untagged image, or a tag that pins no version |
-| Coverage floor | `./gradlew coverageVerification` (needs the desktop `fxTest` exec data, so run `fullTest` first) | Silent loss of tested behaviour in any of the four product modules, including the bundle (73% of lines, 50% of branches), `desktop-user` (70% of lines) and `desktop-admin` (84%) |
+| Coverage floor | `./gradlew coverageVerification` (needs the desktop `fxTest` exec data, so run `fullTest` first) | Silent loss of tested behaviour in any of the four product modules, including the bundle (78% of lines, 50% of branches), `desktop-user` (70% of lines) and `desktop-admin` (84%) |
 | Database plans | `:server:integrationTest` | A cascade or search that stops using its index (see [performance.md](performance.md)) |
 | Live journey cleanup | last step of the journey job | Containers, volumes or networks left behind |
 | Secret scan | `ggshield secret scan repo git@github.com:hoanhophuoc/nexus.git` | A credential in a pushed commit |

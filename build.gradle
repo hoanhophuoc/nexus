@@ -60,6 +60,11 @@ tasks.register('coverageReport', JacocoReport) {
     group = 'verification'
     description = 'Coverage report for the server and the desktop modules.'
     dependsOn ':server:test', ':server:integrationTest', ':desktop-shared:test'
+    // The desktop modules' exec data comes from their own suites, which are not dependencies of this
+    // report; naming them keeps "./gradlew fullTest coverageReport" valid instead of failing with an
+    // implicit-dependency error.
+    mustRunAfter ':desktop-user:test', ':desktop-admin:test',
+            ':desktop-user:fxTest', ':desktop-admin:fxTest'
     executionData existingCoverageExecutionData()
     classDirectories.setFrom files(coverageClassDirectories)
     sourceDirectories.setFrom files(coverageSourceDirectories)
@@ -71,9 +76,10 @@ tasks.register('coverageReport', JacocoReport) {
 }
 
 // Anti-regression gate over the product modules. The floors are the baseline measured on
-// 2026-11-13 across all four product modules and both desktop suites (bundle 76.13% line /
-// 53.49% branch, summing the four module reports), rounded down so a small refactor cannot fail the build on a fraction of a
-// point. The bundle floor keeps a full point of headroom, like the package floors below.
+// 2026-11-13 across all four product modules and both desktop suites (bundle 79.72% line /
+// 55.45% branch, from the aggregate coverageReport the BUNDLE rule reads), rounded down so a
+// small refactor cannot fail the build on a fraction of a point. The bundle floor keeps about a
+// point and a half of headroom, like the package floors below.
 // Raise them as the remaining workflows gain tests; the aspirational targets are documented in
 // docs/ci-cd.md.
 def coverageVerification = tasks.register('coverageVerification', JacocoCoverageVerification) {
@@ -98,7 +104,7 @@ def coverageVerification = tasks.register('coverageVerification', JacocoCoverage
     violationRules {
         rule {
             element = 'BUNDLE'
-            limit { counter = 'LINE'; value = 'COVEREDRATIO'; minimum = 0.73 }
+            limit { counter = 'LINE'; value = 'COVEREDRATIO'; minimum = 0.78 }
             limit { counter = 'BRANCH'; value = 'COVEREDRATIO'; minimum = 0.50 }
         }
         [
