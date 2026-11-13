@@ -17,9 +17,9 @@ The two desktop modules take their coverage from their JavaFX suites, so the `fx
 their `fxTest.exec` files as the `fx-coverage` artifact and the analysis job downloads it before the
 coverage report, the gate and `./gradlew sonar` (`build-test` therefore waits for `fx-test`).
 Without that data the module reports were empty, SonarQube counted both UI modules as 0% covered,
-and the project sat at 38%. With it they measure 67.66% and 84.86% of lines, which takes the reported
+and the project sat at 38%. With it they measure 70.34% and 84.86% of lines, which takes the reported
 project coverage from 38% to 67%. Summing the four module reports, the four product modules and both
-desktop suites measure 75.40% of lines and 52.45% of branches, so the bundle floor is more than a
+desktop suites measure 76.13% of lines and 53.49% of branches, so the bundle floor is more than a
 point below each: 73% of lines and 50% of branches. The package floors are rounded down the same way.
 
 `java:S2077` ("Make sure using a dynamically formatted SQL query is safe here") is still ignored for
@@ -34,6 +34,8 @@ analytics pages), so their text is built at runtime even though every value is a
 `server/messaging` and the outbox no longer need theirs either: the chat list, the message history
 and both pending outbox polls are constant statements, and `MessagingPlanIntegrationTest` explains
 each one against a seeded database (3,000 groups, 20,000 messages, 2,000 outbox rows).
+`OutboxPublisherIntegrationTest` covers the fan-out itself: one batch with a message event and an MLS
+event reaches Redis, both rows are left marked published, and the next poll sends nothing.
 
 `server/social` no longer needs the exclusion. `JdbcSocialRepository` now runs five compile-time
 statements and always binds a cursor, using the nil UUID for the first page (`AND u.id > ?` with
