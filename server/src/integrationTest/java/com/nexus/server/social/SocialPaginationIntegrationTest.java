@@ -81,7 +81,7 @@ class SocialPaginationIntegrationTest {
         UserPage<SocialUser> sentinel = social.friends(VIEWER, new UUID(0L, 0L), 2);
         assertThat(ids(sentinel.items()))
                 .as("the nil UUID is the sentinel a missing cursor turns into")
-                .containsExactly(id(11), id(12));
+                .isEqualTo(ids(firstPage.items()));
     }
 
     @Test

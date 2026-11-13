@@ -20,8 +20,7 @@ Without that data the module reports were empty, SonarQube counted both UI modul
 and the project sat at 38%. With it they measure 65.43% and 84.86% of lines, which takes the reported
 project coverage from 38% to 67%. Together the four product modules and both desktop suites measure
 74.42% of lines and 51.05% of branches, so the bundle floor is one full point below each: 73% of
-lines and 50% of branches. The package floors sit in the same style, one to two points under what
-their module measures.
+lines and 50% of branches. The package floors are rounded down the same way.
 
 `java:S2077` ("Make sure using a dynamically formatted SQL query is safe here") is still ignored for
 `server/administration`, `server/groups/Jdbc*`, `server/messaging/JdbcMessagingRepository` and
@@ -127,10 +126,29 @@ A release is only cut from a commit whose gates all passed; the release workflow
 tests rather than trusting an earlier run.
 
 The macOS installer is not signed or notarized: the workflow has no `codesign` or `notarytool` step
-and no Apple Developer ID certificate, so Gatekeeper refuses the first launch of `nexusClient.dmg`
-and `nexusAdmin.dmg` until the user allows it in System Settings, and no macOS machine in this
-project has opened them yet. Treat the `.dmg` assets as unverified builds of the same app image the
+and no Apple Developer ID certificate. Gatekeeper therefore refuses the first launch of
+`nexusClient.dmg` and `nexusAdmin.dmg`; a double click only offers to move the app to the Bin. To
+run it anyway a user has to right-click the app, choose **Open**, and confirm, or allow it under
+**System Settings → Privacy & Security → Open Anyway**, or clear the quarantine flag
+(`xattr -dr com.apple.quarantine "/Applications/Nexus Client.app"`). No macOS machine in this
+project has opened either `.dmg` yet, so treat them as unverified builds of the same app image the
 Linux `.deb` ships.
+
+Signing and notarizing them needs, in the `macos-arm64` package job:
+
+1. A **Developer ID Application** certificate exported as `.p12` with its password, an Apple ID
+   with an app-specific password (or an App Store Connect API key with issuer and key id) and the
+   team id, held as repository secrets and exposed only to that job.
+2. A keychain step before packaging — `security create-keychain`, `security import`,
+   `security set-key-partition-list` — so `codesign` can reach the identity.
+3. A hardened runtime and a timestamp on the app: `jpackage --mac-sign
+   --mac-signing-key-user-name "Developer ID Application: …" --mac-signing-keychain …`, or
+   `codesign --deep --force --options runtime --timestamp` over the app bundle before the `.dmg`
+   is built.
+4. `xcrun notarytool submit <dmg> --wait` with those credentials, then `xcrun stapler staple` on
+   the `.dmg` and the app, so the ticket travels with the download.
+5. `spctl --assess --type execute` in the job as the proof that Gatekeeper accepts the result; the
+   current package job has no such check because nothing is signed.
 
 ## Running the gates locally
 

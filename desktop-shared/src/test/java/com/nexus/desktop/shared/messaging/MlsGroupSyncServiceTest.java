@@ -172,7 +172,11 @@ class MlsGroupSyncServiceTest {
 
             alice.publishKeyPackage();
 
-            assertThat(entries(uploads)).isEmpty();
+            assertThat(server.lastUploadExisted)
+                    .as("the uploaded file exists while the request is running")
+                    .isTrue();
+            assertThat(server.lastUpload.toPath().getParent()).isEqualTo(uploads);
+            assertThat(server.lastUpload).as("and it is removed when the request returns").doesNotExist();
             assertThat(Files.readAttributes(uploads, BasicFileAttributes.class).fileKey())
                     .isEqualTo(uploadDirectory);
         }
@@ -207,6 +211,8 @@ class MlsGroupSyncServiceTest {
     /** Minimal authorization + ciphertext log, matching the server's observable rules. */
     private static final class FakeServer {
         private final Map<UUID, byte[]> keyPackages = new HashMap<>();
+        private File lastUpload;
+        private boolean lastUploadExisted;
         private final Map<UUID, Group> groups = new LinkedHashMap<>();
 
         private Conversation createGroup(UUID actor, CreateGroup request) throws ApiException {
@@ -344,6 +350,8 @@ class MlsGroupSyncServiceTest {
 
         @Override
         public void publishKeyPackage(File body) throws ApiException {
+            server.lastUpload = body;
+            server.lastUploadExisted = body.isFile();
             server.keyPackages.put(actor, read(body));
         }
 
