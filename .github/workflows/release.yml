@@ -166,6 +166,7 @@ jobs:
       # The input directory is only what jpackage was handed; this unpacks the installer that is
       # about to be published and looks for the shared module inside it.
       - name: Verify the built installers
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
@@ -173,15 +174,42 @@ jobs:
           built=0
           for installer in \
             desktop-user/build/package/nexusClient/out/*.deb \
-            desktop-user/build/package/nexusClient/out/*.msi \
             desktop-user/build/package/nexusClient/out/*.dmg \
             desktop-admin/build/package/nexusAdmin/out/*.deb \
-            desktop-admin/build/package/nexusAdmin/out/*.msi \
             desktop-admin/build/package/nexusAdmin/out/*.dmg; do
             ./scripts/verify-app-image.sh --installer "$installer"
             built=$((built + 1))
           done
           test "$built" -eq 2 || { echo "::error::Expected two installers, checked $built."; exit 1; }
+
+      # An MSI cannot be unpacked on a Linux host and msiexec's administrative install is not
+      # reliable here, so the package's own file table is read instead: it is the list of files the
+      # installer will write.
+      - name: Verify the MSI file tables
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installers = @(
+            (Get-ChildItem desktop-user/build/package/nexusClient/out/*.msi),
+            (Get-ChildItem desktop-admin/build/package/nexusAdmin/out/*.msi)
+          )
+          if ($installers.Count -ne 2) { throw "Expected two installers, found $($installers.Count)." }
+          $installerApi = New-Object -ComObject WindowsInstaller.Installer
+          foreach ($installer in $installers) {
+            $database = $installerApi.GetType().InvokeMember('OpenDatabase', 'InvokeMethod', $null, $installerApi, @($installer.FullName, 0))
+            $view = $database.GetType().InvokeMember('OpenView', 'InvokeMethod', $null, $database, @("SELECT FileName FROM File"))
+            $view.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $view, $null)
+            $names = @()
+            while ($record = $view.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $view, $null)) {
+              $names += $record.GetType().InvokeMember('StringData', 'GetProperty', $null, $record, @(1))
+            }
+            $shared = $names | Where-Object { $_ -match 'desktop-shared' }
+            if (-not $shared) {
+              $sample = ($names | Select-Object -First 8) -join ', '
+              throw "$($installer.Name) does not install the desktop-shared jar; first files: $sample"
+            }
+            Write-Host "$($installer.Name) installs $($shared -join ', ')"
+          }
 
       - name: Collect installers
         shell: bash
