@@ -65,20 +65,27 @@ if [ "$mode" = "installer" ]; then
       ;;
     *.msi)
       # An administrative install (msiexec /a) lays out exactly the files the package installs, so
-      # the check reads the same directory a user would get; 7-Zip is only a fallback for hosts
-      # without msiexec.
-      if command -v msiexec >/dev/null 2>&1 || [ -x /c/Windows/System32/msiexec.exe ]; then
-        mkdir -p "$unpacked/payload"
+      # the check reads the directory a user would get. It goes through cmd because bash on Windows
+      # rewrites a lone /a as a path, and msiexec then waits on a usage dialog instead of exiting.
+      # 7-Zip is the fallback for hosts without msiexec.
+      payload="$unpacked/payload"
+      mkdir -p "$payload"
+      if [ -x /c/Windows/System32/msiexec.exe ] || command -v msiexec >/dev/null 2>&1; then
         msi="$(cygpath -w "$installer" 2>/dev/null || printf '%s' "$installer")"
-        target="$(cygpath -w "$unpacked/payload" 2>/dev/null || printf '%s' "$unpacked/payload")"
-        MSYS_NO_PATHCONV=1 msiexec //a "$msi" //qn "TARGETDIR=$target" || true
-      else
+        target="$(cygpath -w "$payload" 2>/dev/null || printf '%s' "$payload")"
+        timeout 240 cmd //c "msiexec /a \"$msi\" /qn TARGETDIR=\"$target\"" >/dev/null 2>&1 || true
+      fi
+      if [ -z "$(find "$payload" -name '*.jar' -print 2>/dev/null | head -1)" ]; then
         seven_zip="$(command -v 7z || command -v 7za || true)"
-        [ -n "$seven_zip" ] || { echo "no way to unpack $installer" >&2; exit 1; }
-        "$seven_zip" x -y -o"$unpacked/msi" "$installer" >/dev/null || true
+        [ -n "$seven_zip" ] || seven_zip='/c/Program Files/7-Zip/7z.exe'
+        [ -x "$seven_zip" ] || command -v "$seven_zip" >/dev/null 2>&1 || {
+          echo "no way to unpack $installer" >&2
+          exit 1
+        }
+        "$seven_zip" x -y -o"$unpacked/msi" "$installer" >/dev/null 2>&1 || true
         for cab in "$unpacked"/msi/*.cab; do
           [ -f "$cab" ] || continue
-          "$seven_zip" x -y -o"$unpacked/payload" "$cab" >/dev/null || true
+          "$seven_zip" x -y -o"$payload" "$cab" >/dev/null 2>&1 || true
         done
       fi
       ;;
