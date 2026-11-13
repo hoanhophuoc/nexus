@@ -92,7 +92,12 @@ or an incompatible licence.
 1. **Validate**: the tag must be semantic version (`vMAJOR.MINOR.PATCH`) and the commit must be
    on `main`; then the unit and integration suites run.
 2. **SBOM**: CycloneDX SBOM for the whole build, uploaded as an artifact.
-3. **Package**: native installers for the desktop clients in a matrix build.
+3. **Package**: native installers for the desktop clients in a matrix build on `ubuntu-latest`,
+   `windows-latest` and `macos-26`. The macOS job needs a current arm64 label: GitHub retired every
+   macOS 14 label on 2026-11-02, and a job that names a retired label is cancelled before its first
+   step ("The configuration 'macos-14-arm64-us-default' is not supported") rather than failing
+   visibly. Because **Publish** requires the whole matrix, that silent cancellation also removes the
+   GitHub release, so keep this entry on a supported label.
 4. **Server image**: builds and pushes the versioned image to GHCR. The tag comes from the
    release version; there is no moving `latest` tag in the pipeline. The push is retried up to three
    times because GHCR sometimes rejects the manifest write with a bare `denied` after accepting every
@@ -100,7 +105,10 @@ or an incompatible licence.
    on the re-run. Retrying is safe: layers are content-addressed and the tag only appears once the
    manifest lands.
 5. **Publish**: downloads the assets, writes SHA-256 checksums, attests build provenance and
-   creates the GitHub release.
+   creates the GitHub release. The job never checks out the repository, so every `gh` call passes
+   `--repo "$GITHUB_REPOSITORY"`; without it `gh release create` cannot discover the repository and
+   aborts with `fatal: not a git repository`. When the release already exists, as on a re-run, the
+   assets are re-uploaded with `--clobber` instead of failing the release.
 
 A release is only cut from a commit whose gates all passed; the release workflow re-runs the
 tests rather than trusting an earlier run.
