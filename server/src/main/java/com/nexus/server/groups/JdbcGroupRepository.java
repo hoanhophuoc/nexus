@@ -6,6 +6,8 @@ import com.nexus.server.messaging.ConversationPage;
 import com.nexus.server.messaging.ConversationView;
 import com.nexus.server.social.SocialUser;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,24 +20,53 @@ import java.util.UUID;
 
 @Repository
 public class JdbcGroupRepository implements GroupRepository {
-    private final JdbcTemplate jdbc;
 
-    public JdbcGroupRepository(JdbcTemplate jdbc) {
+    /**
+     * Ids are random UUIDs, so the nil UUID sorts below every real id: binding it on a first page
+     * keeps the statement a compile-time constant instead of appending a cursor clause per call.
+     */
+    private static final UUID FIRST_PAGE = new UUID(0L, 0L);
+
+    static final String LIST_SQL = """
+            SELECT c.id FROM nexus.conversation c
+            JOIN nexus.conversation_member m ON m.conversation_id = c.id
+            WHERE c.type = 'group' AND m.user_id = ? AND m.left_at IS NULL
+              AND c.id > ?
+            ORDER BY c.id LIMIT ?
+            """;
+
+    static final String MEMBERS_SQL = """
+            SELECT u.id, u.username, u.full_name, u.address, u.birth_date, u.gender, m.role, m.joined_epoch
+            FROM nexus.conversation_member m
+            JOIN nexus.user_account u ON u.id = m.user_id
+            WHERE m.conversation_id = ? AND m.left_at IS NULL
+              AND u.id > ?
+            ORDER BY u.id LIMIT ?
+            """;
+
+    private static final String LOCK_USERS_SQL = """
+            SELECT id FROM nexus.user_account
+            WHERE id IN (:ids) AND locked = FALSE
+            ORDER BY id FOR UPDATE
+            """;
+
+    private static final String BLOCKED_AMONG_SQL = """
+            SELECT EXISTS (SELECT 1 FROM nexus.user_block
+                WHERE blocker_id IN (:ids) AND blocked_id IN (:ids))
+            """;
+
+    private final JdbcTemplate jdbc;
+    private final NamedParameterJdbcTemplate named;
+
+    public JdbcGroupRepository(JdbcTemplate jdbc, NamedParameterJdbcTemplate named) {
         this.jdbc = jdbc;
+        this.named = named;
     }
 
     @Override
     public ConversationPage list(UUID userId, UUID cursor, int limit) {
-        String cursorClause = cursor == null ? "" : "AND c.id > ?";
-        List<Object> args = new ArrayList<>(List.of(userId));
-        if (cursor != null) args.add(cursor);
-        args.add(limit + 1);
-        List<UUID> ids = jdbc.query("""
-                SELECT c.id FROM nexus.conversation c
-                JOIN nexus.conversation_member m ON m.conversation_id = c.id
-                WHERE c.type = 'group' AND m.user_id = ? AND m.left_at IS NULL
-                """ + cursorClause + " ORDER BY c.id LIMIT ?",
-                (rs, row) -> rs.getObject("id", UUID.class), args.toArray());
+        List<UUID> ids = jdbc.query(LIST_SQL, (rs, row) -> rs.getObject("id", UUID.class),
+                userId, cursor == null ? FIRST_PAGE : cursor, limit + 1);
         boolean more = ids.size() > limit;
         List<UUID> page = more ? ids.subList(0, limit) : ids;
         return new ConversationPage(page.stream().map(this::conversation).toList(),
@@ -82,17 +113,8 @@ public class JdbcGroupRepository implements GroupRepository {
     @Override
     public GroupMemberPage members(UUID actorId, UUID groupId, UUID cursor, int limit) {
         requireMember(actorId, groupId);
-        String cursorClause = cursor == null ? "" : "AND u.id > ?";
-        List<Object> args = new ArrayList<>(List.of(groupId));
-        if (cursor != null) args.add(cursor);
-        args.add(limit + 1);
-        List<ConversationMemberView> rows = jdbc.query("""
-                SELECT u.id, u.username, u.full_name, u.address, u.birth_date, u.gender, m.role, m.joined_epoch
-                FROM nexus.conversation_member m
-                JOIN nexus.user_account u ON u.id = m.user_id
-                WHERE m.conversation_id = ? AND m.left_at IS NULL
-                """ + cursorClause + " ORDER BY u.id LIMIT ?",
-                JdbcGroupRepository::mapMember, args.toArray());
+        List<ConversationMemberView> rows = jdbc.query(MEMBERS_SQL, JdbcGroupRepository::mapMember,
+                groupId, cursor == null ? FIRST_PAGE : cursor, limit + 1);
         boolean more = rows.size() > limit;
         List<ConversationMemberView> page = more ? rows.subList(0, limit) : rows;
         return new GroupMemberPage(List.copyOf(page), more ? page.getLast().user().id().toString() : null);
@@ -216,13 +238,8 @@ public class JdbcGroupRepository implements GroupRepository {
     }
 
     private boolean blockedAmong(List<UUID> userIds) {
-        String placeholders = String.join(",", java.util.Collections.nCopies(userIds.size(), "?"));
-        List<Object> args = new ArrayList<>(userIds);
-        args.addAll(userIds);
-        return Boolean.TRUE.equals(jdbc.queryForObject("""
-                SELECT EXISTS (SELECT 1 FROM nexus.user_block
-                    WHERE blocker_id IN (%1$s) AND blocked_id IN (%1$s))
-                """.formatted(placeholders), Boolean.class, args.toArray()));
+        return Boolean.TRUE.equals(named.queryForObject(BLOCKED_AMONG_SQL,
+                new MapSqlParameterSource("ids", userIds), Boolean.class));
     }
 
     private boolean blockedByGroupMember(UUID groupId, UUID userId) {
@@ -253,10 +270,8 @@ public class JdbcGroupRepository implements GroupRepository {
     }
 
     private void lockUsers(List<UUID> userIds) {
-        String placeholders = String.join(",", java.util.Collections.nCopies(userIds.size(), "?"));
-        List<UUID> locked = jdbc.queryForList("""
-                SELECT id FROM nexus.user_account WHERE id IN (%s) AND locked = FALSE ORDER BY id FOR UPDATE
-                """.formatted(placeholders), UUID.class, userIds.toArray());
+        List<UUID> locked = named.queryForList(LOCK_USERS_SQL,
+                new MapSqlParameterSource("ids", userIds), UUID.class);
         if (locked.size() != userIds.size()) throw new UserNotFoundException();
     }
 

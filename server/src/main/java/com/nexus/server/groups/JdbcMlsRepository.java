@@ -14,7 +14,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
@@ -27,6 +26,25 @@ import java.util.UUID;
  */
 @Repository
 public class JdbcMlsRepository implements MlsRepository {
+
+    /**
+     * The page cursor is a (created_at, id) pair, and no message predates the epoch, so a first page
+     * binds this pair instead of the request appending a comparison to the statement.
+     */
+    private static final Timestamp FIRST_PAGE_CREATED_AT = Timestamp.from(Instant.EPOCH);
+    private static final UUID FIRST_PAGE_ID = new UUID(0L, 0L);
+
+    static final String MESSAGES_SQL = """
+            SELECT id, epoch, kind, ciphertext, created_at
+            FROM nexus.mls_message
+            WHERE conversation_id = ? AND epoch >= ?
+              AND (created_at, id) > (?, ?)
+            ORDER BY created_at, id LIMIT ?
+            """;
+
+    private static final String CURSOR_CREATED_AT_SQL = """
+            SELECT created_at FROM nexus.mls_message WHERE conversation_id = ? AND id = ?
+            """;
 
     private final JdbcTemplate jdbc;
 
@@ -109,24 +127,16 @@ public class JdbcMlsRepository implements MlsRepository {
     @Override
     public MlsMessagePage messages(UUID actorId, UUID groupId, UUID after, int limit) {
         long joinedEpoch = requireMemberEpoch(actorId, groupId);
-        List<Object> args = new ArrayList<>(List.of(groupId, joinedEpoch));
-        String cursorClause = "";
+        Timestamp cursorCreatedAt = FIRST_PAGE_CREATED_AT;
+        UUID cursorId = FIRST_PAGE_ID;
         if (after != null) {
-            Timestamp cursorTime = jdbc.query("""
-                    SELECT created_at FROM nexus.mls_message WHERE conversation_id = ? AND id = ?
-                    """, (rs, row) -> rs.getTimestamp("created_at"), groupId, after)
+            cursorCreatedAt = jdbc.query(CURSOR_CREATED_AT_SQL,
+                    (rs, row) -> rs.getTimestamp("created_at"), groupId, after)
                     .stream().findFirst().orElseThrow(UserNotFoundException::new);
-            cursorClause = "AND (created_at, id) > (?, ?)";
-            args.add(cursorTime);
-            args.add(after);
+            cursorId = after;
         }
-        args.add(limit + 1);
-        List<MlsMessageView> found = jdbc.query("""
-                SELECT id, epoch, kind, ciphertext, created_at
-                FROM nexus.mls_message
-                WHERE conversation_id = ? AND epoch >= ?
-                """ + cursorClause + " ORDER BY created_at, id LIMIT ?",
-                JdbcMlsRepository::map, args.toArray());
+        List<MlsMessageView> found = jdbc.query(MESSAGES_SQL, JdbcMlsRepository::map,
+                groupId, joinedEpoch, cursorCreatedAt, cursorId, limit + 1);
         boolean more = found.size() > limit;
         List<MlsMessageView> items = List.copyOf(found.subList(0, Math.min(found.size(), limit)));
         return new MlsMessagePage(items, more ? items.getLast().id().toString() : null);
