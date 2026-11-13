@@ -86,12 +86,16 @@ if [ "$mode" = "installer" ]; then
           exit 1
         }
         "$seven_zip" x -y -o"$unpacked/msi" "$installer" >/dev/null 2>&1 || true
-        for cab in "$unpacked"/msi/*.cab; do
+        # 7-Zip gives the MSI's internal streams hashed names instead of the .cab name the package
+        # uses, so the payload cabinet is recognised by its MSCF signature.
+        for cab in "$unpacked"/msi/*; do
           [ -f "$cab" ] || continue
+          [ "$(dd if="$cab" bs=4 count=1 2>/dev/null)" = "MSCF" ] || continue
           "$seven_zip" x -y -o"$payload" "$cab" >/dev/null 2>&1 || true
         done
         if [ -z "$(find "$payload" -name '*.jar' -print 2>/dev/null | head -1)" ]; then
-          echo "msiexec status: $msi_status; 7-Zip unpacked: $(ls "$unpacked/msi" 2>/dev/null | head -5 | tr '\n' ' ')" >&2
+          echo "msiexec status: $msi_status; 7-Zip extracted:" >&2
+          find "$unpacked/msi" -maxdepth 1 -type f 2>/dev/null | head -5 >&2
           [ -f "$unpacked/msiexec.log" ] && tail -20 "$unpacked/msiexec.log" >&2
         fi
       fi
