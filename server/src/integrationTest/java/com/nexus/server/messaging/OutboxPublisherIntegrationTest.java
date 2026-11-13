@@ -36,7 +36,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * The fan-out had no test at all: it was assumed correct because the rows are simple. These drive
- * the batch the way the scheduler does and check both sides of it — who the event is addressed to,
+ * the batch the way the scheduler does and check both sides of it — who each event is addressed to,
  * and that every row is marked published so the next poll sends nothing. A row whose Redis publish
  * failed has to stay pending, because that is the only thing that makes the next poll retry it.
  */
@@ -50,6 +50,7 @@ class OutboxPublisherIntegrationTest {
     private static final UUID MEMBER = id(2);
     private static final UUID LATE_JOINER = id(3);
     private static final UUID DEPARTED = id(4);
+    private static final UUID AHEAD = id(5);
 
     @Container
     private static final PostgreSQLContainer POSTGRES =
@@ -86,99 +87,131 @@ class OutboxPublisherIntegrationTest {
         UUID conversation = id(101);
         UUID message = id(201);
         UUID event = id(401);
-        conversation(conversation);
-        member(conversation, SENDER, 0);
-        member(conversation, MEMBER, 0);
-        member(conversation, DEPARTED, 0);
-        leave(conversation, DEPARTED);
+        group(conversation, SENDER, MEMBER, DEPARTED);
+        left(conversation, DEPARTED);
         message(message, conversation, SENDER, 1);
         created(event, conversation, message);
 
-        BlockingQueue<String> published = new LinkedBlockingQueue<>();
-        RedisMessageListenerContainer container = subscribe(published);
-        try {
+        withSubscriber(published -> {
             publisher.publishPending();
 
             JsonNode envelope = awaitEvent(published, event);
-            assertThat(envelope.get("payload").get("type").asString()).isEqualTo("MessageCreated");
+            assertThat(type(envelope)).isEqualTo("MessageCreated");
             assertThat(targets(envelope))
                     .as("every member still in the conversation receives the message")
-                    .containsExactlyInAnyOrder(SENDER, MEMBER)
-                    .doesNotContain(DEPARTED);
-            assertThat(publishedAt(event)).as("the row is marked published").isNotNull();
+                    .containsExactlyInAnyOrder(SENDER, MEMBER);
 
+            assertThat(publishedAt(event)).as("the row is marked published").isNotNull();
             publisher.publishPending();
             assertThat(published.poll(1, TimeUnit.SECONDS))
                     .as("an already published batch is not sent twice")
                     .isNull();
-        } finally {
-            container.destroy();
-        }
+        });
+    }
+
+    @Test
+    void sendsADeletedMessageToTheSameAudienceWithoutTheBody() throws Exception {
+        UUID conversation = id(102);
+        UUID message = id(202);
+        UUID event = id(402);
+        group(conversation, SENDER, MEMBER);
+        message(message, conversation, SENDER, 1);
+        deleted(event, conversation, message);
+        // Nothing writes attempts yet; this is the state an earlier failed poll leaves behind.
+        jdbc.update("UPDATE nexus.message_outbox SET attempts = 3 WHERE event_id = ?", event);
+
+        withSubscriber(published -> {
+            publisher.publishPending();
+
+            JsonNode envelope = awaitEvent(published, event);
+            assertThat(type(envelope)).isEqualTo("MessageDeleted");
+            assertThat(envelope.get("payload").get("messageId").asString())
+                    .isEqualTo(message.toString());
+            assertThat(envelope.get("payload").get("message"))
+                    .as("a deletion carries no message body").isNull();
+            assertThat(targets(envelope))
+                    .as("the deletion is addressed like the message was")
+                    .containsExactlyInAnyOrder(SENDER, MEMBER);
+            assertThat(publishedAt(event)).as("a row that failed before is retried, not skipped")
+                    .isNotNull();
+        });
     }
 
     @Test
     void sendsAHiddenMessageOnlyToThePersonWhoHidIt() throws Exception {
-        UUID conversation = id(102);
-        UUID message = id(202);
-        UUID event = id(402);
-        conversation(conversation);
-        member(conversation, SENDER, 0);
-        member(conversation, MEMBER, 0);
+        UUID conversation = id(103);
+        UUID message = id(203);
+        UUID event = id(403);
+        group(conversation, SENDER, MEMBER);
         message(message, conversation, SENDER, 1);
         hidden(event, conversation, message, MEMBER);
 
-        BlockingQueue<String> published = new LinkedBlockingQueue<>();
-        RedisMessageListenerContainer container = subscribe(published);
-        try {
+        withSubscriber(published -> {
             publisher.publishPending();
 
             JsonNode envelope = awaitEvent(published, event);
-            assertThat(envelope.get("payload").get("type").asString()).isEqualTo("MessageHidden");
+            assertThat(type(envelope)).isEqualTo("MessageHidden");
             assertThat(envelope.get("payload").get("userId").asString()).isEqualTo(MEMBER.toString());
             assertThat(targets(envelope))
                     .as("hiding a message concerns one person, not the whole conversation")
                     .containsExactly(MEMBER);
-        } finally {
-            container.destroy();
-        }
+        });
     }
 
     @Test
     void sendsMlsCiphertextOnlyToTheEpochItWasWrittenFor() throws Exception {
-        UUID conversation = id(103);
-        UUID mlsMessage = id(303);
-        UUID event = id(403);
-        conversation(conversation);
-        member(conversation, SENDER, 0);
+        UUID conversation = id(104);
+        UUID mlsMessage = id(304);
+        UUID event = id(404);
+        group(conversation, SENDER);
         member(conversation, MEMBER, 1);
         member(conversation, LATE_JOINER, 2);
-        mlsMessage(mlsMessage, conversation, SENDER, 1);
-        mls(event, conversation, mlsMessage);
+        mlsMessage(mlsMessage, conversation, SENDER, 1, "application");
+        mls(event, conversation, mlsMessage, "mls.message");
 
-        BlockingQueue<String> published = new LinkedBlockingQueue<>();
-        RedisMessageListenerContainer container = subscribe(published);
-        try {
+        withSubscriber(published -> {
             publisher.publishPending();
 
             JsonNode envelope = awaitEvent(published, event);
-            assertThat(envelope.get("payload").get("type").asString()).isEqualTo("MlsMessage");
+            assertThat(type(envelope)).isEqualTo("MlsMessage");
+            assertThat(envelope.get("payload").get("epoch").asString()).isEqualTo("1");
             assertThat(targets(envelope))
                     .as("a member who joined after this epoch cannot read the ciphertext")
-                    .containsExactlyInAnyOrder(SENDER, MEMBER)
-                    .doesNotContain(LATE_JOINER);
-        } finally {
-            container.destroy();
-        }
+                    .containsExactlyInAnyOrder(SENDER, MEMBER);
+        });
+    }
+
+    @Test
+    void sendsAnMlsCommitOnlyToTheEpochsItAppliesTo() throws Exception {
+        UUID conversation = id(105);
+        UUID mlsCommit = id(305);
+        UUID event = id(405);
+        group(conversation, SENDER);
+        member(conversation, MEMBER, 1);
+        member(conversation, LATE_JOINER, 2);
+        member(conversation, AHEAD, 3);
+        mlsMessage(mlsCommit, conversation, SENDER, 2, "commit");
+        mls(event, conversation, mlsCommit, "mls.commit");
+
+        withSubscriber(published -> {
+            publisher.publishPending();
+
+            JsonNode envelope = awaitEvent(published, event);
+            assertThat(type(envelope)).isEqualTo("MlsCommit");
+            assertThat(envelope.get("payload").get("epoch").asString()).isEqualTo("2");
+            assertThat(envelope.get("payload").get("kind").asString()).isEqualTo("commit");
+            assertThat(targets(envelope))
+                    .as("the commit is unreadable to a member who joins after it")
+                    .containsExactlyInAnyOrder(SENDER, MEMBER, LATE_JOINER);
+        });
     }
 
     @Test
     void leavesTheRowPendingWhenRedisIsUnreachable() throws Exception {
-        UUID conversation = id(104);
-        UUID message = id(204);
-        UUID event = id(404);
-        conversation(conversation);
-        member(conversation, SENDER, 0);
-        member(conversation, MEMBER, 0);
+        UUID conversation = id(106);
+        UUID message = id(206);
+        UUID event = id(406);
+        group(conversation, SENDER, MEMBER);
         message(message, conversation, SENDER, 1);
         created(event, conversation, message);
 
@@ -200,22 +233,22 @@ class OutboxPublisherIntegrationTest {
 
         assertThat(publishedAt(event)).as("an unpublished row is what the next poll retries").isNull();
 
-        BlockingQueue<String> published = new LinkedBlockingQueue<>();
-        RedisMessageListenerContainer container = subscribe(published);
-        try {
+        withSubscriber(published -> {
             publisher.publishPending();
 
             assertThat(targets(awaitEvent(published, event)))
                     .as("the retry delivers the same batch")
                     .containsExactlyInAnyOrder(SENDER, MEMBER);
             assertThat(publishedAt(event)).isNotNull();
-        } finally {
-            container.destroy();
-        }
+        });
     }
 
-    private RedisMessageListenerContainer subscribe(BlockingQueue<String> published)
-            throws InterruptedException {
+    private interface Scenario {
+        void run(BlockingQueue<String> published) throws Exception;
+    }
+
+    private void withSubscriber(Scenario scenario) throws Exception {
+        BlockingQueue<String> published = new LinkedBlockingQueue<>();
         RedisMessageListenerContainer container = new RedisMessageListenerContainer();
         container.setConnectionFactory(redis.getConnectionFactory());
         container.addMessageListener((message, pattern) ->
@@ -223,8 +256,12 @@ class OutboxPublisherIntegrationTest {
                 new ChannelTopic(OutboxPublisher.CHANNEL));
         container.afterPropertiesSet();
         container.start();
-        awaitSubscriber(published);
-        return container;
+        try {
+            awaitSubscriber(published);
+            scenario.run(published);
+        } finally {
+            container.destroy();
+        }
     }
 
     /** {@code start()} subscribes on another thread, and a publish before that is simply lost. */
@@ -253,6 +290,10 @@ class OutboxPublisherIntegrationTest {
         throw new AssertionError("No event " + event + " was published within " + RECEIVE_TIMEOUT + ".");
     }
 
+    private static String type(JsonNode envelope) {
+        return envelope.get("payload").get("type").asString();
+    }
+
     private static Set<UUID> targets(JsonNode envelope) {
         Set<UUID> targets = new LinkedHashSet<>();
         for (JsonNode target : envelope.get("targets")) {
@@ -267,9 +308,12 @@ class OutboxPublisherIntegrationTest {
                 Timestamp.class, event);
     }
 
-    private void conversation(UUID conversation) {
+    private void group(UUID conversation, UUID... members) {
         jdbc.update("INSERT INTO nexus.conversation (id, type, name) VALUES (?, 'group', 'Team')",
                 conversation);
+        for (UUID member : members) {
+            member(conversation, member, 0);
+        }
     }
 
     private void member(UUID conversation, UUID user, long joinedEpoch) {
@@ -289,7 +333,7 @@ class OutboxPublisherIntegrationTest {
                 """, conversation, user, joinedEpoch);
     }
 
-    private void leave(UUID conversation, UUID user) {
+    private void left(UUID conversation, UUID user) {
         jdbc.update("""
                 UPDATE nexus.conversation_member SET left_at = clock_timestamp()
                 WHERE conversation_id = ? AND user_id = ?
@@ -304,17 +348,24 @@ class OutboxPublisherIntegrationTest {
                 """, message, conversation, sender, sequence, "k" + message.getLeastSignificantBits());
     }
 
-    private void mlsMessage(UUID mlsMessage, UUID conversation, UUID sender, long epoch) {
+    private void mlsMessage(UUID mlsMessage, UUID conversation, UUID sender, long epoch, String kind) {
         jdbc.update("""
                 INSERT INTO nexus.mls_message (id, conversation_id, sender_id, epoch, kind, ciphertext)
-                VALUES (?, ?, ?, ?, 'application', '\\x00')
-                """, mlsMessage, conversation, sender, epoch);
+                VALUES (?, ?, ?, ?, ?, '\\x00')
+                """, mlsMessage, conversation, sender, epoch, kind);
     }
 
     private void created(UUID event, UUID conversation, UUID message) {
         jdbc.update("""
                 INSERT INTO nexus.message_outbox (event_id, conversation_id, message_id, event_type)
                 VALUES (?, ?, ?, 'message.created')
+                """, event, conversation, message);
+    }
+
+    private void deleted(UUID event, UUID conversation, UUID message) {
+        jdbc.update("""
+                INSERT INTO nexus.message_outbox (event_id, conversation_id, message_id, event_type)
+                VALUES (?, ?, ?, 'message.deleted')
                 """, event, conversation, message);
     }
 
@@ -326,12 +377,12 @@ class OutboxPublisherIntegrationTest {
                 """, event, conversation, message, recipient);
     }
 
-    private void mls(UUID event, UUID conversation, UUID mlsMessage) {
+    private void mls(UUID event, UUID conversation, UUID mlsMessage, String eventType) {
         jdbc.update("""
                 INSERT INTO nexus.message_outbox
                     (event_id, conversation_id, mls_message_id, event_type)
-                VALUES (?, ?, ?, 'mls.message')
-                """, event, conversation, mlsMessage);
+                VALUES (?, ?, ?, ?)
+                """, event, conversation, mlsMessage, eventType);
     }
 
     private static UUID id(int number) {

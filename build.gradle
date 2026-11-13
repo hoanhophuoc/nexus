@@ -77,7 +77,7 @@ tasks.register('coverageReport', JacocoReport) {
 
 // Anti-regression gate over the product modules. The floors are the baseline measured on
 // 2026-11-13 across all four product modules and both desktop suites (bundle 79.72% line /
-// 55.45% branch, from the aggregate coverageReport the BUNDLE rule reads), rounded down so a
+// 55.49% branch, from the aggregate coverageReport the BUNDLE rule reads), rounded down so a
 // small refactor cannot fail the build on a fraction of a point. The bundle floor keeps about a
 // point and a half of headroom, like the package floors below.
 // Raise them as the remaining workflows gain tests; the aspirational targets are documented in
