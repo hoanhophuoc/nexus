@@ -252,6 +252,13 @@ jobs:
           VERSION: ${{ needs.validate.outputs.version }}
         run: |
           set -euo pipefail
-          gh release create "$GITHUB_REF_NAME" release-assets/* \
+          # This job never checks out the repository, so gh cannot discover it from a git remote.
+          repo=(--repo "$GITHUB_REPOSITORY")
+          if ! gh release create "$GITHUB_REF_NAME" release-assets/* "${repo[@]}" \
             --title "Nexus $VERSION" \
-            --generate-notes
+            --generate-notes; then
+            # A second attempt must still deliver the assets, so treat an existing release as a
+            # reason to replace its assets rather than to fail the release.
+            echo "::warning::Release $GITHUB_REF_NAME already exists; uploading its assets."
+            gh release upload "$GITHUB_REF_NAME" release-assets/* "${repo[@]}" --clobber
+          fi
