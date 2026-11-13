@@ -163,6 +163,26 @@ jobs:
           ./scripts/verify-app-image.sh --input desktop-user/build/package/nexusClient/input
           ./scripts/verify-app-image.sh --input desktop-admin/build/package/nexusAdmin/input
 
+      # The input directory is only what jpackage was handed; this unpacks the installer that is
+      # about to be published and looks for the shared module inside it.
+      - name: Verify the built installers
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          built=0
+          for installer in \
+            desktop-user/build/package/nexusClient/out/*.deb \
+            desktop-user/build/package/nexusClient/out/*.msi \
+            desktop-user/build/package/nexusClient/out/*.dmg \
+            desktop-admin/build/package/nexusAdmin/out/*.deb \
+            desktop-admin/build/package/nexusAdmin/out/*.msi \
+            desktop-admin/build/package/nexusAdmin/out/*.dmg; do
+            ./scripts/verify-app-image.sh --installer "$installer"
+            built=$((built + 1))
+          done
+          test "$built" -eq 2 || { echo "::error::Expected two installers, checked $built."; exit 1; }
+
       - name: Collect installers
         shell: bash
         run: |

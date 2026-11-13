@@ -6,6 +6,9 @@
 #                   image.
 #   --image <dir>   a built application image; adds a launch of its own launcher when --launch is
 #                   given, so a classpath mistake that jpackage accepted still fails the job.
+#   --installer <file>  the finished installer (.deb, .msi or .dmg). It is unpacked and searched, so
+#                   the asset that is about to be published is checked, not just the input
+#                   directory jpackage was handed.
 #
 # The shared desktop module is checked explicitly: it is a project dependency, so when its jar had
 # not been built yet the copy step skipped it silently and every installer shipped broken, failing
@@ -21,7 +24,7 @@ launch_timeout=25
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --input|--image) mode="${1#--}"; directory="${2:-}"; shift 2 ;;
+    --input|--image|--installer) mode="${1#--}"; directory="${2:-}"; shift 2 ;;
     --launch) launch=true; shift ;;
     --launch-timeout) launch_timeout="${2:-25}"; shift 2 ;;
     *) echo "usage: $0 --input <dir>|--image <dir> [--launch] [--launch-timeout <seconds>]" >&2; exit 2 ;;
@@ -29,18 +32,83 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ -z "$mode" ] || [ -z "$directory" ]; then
-  echo "usage: $0 --input <dir>|--image <dir> [--launch] [--launch-timeout <seconds>]" >&2
+  echo "usage: $0 --input <dir>|--image <dir>|--installer <file> [--launch] [--launch-timeout <seconds>]" >&2
   exit 2
 fi
 
-if [ "$mode" = "image" ]; then
-  jars="$directory/lib/app"
-else
+unpacked=""
+detach=""
+cleanup() {
+  [ -n "$detach" ] && hdiutil detach "$detach" -quiet >/dev/null 2>&1
+  [ -n "$unpacked" ] && rm -rf "$unpacked"
+}
+trap cleanup EXIT
+
+if [ "$mode" = "installer" ]; then
+  installer="$directory"
+  if [ ! -f "$installer" ]; then
+    echo "no installer at $installer" >&2
+    exit 1
+  fi
+  unpacked="$(mktemp -d)"
+  case "$installer" in
+    *.deb)
+      if command -v dpkg-deb >/dev/null 2>&1; then
+        dpkg-deb -x "$installer" "$unpacked"
+      else
+        # Any Debian-derived host can unpack a .deb with ar and a tar reader.
+        (cd "$unpacked" && ar x "$installer")
+        data="$(find "$unpacked" -maxdepth 1 -name 'data.tar*' -print | head -1)"
+        if command -v 7z >/dev/null 2>&1; then 7z x -y -o"$unpacked" "$data" >/dev/null; fi
+        tar -xf "$unpacked/data.tar" -C "$unpacked" 2>/dev/null || tar -xf "$data" -C "$unpacked"
+      fi
+      ;;
+    *.msi)
+      # An administrative install (msiexec /a) lays out exactly the files the package installs, so
+      # the check reads the same directory a user would get; 7-Zip is only a fallback for hosts
+      # without msiexec.
+      if command -v msiexec >/dev/null 2>&1 || [ -x /c/Windows/System32/msiexec.exe ]; then
+        mkdir -p "$unpacked/payload"
+        msi="$(cygpath -w "$installer" 2>/dev/null || printf '%s' "$installer")"
+        target="$(cygpath -w "$unpacked/payload" 2>/dev/null || printf '%s' "$unpacked/payload")"
+        MSYS_NO_PATHCONV=1 msiexec //a "$msi" //qn "TARGETDIR=$target" || true
+      else
+        seven_zip="$(command -v 7z || command -v 7za || true)"
+        [ -n "$seven_zip" ] || { echo "no way to unpack $installer" >&2; exit 1; }
+        "$seven_zip" x -y -o"$unpacked/msi" "$installer" >/dev/null || true
+        for cab in "$unpacked"/msi/*.cab; do
+          [ -f "$cab" ] || continue
+          "$seven_zip" x -y -o"$unpacked/payload" "$cab" >/dev/null || true
+        done
+      fi
+      ;;
+    *.dmg)
+      mkdir -p "$unpacked/mount"
+      hdiutil attach "$installer" -nobrowse -readonly -mountpoint "$unpacked/mount" -quiet
+      detach="$unpacked/mount"
+      ;;
+    *)
+      echo "unsupported installer type: $installer" >&2
+      exit 1
+      ;;
+  esac
+  directory="$unpacked"
   jars="$directory"
+else
+  if [ "$mode" = "image" ]; then
+    jars="$directory/lib/app"
+  else
+    jars="$directory"
+  fi
 fi
 
 if [ ! -d "$jars" ]; then
   echo "no packaged classes at $jars" >&2
+  exit 1
+fi
+
+if [ "$mode" = "installer" ] && [ -z "$(find "$jars" -maxdepth 8 -name '*.jar' -print 2>/dev/null | head -1)" ]; then
+  echo "could not unpack any jar from $installer" >&2
   exit 1
 fi
 
@@ -60,14 +128,17 @@ fail() {
   failures=$((failures + 1))
 }
 
-shared_jar="$(find "$jars" -maxdepth 1 -name 'desktop-shared-*.jar' -print 2>/dev/null | head -1)"
+# An unpacked installer buries the jars a few levels down, so search the whole tree there.
+find_depth=1
+[ "$mode" = "installer" ] && find_depth=8
+shared_jar="$(find "$jars" -maxdepth "$find_depth" -name 'desktop-shared-*.jar' -print 2>/dev/null | head -1)"
 if [ -z "$shared_jar" ]; then
   fail "desktop-shared jar is missing from $jars"
 elif ! list_jar "$shared_jar" | grep -qx 'com/nexus/desktop/shared/ui/ThemeManager.class'; then
   fail "$shared_jar does not contain com/nexus/desktop/shared/ui/ThemeManager.class"
 fi
 
-app_jar="$(find "$jars" -maxdepth 1 \( -name 'desktop-user-*.jar' -o -name 'desktop-admin-*.jar' \) \
+app_jar="$(find "$jars" -maxdepth "$find_depth" \( -name 'desktop-user-*.jar' -o -name 'desktop-admin-*.jar' \) \
   -print 2>/dev/null | head -1)"
 if [ -z "$app_jar" ]; then
   fail "neither the client nor the admin module jar is in $jars"
