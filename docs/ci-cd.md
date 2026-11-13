@@ -17,7 +17,7 @@ The two desktop modules take their coverage from their JavaFX suites, so the `fx
 their `fxTest.exec` files as the `fx-coverage` artifact and the analysis job downloads it before the
 coverage report, the gate and `./gradlew sonar` (`build-test` therefore waits for `fx-test`).
 Without that data the module reports were empty, SonarQube counted both UI modules as 0% covered,
-and the project sat at 38%. With it they measure 70.34% and 84.86% of lines, which takes the reported
+and the project sat at 38%. With it they measure 70.36% and 84.86% of lines, which takes the reported
 project coverage from 38% to 67%. Summing the four module reports, the four product modules and both
 desktop suites measure 76.13% of lines and 53.49% of branches, so the bundle floor is more than a
 point below each: 73% of lines and 50% of branches. The package floors are rounded down the same way.
@@ -63,7 +63,7 @@ plan test green; until then the rule stays excluded there instead of hiding a re
 | GA-only dependencies | `./gradlew gaOnlyCheck` | An alpha, beta, milestone, RC, snapshot, preview or EA version on any classpath |
 | GA-only external pins | `./scripts/check-ga-pins.sh` | A pre-release GitHub Action SHA, container tag or Dockerfile base image |
 | Pinned container images | `./scripts/check-image-pins.sh` | `:latest`, an untagged image, or a tag that pins no version |
-| Coverage floor | `./gradlew coverageVerification` (needs the desktop `fxTest` exec data, so run `fullTest` first) | Silent loss of tested behaviour in any of the four product modules, including the bundle (73% of lines, 50% of branches), `desktop-user` (65% of lines) and `desktop-admin` (84%) |
+| Coverage floor | `./gradlew coverageVerification` (needs the desktop `fxTest` exec data, so run `fullTest` first) | Silent loss of tested behaviour in any of the four product modules, including the bundle (73% of lines, 50% of branches), `desktop-user` (70% of lines) and `desktop-admin` (84%) |
 | Database plans | `:server:integrationTest` | A cascade or search that stops using its index (see [performance.md](performance.md)) |
 | Live journey cleanup | last step of the journey job | Containers, volumes or networks left behind |
 | Secret scan | `ggshield secret scan repo git@github.com:hoanhophuoc/nexus.git` | A credential in a pushed commit |

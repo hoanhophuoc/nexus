@@ -17,7 +17,7 @@ final class UserErrors {
             if (api.getCode() == 429) return i18n.get("error.tooManyRequests");
             if (api.getCode() >= 500) return i18n.get("error.server");
         }
-        if (exception instanceof IOException) return i18n.get("error.unavailable");
+        if (causedByIOFailure(exception)) return i18n.get("error.unavailable");
         return i18n.get("error.generic");
     }
 
@@ -31,7 +31,15 @@ final class UserErrors {
         if (exception instanceof MlsException && exception.getMessage() != null) {
             return exception.getMessage();
         }
-        if (exception instanceof IOException) return i18n.get("error.unavailable");
+        if (causedByIOFailure(exception)) return i18n.get("error.unavailable");
         return i18n.get("error.generic");
+    }
+
+    /**
+     * The SDK wraps a refused connection in an {@link ApiException} with code 0, so a dead server
+     * arrives as an ApiException whose cause is the {@link IOException}, never as a raw one.
+     */
+    private static boolean causedByIOFailure(Exception exception) {
+        return exception instanceof IOException || exception.getCause() instanceof IOException;
     }
 }

@@ -27,6 +27,9 @@ class UserErrorsTest {
         assertThat(UserErrors.loginMessage(api(503), i18n)).isEqualTo(i18n.get("error.server"));
         assertThat(UserErrors.loginMessage(new IOException("offline"), i18n))
                 .isEqualTo(i18n.get("error.unavailable"));
+        assertThat(UserErrors.loginMessage(new ApiException(new IOException("connection refused")), i18n))
+                .as("a refused connection reaches the client wrapped, with code 0")
+                .isEqualTo(i18n.get("error.unavailable"));
         assertThat(UserErrors.loginMessage(new IllegalStateException("unexpected"), i18n))
                 .isEqualTo(i18n.get("error.generic"));
     }
@@ -38,6 +41,9 @@ class UserErrorsTest {
         assertThat(UserErrors.statusMessage(api(429), i18n)).isEqualTo(i18n.get("error.tooManyRequests"));
         assertThat(UserErrors.statusMessage(api(500), i18n)).isEqualTo(i18n.get("error.server"));
         assertThat(UserErrors.statusMessage(new IOException("offline"), i18n))
+                .isEqualTo(i18n.get("error.unavailable"));
+        assertThat(UserErrors.statusMessage(new ApiException(new IOException("connection refused")), i18n))
+                .as("a refused connection reaches the client wrapped, with code 0")
                 .isEqualTo(i18n.get("error.unavailable"));
         assertThat(UserErrors.statusMessage(new IllegalStateException("unexpected"), i18n))
                 .isEqualTo(i18n.get("error.generic"));
