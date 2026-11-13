@@ -70,10 +70,13 @@ if [ "$mode" = "installer" ]; then
       # 7-Zip is the fallback for hosts without msiexec.
       payload="$unpacked/payload"
       mkdir -p "$payload"
+      msi_status="skipped"
       if [ -x /c/Windows/System32/msiexec.exe ] || command -v msiexec >/dev/null 2>&1; then
         msi="$(cygpath -w "$installer" 2>/dev/null || printf '%s' "$installer")"
         target="$(cygpath -w "$payload" 2>/dev/null || printf '%s' "$payload")"
-        timeout 240 cmd //c "msiexec /a \"$msi\" /qn TARGETDIR=\"$target\"" >/dev/null 2>&1 || true
+        log="$(cygpath -w "$unpacked/msiexec.log" 2>/dev/null || printf '%s' "$unpacked/msiexec.log")"
+        timeout 240 cmd //c "msiexec /a \"$msi\" /qn /l*v \"$log\" TARGETDIR=\"$target\"" >/dev/null 2>&1
+        msi_status="$?"
       fi
       if [ -z "$(find "$payload" -name '*.jar' -print 2>/dev/null | head -1)" ]; then
         seven_zip="$(command -v 7z || command -v 7za || true)"
@@ -87,6 +90,10 @@ if [ "$mode" = "installer" ]; then
           [ -f "$cab" ] || continue
           "$seven_zip" x -y -o"$payload" "$cab" >/dev/null 2>&1 || true
         done
+        if [ -z "$(find "$payload" -name '*.jar' -print 2>/dev/null | head -1)" ]; then
+          echo "msiexec status: $msi_status; 7-Zip unpacked: $(ls "$unpacked/msi" 2>/dev/null | head -5 | tr '\n' ' ')" >&2
+          [ -f "$unpacked/msiexec.log" ] && tail -20 "$unpacked/msiexec.log" >&2
+        fi
       fi
       ;;
     *.dmg)
