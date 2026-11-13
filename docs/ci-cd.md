@@ -23,7 +23,7 @@ project coverage from 38% to 67%. Together the four product modules and both des
 lines and 50% of branches. The package floors are rounded down the same way.
 
 `java:S2077` ("Make sure using a dynamically formatted SQL query is safe here") is still ignored for
-`server/administration`, `server/groups/Jdbc*`, `server/messaging/JdbcMessagingRepository` and
+`server/administration`, `server/messaging/JdbcMessagingRepository` and
 `server/messaging/OutboxPublisher`, through `sonar.issue.ignore.multicriteria` in `build.gradle`.
 Those statements choose their ORDER BY from a whitelist, so their text is assembled at runtime even
 though every value is a bound parameter.

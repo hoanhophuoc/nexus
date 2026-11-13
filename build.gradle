@@ -193,17 +193,17 @@ sonar {
         // sets. Listing them here as well made the scanner index the test sources twice and the
         // analysis failed with "can't be indexed twice" for server/src/test.
         // java:S2077 flags every SQL statement whose text is not a compile-time constant. The
-        // repositories below still select their ORDER BY from a whitelist, so their statement text
-        // is assembled at runtime even though every value is a bound parameter. The social package
-        // was converted to constant statements with a nil-UUID first-page cursor and is no longer
-        // excluded; the rest stay excluded until each query gets the same treatment, one plan test
-        // at a time (measurements and the recipe are in docs/ci-cd.md).
+        // repositories below still select their ORDER BY from a whitelist or assemble optional
+        // filters, so their statement text is built at runtime even though every value is a bound
+        // parameter. The social and groups packages are converted to constant statements with a
+        // first-page sentinel and are no longer excluded; the rest stay excluded until each query
+        // gets the same treatment, one plan test at a time (measurements and the recipe are in
+        // docs/ci-cd.md).
         property 'sonar.issue.ignore.multicriteria', [
-                's2077Administration', 's2077Groups', 's2077Messaging', 's2077Outbox'
+                's2077Administration', 's2077Messaging', 's2077Outbox'
         ].join(',')
         [
                 's2077Administration': '**/server/administration/*.java',
-                's2077Groups': '**/server/groups/Jdbc*.java',
                 's2077Messaging': '**/server/messaging/JdbcMessagingRepository.java',
                 's2077Outbox': '**/server/messaging/OutboxPublisher.java'
         ].each { name, resource ->
