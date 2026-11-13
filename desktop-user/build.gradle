@@ -68,7 +68,10 @@ def packageVersion = providers.gradleProperty('appVersion').getOrElse('1.0.0')
 tasks.register('packageClient', Exec) {
     group = 'distribution'
     description = 'Builds the user client with jpackage (app-image, deb, msi or dmg).'
-    dependsOn tasks.named('jar')
+    // The copy below runs imperatively, so Gradle infers no dependency on the project jars it
+    // reads; without this the runtime classpath modules (desktop-shared) were simply missing from
+    // the image on a clean checkout, and Copy skips a file that does not exist yet.
+    dependsOn configurations.runtimeClasspath, tasks.named('jar')
     def inputDir = layout.buildDirectory.dir('package/nexusClient/input')
     def destDir = layout.buildDirectory.dir('package/nexusClient/out')
     doFirst {
