@@ -71,8 +71,8 @@ tasks.register('coverageReport', JacocoReport) {
 }
 
 // Anti-regression gate over the product modules. The floors are the baseline measured on
-// 2026-11-13 across all four product modules and both desktop suites (bundle 74.59% line /
-// 51.66% branch, summing the four module reports), rounded down so a small refactor cannot fail the build on a fraction of a
+// 2026-11-13 across all four product modules and both desktop suites (bundle 75.20% line /
+// 51.96% branch, summing the four module reports), rounded down so a small refactor cannot fail the build on a fraction of a
 // point. The bundle floor keeps a full point of headroom, like the package floors below.
 // Raise them as the remaining workflows gain tests; the aspirational targets are documented in
 // docs/ci-cd.md.
@@ -110,8 +110,8 @@ def coverageVerification = tasks.register('coverageVerification', JacocoCoverage
                 'com.nexus.desktop.shared.mls'          : [0.85d, 0.54d],
                 'com.nexus.desktop.shared.cache'        : [0.88d, 0.57d],
                 'com.nexus.desktop.shared.messaging'    : [0.63d, 0.45d],
-                // Measured 2026-11-13: 65.43% and 84.86% of lines.
-                'com.nexus.desktop.user'                : [0.65d, 0.40d],
+                // Measured 2026-11-13: 67.66% and 84.86% of lines.
+                'com.nexus.desktop.user'                : [0.67d, 0.41d],
                 'com.nexus.desktop.admin'               : [0.84d, 0.52d]
         ].each { packageName, floors ->
             rule {
