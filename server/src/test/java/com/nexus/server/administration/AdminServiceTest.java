@@ -8,7 +8,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -79,6 +81,27 @@ class AdminServiceTest {
         assertThat(LikePatterns.containing("  Tea % "))
                 .as("the term is lower-cased and its wildcard is escaped")
                 .isEqualTo("%tea \\%%");
+    }
+
+    @Test
+    void everyGroupPageCombinationIsItsOwnConstantStatement() {
+        Set<String> statements = new HashSet<>();
+        for (String sort : List.of("createdAt", "name")) {
+            for (String direction : List.of("ASC", "DESC")) {
+                for (boolean filtered : List.of(false, true)) {
+                    for (boolean cursor : List.of(false, true)) {
+                        statements.add(AdminSupport.groupPageSql(sort, direction, filtered, cursor));
+                    }
+                }
+            }
+        }
+
+        assertThat(statements)
+                .as("a combination that reused another statement would page by the wrong column")
+                .hasSize(16);
+        assertThatThrownBy(() -> AdminSupport.groupPageSql("email", "ASC", false, false))
+                .as("an unknown sort never reaches the database")
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
