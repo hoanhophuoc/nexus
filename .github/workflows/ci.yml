@@ -235,11 +235,27 @@ jobs:
         with:
           validate-wrappers: true
 
+      # JavaFX needs a display and its GTK stack; the images are launched, not just inspected.
+      - name: Install headless display packages
+        run: >
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends
+          xvfb libgtk-3-0 libxtst6 libxrender1 libxi6 libx11-6 libglib2.0-0
+
       # Packages the rewritten desktop modules, not the legacy root launchers.
       - name: Build client and admin application images
         run: >
           ./gradlew --no-daemon :desktop-user:packageClient :desktop-admin:packageAdmin
           -PpackageType=app-image -PappVersion=0.0.0
+
+      # A jar that never reached the image is invisible to a file listing but kills the first
+      # window, so each launcher has to stay open instead of exiting.
+      - name: Verify the application images launch
+        run: |
+          set -euo pipefail
+          ./scripts/verify-app-image.sh \
+            --image desktop-user/build/package/nexusClient/out/nexusClient --launch
+          ./scripts/verify-app-image.sh \
+            --image desktop-admin/build/package/nexusAdmin/out/nexusAdmin --launch
 
       - name: Archive application images
         run: |

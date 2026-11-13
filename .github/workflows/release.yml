@@ -154,6 +154,15 @@ jobs:
             -PreleaseVersion="$VERSION" \
             -PappVersion="$VERSION"
 
+      # jpackage accepted the missing shared jar without a word, so the input it will copy into the
+      # installers is checked before those are collected.
+      - name: Verify the packaged classpath
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./scripts/verify-app-image.sh --input desktop-user/build/package/nexusClient/input
+          ./scripts/verify-app-image.sh --input desktop-admin/build/package/nexusAdmin/input
+
       - name: Collect installers
         shell: bash
         run: |

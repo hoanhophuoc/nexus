@@ -11,7 +11,7 @@ the commands below.
 | Database identity pre-flight | `./scripts/test-database-identity.sh` against a throwaway PostgreSQL | Any documented exit status of `check-database-identity.sh` changes, including a rejected password or an unreachable host being reported as a fresh install |
 | JavaFX FXML tests | `xvfb-run -a ./gradlew :desktop-user:fxTest :desktop-admin:fxTest` | FXML or controller wiring breaks |
 | Live user journey (isolated Docker) | `./scripts/live-journey.sh`, then verifies no temporary container, volume or network survived | The end-to-end journey fails, or it leaks Docker resources |
-| Linux app image | Builds the desktop packaging output on Linux | A packaging step fails |
+| Linux app image | Builds the desktop packaging output on Linux, then runs `scripts/verify-app-image.sh --image <dir> --launch` on both images | A packaging step fails, an image is missing a jar the app needs, or its launcher exits instead of showing its first window |
 
 The two desktop modules take their coverage from their JavaFX suites, so the `fx-test` job uploads
 their `fxTest.exec` files as the `fx-coverage` artifact and the analysis job downloads it before the
@@ -93,11 +93,15 @@ or an incompatible licence.
    on `main`; then the unit and integration suites run.
 2. **SBOM**: CycloneDX SBOM for the whole build, uploaded as an artifact.
 3. **Package**: native installers for the desktop clients in a matrix build on `ubuntu-latest`,
-   `windows-latest` and `macos-26`. The macOS job needs a current arm64 label: GitHub retired every
-   macOS 14 label on 2026-11-02, and a job that names a retired label is cancelled before its first
-   step ("The configuration 'macos-14-arm64-us-default' is not supported") rather than failing
-   visibly. Because **Publish** requires the whole matrix, that silent cancellation also removes the
-   GitHub release, so keep this entry on a supported label.
+   `windows-latest` and `macos-26`. `scripts/verify-app-image.sh --input <dir>` then checks the jars
+   jpackage is about to copy, so an installer cannot ship without the shared desktop module; that
+   was the failure that made every client abort at startup with
+   `NoClassDefFoundError: com/nexus/desktop/shared/ui/ThemeManager`, because the module's jar had not
+   been built when the packaging task copied the runtime classpath. The macOS job needs a current
+   arm64 label: GitHub retired every macOS 14 label on 2026-11-02, and a job that names a retired
+   label is cancelled before its first step ("The configuration 'macos-14-arm64-us-default' is not
+   supported") rather than failing visibly. Because **Publish** requires the whole matrix, that
+   silent cancellation also removes the GitHub release, so keep this entry on a supported label.
 4. **Server image**: builds and pushes the versioned image to GHCR. The tag comes from the
    release version; there is no moving `latest` tag in the pipeline. The push is retried up to three
    times because GHCR sometimes rejects the manifest write with a bare `denied` after accepting every
@@ -120,6 +124,8 @@ tests rather than trusting an earlier run.
 ./scripts/check-image-pins.sh
 ./gradlew gaOnlyCheck
 xvfb-run -a ./gradlew fullTest
+# After :desktop-user:packageClient -PpackageType=app-image
+./scripts/verify-app-image.sh --image desktop-user/build/package/nexusClient/out/nexusClient --launch
 ```
 
 `fullTest` is the closest local equivalent of the CI build job; the live journey is the only
