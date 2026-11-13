@@ -9,6 +9,8 @@ import tools.jackson.databind.ObjectMapper;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,7 +21,6 @@ import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -33,7 +34,36 @@ import java.util.Objects;
 public class OutboxPublisher {
     static final String CHANNEL = "nexus:message-events";
     private static final byte[] CHANNEL_BYTES = CHANNEL.getBytes(StandardCharsets.UTF_8);
+    /** Package-private so the plan test can explain the exact statement the fan-out runs. */
+    static final String PENDING_MLS_SQL = """
+            SELECT o.event_id, o.conversation_id, o.mls_message_id, o.event_type,
+                   m.sender_id, m.epoch, m.kind, m.ciphertext, m.created_at
+            FROM nexus.message_outbox o
+            JOIN nexus.mls_message m ON m.id = o.mls_message_id
+            WHERE o.published_at IS NULL
+            ORDER BY o.created_at, o.event_id
+            LIMIT 100 FOR UPDATE OF o SKIP LOCKED
+            """;
+
+    private static final String ACTIVE_MEMBERS_SQL = """
+            SELECT conversation_id, user_id FROM nexus.conversation_member
+            WHERE conversation_id IN (:ids) AND left_at IS NULL
+            ORDER BY conversation_id, user_id
+            """;
+
+    private static final String MEMBERS_WITH_EPOCH_SQL = """
+            SELECT conversation_id, user_id, joined_epoch FROM nexus.conversation_member
+            WHERE conversation_id IN (:ids) AND left_at IS NULL
+            ORDER BY conversation_id, user_id
+            """;
+
+    private static final String MARK_PUBLISHED_SQL = """
+            UPDATE nexus.message_outbox SET published_at = clock_timestamp()
+            WHERE event_id IN (:ids)
+            """;
+
     private final JdbcTemplate jdbc;
+    private final NamedParameterJdbcTemplate named;
     private final StringRedisTemplate redis;
     private final ObjectMapper mapper;
     private final Timer publishTimer;
@@ -41,9 +71,10 @@ public class OutboxPublisher {
     private final AtomicLong batchRows = new AtomicLong();
     private final AtomicLong oldestAgeSeconds = new AtomicLong();
 
-    public OutboxPublisher(JdbcTemplate jdbc, StringRedisTemplate redis, ObjectMapper mapper,
-                           MeterRegistry meters) {
+    public OutboxPublisher(JdbcTemplate jdbc, NamedParameterJdbcTemplate named,
+                           StringRedisTemplate redis, ObjectMapper mapper, MeterRegistry meters) {
         this.jdbc = jdbc;
+        this.named = named;
         this.redis = redis;
         this.mapper = mapper;
         this.publishTimer = Timer.builder("nexus.outbox.publish")
@@ -124,15 +155,7 @@ public class OutboxPublisher {
     }
 
     private List<MlsOutboxRow> publishMlsPending() {
-        return jdbc.query("""
-                SELECT o.event_id, o.conversation_id, o.mls_message_id, o.event_type,
-                       m.sender_id, m.epoch, m.kind, m.ciphertext, m.created_at
-                FROM nexus.message_outbox o
-                JOIN nexus.mls_message m ON m.id = o.mls_message_id
-                WHERE o.published_at IS NULL
-                ORDER BY o.created_at, o.event_id
-                LIMIT 100 FOR UPDATE OF o SKIP LOCKED
-                """, (rs, row) -> new MlsOutboxRow(rs.getObject("event_id", UUID.class),
+        return jdbc.query(PENDING_MLS_SQL, (rs, row) -> new MlsOutboxRow(rs.getObject("event_id", UUID.class),
                 rs.getObject("conversation_id", UUID.class), rs.getObject("mls_message_id", UUID.class),
                 rs.getString("event_type"), rs.getObject("sender_id", UUID.class), rs.getLong("epoch"),
                 rs.getString("kind"), rs.getBytes("ciphertext"),
@@ -155,45 +178,28 @@ public class OutboxPublisher {
     private Map<UUID, List<UUID>> activeMembers(List<UUID> conversationIds) {
         Map<UUID, List<UUID>> members = new HashMap<>();
         if (conversationIds.isEmpty()) return members;
-        jdbc.query("""
-                SELECT conversation_id, user_id FROM nexus.conversation_member
-                WHERE conversation_id IN (%s) AND left_at IS NULL
-                ORDER BY conversation_id, user_id
-                """.formatted(placeholders(conversationIds.size())),
+        named.query(ACTIVE_MEMBERS_SQL, new MapSqlParameterSource("ids", conversationIds),
                 rs -> {
                     members.computeIfAbsent(rs.getObject(1, UUID.class), ignored -> new ArrayList<>())
                             .add(rs.getObject(2, UUID.class));
-                },
-                conversationIds.toArray());
+                });
         return members;
     }
 
     private Map<UUID, List<MemberEpoch>> membersWithEpoch(List<UUID> conversationIds) {
         Map<UUID, List<MemberEpoch>> members = new HashMap<>();
         if (conversationIds.isEmpty()) return members;
-        jdbc.query("""
-                SELECT conversation_id, user_id, joined_epoch FROM nexus.conversation_member
-                WHERE conversation_id IN (%s) AND left_at IS NULL
-                ORDER BY conversation_id, user_id
-                """.formatted(placeholders(conversationIds.size())),
+        named.query(MEMBERS_WITH_EPOCH_SQL, new MapSqlParameterSource("ids", conversationIds),
                 rs -> {
                     members.computeIfAbsent(rs.getObject(1, UUID.class), ignored -> new ArrayList<>())
                             .add(new MemberEpoch(rs.getObject(2, UUID.class), rs.getInt(3)));
-                },
-                conversationIds.toArray());
+                });
         return members;
     }
 
     private void markPublished(List<UUID> eventIds) {
         if (eventIds.isEmpty()) return;
-        jdbc.update("""
-                UPDATE nexus.message_outbox SET published_at = clock_timestamp()
-                WHERE event_id IN (%s)
-                """.formatted(placeholders(eventIds.size())), eventIds.toArray());
-    }
-
-    private static String placeholders(int count) {
-        return String.join(",", Collections.nCopies(count, "?"));
+        named.update(MARK_PUBLISHED_SQL, new MapSqlParameterSource("ids", eventIds));
     }
 
     private static long ageSeconds(Instant createdAt, Instant now) {

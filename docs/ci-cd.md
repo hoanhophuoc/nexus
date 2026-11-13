@@ -18,13 +18,12 @@ their `fxTest.exec` files as the `fx-coverage` artifact and the analysis job dow
 coverage report, the gate and `./gradlew sonar` (`build-test` therefore waits for `fx-test`).
 Without that data the module reports were empty, SonarQube counted both UI modules as 0% covered,
 and the project sat at 38%. With it they measure 65.43% and 84.86% of lines, which takes the reported
-project coverage from 38% to 67%. Together the four product modules and both desktop suites measure
-74.42% of lines and 51.05% of branches, so the bundle floor is one full point below each: 73% of
-lines and 50% of branches. The package floors are rounded down the same way.
+project coverage from 38% to 67%. Summing the four module reports, the four product modules and both
+desktop suites measure 74.59% of lines and 51.66% of branches, so the bundle floor is more than a
+point below each: 73% of lines and 50% of branches. The package floors are rounded down the same way.
 
 `java:S2077` ("Make sure using a dynamically formatted SQL query is safe here") is still ignored for
-`server/administration`, `server/messaging/JdbcMessagingRepository` and
-`server/messaging/OutboxPublisher`, through `sonar.issue.ignore.multicriteria` in `build.gradle`.
+`server/administration`, through `sonar.issue.ignore.multicriteria` in `build.gradle`.
 Those statements choose their ORDER BY from a whitelist, so their text is assembled at runtime even
 though every value is a bound parameter.
 

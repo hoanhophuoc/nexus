@@ -71,8 +71,8 @@ tasks.register('coverageReport', JacocoReport) {
 }
 
 // Anti-regression gate over the product modules. The floors are the baseline measured on
-// 2026-11-13 across all four product modules and both desktop suites (bundle 74.42% line /
-// 51.05% branch), rounded down so a small refactor cannot fail the build on a fraction of a
+// 2026-11-13 across all four product modules and both desktop suites (bundle 74.59% line /
+// 51.66% branch, summing the four module reports), rounded down so a small refactor cannot fail the build on a fraction of a
 // point. The bundle floor keeps a full point of headroom, like the package floors below.
 // Raise them as the remaining workflows gain tests; the aspirational targets are documented in
 // docs/ci-cd.md.
@@ -193,19 +193,17 @@ sonar {
         // sets. Listing them here as well made the scanner index the test sources twice and the
         // analysis failed with "can't be indexed twice" for server/src/test.
         // java:S2077 flags every SQL statement whose text is not a compile-time constant. The
-        // repositories below still select their ORDER BY from a whitelist or assemble optional
-        // filters, so their statement text is built at runtime even though every value is a bound
-        // parameter. The social and groups packages are converted to constant statements with a
-        // first-page sentinel and are no longer excluded; the rest stay excluded until each query
-        // gets the same treatment, one plan test at a time (measurements and the recipe are in
+        // admin repositories below still assemble their optional filters and ORDER BY, so their
+        // statement text is built at runtime even though every value is a bound parameter. Social,
+        // groups and messaging are converted to constant statements with a first-page sentinel or
+        // named parameters and are no longer excluded; the rest stay excluded until each query gets
+        // the same treatment, one plan test at a time (measurements and the recipe are in
         // docs/ci-cd.md).
         property 'sonar.issue.ignore.multicriteria', [
-                's2077Administration', 's2077Messaging', 's2077Outbox'
+                's2077Administration'
         ].join(',')
         [
-                's2077Administration': '**/server/administration/*.java',
-                's2077Messaging': '**/server/messaging/JdbcMessagingRepository.java',
-                's2077Outbox': '**/server/messaging/OutboxPublisher.java'
+                's2077Administration': '**/server/administration/*.java'
         ].each { name, resource ->
             property "sonar.issue.ignore.multicriteria.${name}.ruleKey", 'java:S2077'
             property "sonar.issue.ignore.multicriteria.${name}.resourceKey", resource

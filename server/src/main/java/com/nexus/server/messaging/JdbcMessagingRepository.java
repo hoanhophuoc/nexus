@@ -10,12 +10,43 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
 @Repository
 public class JdbcMessagingRepository implements MessagingRepository {
+
+    /**
+     * A nil UUID sorts below every real conversation id and no message carries sequence 0, so both
+     * first pages bind a sentinel and each statement stays a compile-time constant.
+     */
+    private static final UUID FIRST_PAGE = new UUID(0L, 0L);
+    private static final long FIRST_SEQUENCE = 0L;
+
+    static final String CONVERSATIONS_SQL = """
+            SELECT c.id FROM nexus.conversation c
+            JOIN nexus.conversation_member m ON m.conversation_id = c.id
+            WHERE m.user_id = ? AND m.left_at IS NULL
+              AND c.id > ?
+            ORDER BY c.id LIMIT ?
+            """;
+
+    static final String MESSAGES_SQL = """
+            SELECT m.id, m.conversation_id, m.sender_id, m.content, m.created_at,
+                   m.deleted_for_everyone_at
+            FROM nexus.message m
+            JOIN nexus.conversation_member cm ON cm.conversation_id = m.conversation_id
+            WHERE cm.conversation_id = ? AND cm.user_id = ? AND cm.left_at IS NULL
+              AND m.conversation_sequence > cm.history_cleared_sequence
+              AND NOT EXISTS (SELECT 1 FROM nexus.message_hidden_for_user h
+                              WHERE h.message_id = m.id AND h.user_id = cm.user_id)
+              AND m.conversation_sequence > ?
+            ORDER BY m.conversation_sequence LIMIT ?
+            """;
+
+    private static final String CURSOR_SEQUENCE_SQL = """
+            SELECT conversation_sequence FROM nexus.message WHERE conversation_id = ? AND id = ?
+            """;
 
     private final JdbcTemplate jdbc;
 
@@ -56,16 +87,8 @@ public class JdbcMessagingRepository implements MessagingRepository {
 
     @Override
     public ConversationPage conversations(UUID userId, UUID cursor, int limit) {
-        String cursorClause = cursor == null ? "" : "AND c.id > ?";
-        String sql = """
-                SELECT c.id FROM nexus.conversation c
-                JOIN nexus.conversation_member m ON m.conversation_id = c.id
-                WHERE m.user_id = ? AND m.left_at IS NULL
-                """ + cursorClause + " ORDER BY c.id LIMIT ?";
-        List<Object> args = new ArrayList<>(List.of(userId));
-        if (cursor != null) args.add(cursor);
-        args.add(limit + 1);
-        List<UUID> ids = jdbc.query(sql, (rs, row) -> rs.getObject("id", UUID.class), args.toArray());
+        List<UUID> ids = jdbc.query(CONVERSATIONS_SQL, (rs, row) -> rs.getObject("id", UUID.class),
+                userId, cursor == null ? FIRST_PAGE : cursor, limit + 1);
         boolean more = ids.size() > limit;
         List<UUID> pageIds = more ? ids.subList(0, limit) : ids;
         List<ConversationView> items = pageIds.stream().map(this::conversation).toList();
@@ -75,30 +98,14 @@ public class JdbcMessagingRepository implements MessagingRepository {
     @Override
     public MessagePage messages(UUID userId, UUID conversationId, UUID after, int limit) {
         requireDirectConversation(userId, conversationId);
-        Long cursorSequence = null;
+        long cursorSequence = FIRST_SEQUENCE;
         if (after != null) {
-            cursorSequence = jdbc.query("""
-                    SELECT conversation_sequence FROM nexus.message WHERE conversation_id = ? AND id = ?
-                    """, (rs, row) -> rs.getLong("conversation_sequence"), conversationId, after)
+            cursorSequence = jdbc.query(CURSOR_SEQUENCE_SQL,
+                    (rs, row) -> rs.getLong("conversation_sequence"), conversationId, after)
                     .stream().findFirst().orElseThrow(UserNotFoundException::new);
         }
-        String afterClause = after == null ? "" : "AND m.conversation_sequence > ?";
-        String sql = """
-                SELECT m.id, m.conversation_id, m.sender_id, m.content, m.created_at,
-                       m.deleted_for_everyone_at
-                FROM nexus.message m
-                JOIN nexus.conversation_member cm ON cm.conversation_id = m.conversation_id
-                WHERE cm.conversation_id = ? AND cm.user_id = ? AND cm.left_at IS NULL
-                  AND m.conversation_sequence > cm.history_cleared_sequence
-                  AND NOT EXISTS (SELECT 1 FROM nexus.message_hidden_for_user h
-                                  WHERE h.message_id = m.id AND h.user_id = cm.user_id)
-                """ + afterClause + " ORDER BY m.conversation_sequence LIMIT ?";
-        List<Object> args = new ArrayList<>(List.of(conversationId, userId));
-        if (after != null) {
-            args.add(cursorSequence);
-        }
-        args.add(limit + 1);
-        List<MessageView> messages = jdbc.query(sql, JdbcMessagingRepository::mapMessage, args.toArray());
+        List<MessageView> messages = jdbc.query(MESSAGES_SQL, JdbcMessagingRepository::mapMessage,
+                conversationId, userId, cursorSequence, limit + 1);
         boolean more = messages.size() > limit;
         List<MessageView> items = more ? messages.subList(0, limit) : messages;
         return new MessagePage(List.copyOf(items), more ? items.getLast().id().toString() : null);
