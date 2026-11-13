@@ -21,6 +21,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -31,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -148,6 +150,38 @@ class MlsGroupSyncServiceTest {
         return """
                 {"type":"%s","conversationId":"%s"}
                 """.formatted(type, groupId);
+    }
+
+    /**
+     * A request must not add an entry to the account directory while the application shuts down:
+     * the user client's {@code @TempDir} cleanup failed once because the upload directory appeared
+     * during teardown. The service therefore creates it with the service and only ever writes and
+     * removes its own file.
+     */
+    @Test
+    void keepsOneUploadDirectoryAndRemovesEachUpload() throws Exception {
+        UUID aliceId = UUID.randomUUID();
+        FakeServer server = new FakeServer();
+
+        try (EncryptedMessageCache aliceCache = cache("alice", aliceId)) {
+            MlsGroupSyncService alice = service(server, aliceId, aliceCache, "alice");
+            Path uploads = directory.resolve("uploads");
+            assertThat(uploads).isDirectory();
+            assertThat(entries(uploads)).isEmpty();
+            Object uploadDirectory = Files.readAttributes(uploads, BasicFileAttributes.class).fileKey();
+
+            alice.publishKeyPackage();
+
+            assertThat(entries(uploads)).isEmpty();
+            assertThat(Files.readAttributes(uploads, BasicFileAttributes.class).fileKey())
+                    .isEqualTo(uploadDirectory);
+        }
+    }
+
+    private static List<Path> entries(Path directory) throws IOException {
+        try (Stream<Path> files = Files.list(directory)) {
+            return files.toList();
+        }
     }
 
     private MlsGroupSyncService service(FakeServer server, UUID userId, EncryptedMessageCache cache,
