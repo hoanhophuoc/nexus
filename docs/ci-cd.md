@@ -99,9 +99,11 @@ or an incompatible licence.
    `windows-latest` and `macos-26`. Two checks run before the assets are collected:
    `scripts/verify-app-image.sh --input <dir>` reads the jars jpackage is about to copy, and
    `scripts/verify-app-image.sh --installer <file>` unpacks each finished installer (`dpkg-deb -x`
-   for the `.deb`, an administrative install for the `.msi`, `hdiutil` for the `.dmg`) and looks for
-   the shared module inside it, so the artifact that is published is what gets checked. An installer
-   cannot ship without the shared desktop module; that
+   for the `.deb`, `hdiutil` for the `.dmg`) and looks for the shared module inside it, so the
+   artifact that is published is what gets checked. The MSI is not unpacked — neither `msiexec /a`
+   nor 7-Zip laid the payload out reliably on the runner — so its own `File` table is queried
+   instead, which lists exactly the files the installer will write. An installer cannot ship without
+   the shared desktop module; that
    was the failure that made every client abort at startup with
    `NoClassDefFoundError: com/nexus/desktop/shared/ui/ThemeManager`, because the module's jar had not
    been built when the packaging task copied the runtime classpath. The macOS job needs a current
