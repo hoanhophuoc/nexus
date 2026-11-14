@@ -24,19 +24,15 @@ public class OutboxAdminService {
             LIMIT ?
             """;
 
-    private static final String REQUEUE_SQL = """
-            UPDATE nexus.message_outbox
-            SET attempts = 0, next_attempt_at = clock_timestamp(), abandoned_at = NULL,
-                abandon_reason = NULL, last_error = NULL
-            WHERE published_at IS NULL AND abandoned_at IS NOT NULL AND event_id IN (:ids)
-            """;
-
-    private static final String REQUEUE_ALL_SQL = """
+    /** Requeueing clears every trace of the abandonment, so the row polls as if it were new. */
+    private static final String REQUEUE_SET = """
             UPDATE nexus.message_outbox
             SET attempts = 0, next_attempt_at = clock_timestamp(), abandoned_at = NULL,
                 abandon_reason = NULL, last_error = NULL
             WHERE published_at IS NULL AND abandoned_at IS NOT NULL
             """;
+
+    private static final String REQUEUE_SQL = REQUEUE_SET + " AND event_id IN (:ids)";
 
     private final JdbcTemplate jdbc;
     private final NamedParameterJdbcTemplate named;
@@ -61,7 +57,7 @@ public class OutboxAdminService {
     }
 
     public int requeueAll() {
-        return jdbc.update(REQUEUE_ALL_SQL);
+        return jdbc.update(REQUEUE_SET);
     }
 
     public record AbandonedEvent(UUID eventId, String eventType, Instant abandonedAt, String reason,

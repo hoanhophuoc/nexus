@@ -81,7 +81,10 @@ Rules that the schema enforces rather than the code:
    because no number of retries can publish it, and its counter carries `reason=encode`. A payload
    Redis rejects on its own is isolated too: when a batch publish fails for a reason other than an
    unreachable connection, the rows are sent one at a time, the ones that go out are marked
-   published, and only the rejected row counts an attempt. Each wait is jittered by up to a quarter,
+   published, and only the rejected row counts an attempt. A failed mark is not a failed publish, so
+   it does not trigger that second send. The decision to abandon a row is taken inside the batch and
+   applied after it commits: written inside, a rollback would have undone the row while the counter
+   and the log line stayed. Each wait is jittered by up to a quarter,
    so concurrent publishers do not retry in lockstep, which puts the outage a row survives at 22.5 to
    37.5 seconds. A failed publish is not retried on the next tick: the
    retry counter also moves `next_attempt_at` out by 2, 4, 8 and then 16 seconds, and both polls only
