@@ -23,6 +23,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.RedisSystemException;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -50,6 +51,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -413,8 +415,10 @@ class OutboxPublisherIntegrationTest {
                     .isEqualTo(OutboxPublisher.MAX_ATTEMPTS);
             assertThat(publishedAt(badEvent)).isNull();
             assertThat(publishedAt(goodEvent)).isNotNull();
-            assertThat(meters.find("nexus.outbox.abandoned").counter().count())
+            assertThat(meters.find("nexus.outbox.abandoned").tag("reason", "encode").counter().count())
                     .as("and reported for an operator").isEqualTo(1.0);
+            assertThat(abandonReason(badEvent)).as("the reason an operator sees").isEqualTo("encode");
+            assertThat(lastError(badEvent)).contains("cannot be encoded");
 
             isolated.publishPending();
             assertThat(published.poll(1, TimeUnit.SECONDS))
@@ -571,13 +575,18 @@ class OutboxPublisherIntegrationTest {
             assertThat(secondsUntilDue(event))
                     .as("failure %d waits %d seconds", failure + 1, waits[failure])
                     .isBetween(waits[failure] - 1, waits[failure] + 1);
+            assertThat(abandonedAt(event)).as("a row is not abandoned while attempts remain").isNull();
         }
 
         awaitDue(event);
         assertThatThrownBy(failing::publishPending)
                 .isInstanceOf(RedisConnectionFailureException.class);
-        assertThat(attempts(event)).as("the fifth failure is the one that gives up")
-                .isEqualTo(OutboxPublisher.MAX_ATTEMPTS);
+        assertThat(attempts(event)).isEqualTo(OutboxPublisher.MAX_ATTEMPTS);
+        assertThat(abandonedAt(event)).as("the fifth failure is the one that gives up").isNotNull();
+        assertThat(abandonReason(event)).isEqualTo("retries");
+        assertThat(lastError(event)).contains("redis is down");
+        assertThat(meters.find("nexus.outbox.abandoned").tag("reason", "retries").counter().count())
+                .as("retry exhaustion is counted apart from an unencodable payload").isEqualTo(1.0);
 
         redisDown.set(false);
         withSubscriber(published -> {
@@ -586,6 +595,91 @@ class OutboxPublisherIntegrationTest {
                     .as("an abandoned row is not published by a later healthy poll").isNull();
         });
         assertThat(publishedAt(event)).isNull();
+    }
+
+    @Test
+    void publishesTheRestOfTheBatchWhenRedisRejectsOnePayload() throws Exception {
+        UUID conversation = id(117);
+        UUID good = id(220);
+        UUID rejected = id(221);
+        UUID goodEvent = id(421);
+        UUID rejectedEvent = id(422);
+        group(conversation, SENDER, MEMBER);
+        message(good, conversation, SENDER);
+        jdbc.update("""
+                INSERT INTO nexus.message
+                    (id, conversation_id, sender_id, conversation_sequence, idempotency_key, content)
+                VALUES (?, ?, ?, 2, 'rejected', 'rejected-by-redis')
+                """, rejected, conversation, SENDER);
+        messageEvent(goodEvent, conversation, good, "message.created");
+        messageEvent(rejectedEvent, conversation, rejected, "message.created");
+
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        OutboxPublisher isolated = new OutboxPublisher(jdbc, named, rejecting(redis, "rejected-by-redis"),
+                mapper, meters, transactions);
+
+        withSubscriber(published -> {
+            isolated.publishPending();
+
+            awaitEvent(published, goodEvent);
+            // Other tests leave pending rows behind, and this poll publishes them too: the claim is
+            // about the rejected event, not about the channel being empty.
+            long quiet = System.nanoTime() + Duration.ofSeconds(1).toNanos();
+            while (System.nanoTime() < quiet) {
+                String payload = published.poll(200, TimeUnit.MILLISECONDS);
+                if (payload == null) continue;
+                assertThat(mapper.readTree(payload).get("payload").get("eventId").asString())
+                        .as("the payload Redis refuses is not sent")
+                        .isNotEqualTo(rejectedEvent.toString());
+            }
+            assertThat(publishedAt(goodEvent)).as("the rest of the batch still went out").isNotNull();
+            assertThat(attempts(rejectedEvent)).as("only that row is retried").isEqualTo(1);
+            assertThat(publishedAt(rejectedEvent)).isNull();
+        });
+
+        // Alone in its batch the rejected row fails every time; it is the only one abandoned.
+        for (int attempt = 2; attempt <= OutboxPublisher.MAX_ATTEMPTS; attempt++) {
+            backoffElapsed(rejectedEvent);
+            assertThatThrownBy(isolated::publishPending).isInstanceOf(RedisSystemException.class);
+        }
+        assertThat(attempts(rejectedEvent)).isEqualTo(OutboxPublisher.MAX_ATTEMPTS);
+        assertThat(abandonedAt(rejectedEvent)).isNotNull();
+        assertThat(abandonReason(rejectedEvent)).isEqualTo("retries");
+        assertThat(lastError(rejectedEvent)).contains("too large");
+        assertThat(publishedAt(goodEvent)).as("the healthy row was already delivered").isNotNull();
+    }
+
+    @Test
+    void listsAnAbandonedRowWithItsReasonAndPutsItBackInThePoll() throws Exception {
+        UUID conversation = id(118);
+        UUID message = id(222);
+        UUID event = id(423);
+        group(conversation, SENDER, MEMBER);
+        message(message, conversation, SENDER);
+        messageEvent(event, conversation, message, "message.created");
+
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        new OutboxPublisher(jdbc, named, redis, failingOn(event), meters, transactions).publishPending();
+        assertThat(abandonedAt(event)).isNotNull();
+
+        OutboxAdminService admin = new OutboxAdminService(jdbc, named);
+        assertThat(admin.abandoned(100))
+                .as("the row is listed with why it was given up on")
+                .anySatisfy(row -> {
+                    assertThat(row.eventId()).isEqualTo(event);
+                    assertThat(row.reason()).isEqualTo("encode");
+                    assertThat(row.lastError()).contains("cannot be encoded");
+                });
+
+        assertThat(admin.requeue(List.of(event))).isEqualTo(1);
+        assertThat(abandonedAt(event)).as("a requeued row is pending again").isNull();
+        assertThat(attempts(event)).isZero();
+
+        withSubscriber(published -> {
+            new OutboxPublisher(jdbc, named, redis, mapper, meters, transactions).publishPending();
+            awaitEvent(published, event);
+        });
+        assertThat(publishedAt(event)).as("and the next poll delivers it").isNotNull();
     }
 
     @Test
@@ -794,6 +888,47 @@ class OutboxPublisherIntegrationTest {
             targets.add(UUID.fromString(target.asString()));
         }
         return targets;
+    }
+
+    /** Fails a publish of any payload carrying {@code marker}, the way Redis rejects a value it will not take. */
+    private static StringRedisTemplate rejecting(StringRedisTemplate redis, String marker) {
+        return new StringRedisTemplate(redis.getConnectionFactory()) {
+            @Override
+            public <T> T execute(RedisCallback<T> action) {
+                return super.execute((org.springframework.data.redis.connection.RedisConnection connection) -> {
+                    org.springframework.data.redis.connection.RedisConnection guard = mock(
+                            org.springframework.data.redis.connection.RedisConnection.class,
+                            org.mockito.AdditionalAnswers.delegatesTo(connection));
+                    // doAnswer, not when(...): the mock delegates, so stubbing would call the real
+                    // publish with the matchers' nulls before it could be replaced.
+                    doAnswer(call -> {
+                        byte[] payload = call.getArgument(1);
+                        if (new String(payload, StandardCharsets.UTF_8).contains(marker)) {
+                            throw new RedisSystemException("value too large for one publish", null);
+                        }
+                        return connection.publish(call.getArgument(0, byte[].class), payload);
+                    }).when(guard).publish(any(byte[].class), any(byte[].class));
+                    return action.doInRedis(guard);
+                });
+            }
+        };
+    }
+
+    private Timestamp abandonedAt(UUID event) {
+        return jdbc.queryForObject(
+                "SELECT abandoned_at FROM nexus.message_outbox WHERE event_id = ?",
+                Timestamp.class, event);
+    }
+
+    private String abandonReason(UUID event) {
+        return jdbc.queryForObject(
+                "SELECT abandon_reason FROM nexus.message_outbox WHERE event_id = ?",
+                String.class, event);
+    }
+
+    private String lastError(UUID event) {
+        return jdbc.queryForObject("SELECT last_error FROM nexus.message_outbox WHERE event_id = ?",
+                String.class, event);
     }
 
     /** Seconds until the row may be polled again, read on the database clock. */

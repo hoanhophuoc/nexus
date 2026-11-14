@@ -106,7 +106,7 @@ Application meters:
 | `nexus.outbox.oldest_age_seconds` | gauge | Age of the oldest pending event, measured by the database clock — the delivery-latency alarm |
 | `nexus.outbox.publish_failures` | counter | Batches whose Redis publish failed |
 | `nexus.outbox.max_attempts` | gauge | Highest `attempts` a row reached in the last failed batch — a row stuck retrying |
-| `nexus.outbox.abandoned` | counter | Events given up on: unencodable, or five failed publishes |
+| `nexus.outbox.abandoned` | counter | Events given up on, tagged `reason`: `encode` (the payload cannot be serialised) or `retries` (five failed publishes) |
 | `nexus.ws.delivered` | counter | Frames delivered to clients |
 | `nexus.ws.sessions` | gauge | Open WebSocket sessions |
 
@@ -120,17 +120,26 @@ raised while a capped row is still waiting to be requeued.
 
 A failed publish pushes the row's `next_attempt_at` out by 2, 4, 8 and then 16 seconds, so a row is
 retried about half a minute after its first failure instead of on every 100 ms poll, and a restart of
-Redis shorter than that loses nothing. A row that reaches five failed publishes is never polled again,
-and each batch that abandons rows logs the first three event ids plus a count — the rest are in the
-table. Once Redis is healthy, requeue what was given up on:
+Redis shorter than that loses nothing. A row that reaches five failed publishes is never polled again;
+each batch that abandons rows logs the first three event ids plus a count, and the row records
+`abandoned_at`, `abandon_reason` (`encode` or `retries`) and `last_error` so the decision to requeue
+it does not need the logs. A payload Redis itself rejects — too large, a value it will not accept —
+costs only its own row: when the batch publish fails, the rows are retried one at a time and the ones
+that go out are marked published.
 
-```sql
-SELECT event_id, conversation_id, event_type, attempts, next_attempt_at FROM message_outbox
-WHERE published_at IS NULL AND attempts >= 5;
+List and requeue the abandoned rows with the operator command. It runs instead of the scheduler,
+prints its result and exits, so no second publisher starts polling the same table:
 
-UPDATE message_outbox SET attempts = 0, next_attempt_at = clock_timestamp()
-WHERE published_at IS NULL AND attempts >= 5;
 ```
+./gradlew :server:bootRun --args='--chat.messaging.outbox-admin=list'
+./gradlew :server:bootRun --args='--chat.messaging.outbox-admin=requeue'
+./gradlew :server:bootRun --args='--chat.messaging.outbox-admin=requeue:<event-id>,<event-id>'
+```
+
+`list` prints up to 50 rows with their reason and last error; `requeue` clears `attempts`,
+`next_attempt_at`, `abandoned_at`, `abandon_reason` and `last_error` on every abandoned row, so the
+next poll picks them up. A row requeued with reason `encode` is abandoned again on that poll, which is
+the point: the payload is the problem, not the outage.
 
 ## Backups and recovery
 

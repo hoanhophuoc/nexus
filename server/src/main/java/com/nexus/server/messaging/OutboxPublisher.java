@@ -8,6 +8,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
+import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -102,7 +103,9 @@ public class OutboxPublisher {
             """;
 
     private static final String ABANDON_SQL = """
-            UPDATE nexus.message_outbox SET attempts = %d
+            UPDATE nexus.message_outbox
+            SET attempts = %d, abandoned_at = clock_timestamp(),
+                abandon_reason = :reason, last_error = :error
             WHERE event_id IN (:ids)
             """.formatted(MAX_ATTEMPTS);
 
@@ -114,7 +117,9 @@ public class OutboxPublisher {
     private final Timer publishTimer;
     private final Counter publishedEvents;
     private final Counter publishFailures;
-    private final Counter abandonedEvents;
+    private final Map<String, Counter> abandonedByReason;
+    /** Long enough for a driver message, short enough that a repeated failure cannot bloat a row. */
+    private static final int MAX_ERROR_CHARS = 500;
     private final AtomicLong batchRows = new AtomicLong();
     private final AtomicLong oldestAgeSeconds = new AtomicLong();
     private final AtomicLong maxAttempts = new AtomicLong();
@@ -142,10 +147,14 @@ public class OutboxPublisher {
         this.publishFailures = Counter.builder("nexus.outbox.publish_failures")
                 .description("Outbox batches whose Redis publish failed")
                 .register(meters);
-        this.abandonedEvents = Counter.builder("nexus.outbox.abandoned")
-                .description("Outbox events given up on: they could not be encoded, or failed "
-                        + MAX_ATTEMPTS + " publishes")
-                .register(meters);
+        this.abandonedByReason = Map.of(
+                "encode", Counter.builder("nexus.outbox.abandoned").tag("reason", "encode")
+                        .description("Outbox events given up on because they cannot be encoded")
+                        .register(meters),
+                "retries", Counter.builder("nexus.outbox.abandoned").tag("reason", "retries")
+                        .description("Outbox events given up on after " + MAX_ATTEMPTS
+                                + " failed publishes")
+                        .register(meters));
         Gauge.builder("nexus.outbox.max_attempts", maxAttempts, AtomicLong::get)
                 .description("Highest failed-publish count on a row in the last failed batch; "
                         + "0 once a batch publishes")
@@ -162,7 +171,7 @@ public class OutboxPublisher {
             // The batch's transaction rolled back and took its row locks with it, so the retry
             // counter has to be written afterwards; inside the batch it would roll back too.
             try {
-                countAttempts(attempted);
+                countAttempts(attempted, errorText("the publish failed:", failure));
             } catch (RuntimeException countFailure) {
                 failure.addSuppressed(countFailure);
             }
@@ -184,9 +193,7 @@ public class OutboxPublisher {
         // One membership lookup and one Redis round trip per batch instead of per event.
         Map<UUID, List<UUID>> members = activeMembers(conversationIds(rows, mlsRows));
         Map<UUID, List<MemberEpoch>> mlsMembers = membersWithEpoch(conversationIds(rows, mlsRows));
-        List<byte[]> payloads = new ArrayList<>(rows.size() + mlsRows.size());
-        List<UUID> messageEventIds = new ArrayList<>(rows.size());
-        List<UUID> mlsEventIds = new ArrayList<>(mlsRows.size());
+        List<Delivery> deliveries = new ArrayList<>(rows.size() + mlsRows.size());
         long oldest = 0;
         List<UUID> unencodable = new ArrayList<>();
         for (OutboxRow row : rows) {
@@ -195,12 +202,11 @@ public class OutboxPublisher {
                     ? members.getOrDefault(row.conversationId(), List.of())
                     : List.of(row.recipientId());
             try {
-                payloads.add(encode(envelope(row, targets)).getBytes(StandardCharsets.UTF_8));
+                deliveries.add(new Delivery(row.eventId(),
+                        encode(envelope(row, targets)).getBytes(StandardCharsets.UTF_8)));
             } catch (IllegalStateException poison) {
                 unencodable.add(row.eventId());
-                continue;
             }
-            messageEventIds.add(row.eventId());
         }
         for (MlsOutboxRow row : mlsRows) {
             oldest = Math.max(oldest, row.ageSeconds());
@@ -210,38 +216,90 @@ public class OutboxPublisher {
                     .map(MemberEpoch::userId)
                     .toList();
             try {
-                payloads.add(encode(mlsEnvelope(row, targets)).getBytes(StandardCharsets.UTF_8));
+                deliveries.add(new Delivery(row.eventId(),
+                        encode(mlsEnvelope(row, targets)).getBytes(StandardCharsets.UTF_8)));
             } catch (IllegalStateException poison) {
                 unencodable.add(row.eventId());
-                continue;
             }
-            mlsEventIds.add(row.eventId());
         }
         oldestAgeSeconds.set(oldest);
 
         // One unencodable row must not take its batch down with it: abandon it, publish the rest.
         if (!unencodable.isEmpty()) {
-            named.update(ABANDON_SQL, new MapSqlParameterSource("ids", unencodable));
-            reportAbandoned(unencodable, "because they cannot be encoded");
+            abandon(unencodable, "encode", "the row cannot be encoded");
         }
-        if (payloads.isEmpty()) return;
-        List<UUID> eventIds = new ArrayList<>(messageEventIds);
-        eventIds.addAll(mlsEventIds);
+        if (deliveries.isEmpty()) return;
+        List<UUID> eventIds = new ArrayList<>(deliveries.size());
+        for (Delivery delivery : deliveries) eventIds.add(delivery.eventId());
         attempted.addAll(eventIds);
 
-        // A pipelined callback borrows a dedicated Lettuce connection, i.e. a new TCP handshake
-        // per batch. Publishing on the shared connection keeps one socket for all batches.
+        int published = publish(deliveries);
+        if (published > 0) publishedEvents.increment(published);
+        publishTimer.record(Duration.ofNanos(System.nanoTime() - started));
+    }
+
+    /**
+     * Publishes the batch in one round trip. When that fails, the rows are tried one at a time so a
+     * payload Redis rejects on its own — too large, a value it will not accept — costs its own row
+     * and not the rest of the batch. A connection failure is not worth retrying row by row: it means
+     * Redis is unreachable, so it is rethrown and the caller rolls the batch back and counts every
+     * row's attempt.
+     */
+    private int publish(List<Delivery> deliveries) {
+        try {
+            send(deliveries);
+            markPublished(eventIds(deliveries));
+            // The failure gauge has to clear itself, or an alert on it never resolves.
+            maxAttempts.set(0);
+            return deliveries.size();
+        } catch (RedisConnectionFailureException outage) {
+            throw outage;
+        } catch (RuntimeException batchFailure) {
+            List<Delivery> delivered = new ArrayList<>(deliveries.size());
+            List<UUID> failed = new ArrayList<>();
+            for (Delivery delivery : deliveries) {
+                try {
+                    send(List.of(delivery));
+                    delivered.add(delivery);
+                } catch (RedisConnectionFailureException outage) {
+                    throw outage;
+                } catch (RuntimeException rowFailure) {
+                    failed.add(delivery.eventId());
+                }
+            }
+            markPublished(eventIds(delivered));
+            if (failed.size() == deliveries.size()) throw batchFailure;
+            countAttempts(failed, errorText("the row could not be published:", batchFailure));
+            log.warn("Outbox published {} of {} row(s); {} will retry", delivered.size(),
+                    deliveries.size(), failed.size());
+            return delivered.size();
+        }
+    }
+
+    /**
+     * A pipelined callback borrows a dedicated Lettuce connection, i.e. a new TCP handshake per
+     * batch. Publishing on the shared connection keeps one socket for all batches.
+     */
+    private void send(List<Delivery> deliveries) {
         redis.execute((RedisCallback<Object>) connection -> {
-            for (byte[] payload : payloads) {
-                connection.publish(CHANNEL_BYTES, payload);
+            for (Delivery delivery : deliveries) {
+                connection.publish(CHANNEL_BYTES, delivery.payload());
             }
             return null;
         });
-        markPublished(eventIds);
-        // The failure gauge has to clear itself, or an alert on it never resolves after an outage.
-        maxAttempts.set(0);
-        publishedEvents.increment(payloads.size());
-        publishTimer.record(Duration.ofNanos(System.nanoTime() - started));
+    }
+
+    private static List<UUID> eventIds(List<Delivery> deliveries) {
+        List<UUID> eventIds = new ArrayList<>(deliveries.size());
+        for (Delivery delivery : deliveries) eventIds.add(delivery.eventId());
+        return eventIds;
+    }
+
+    /** Why a row was given up on, for the operator who has to decide whether to requeue it. */
+    private static String errorText(String prefix, RuntimeException failure) {
+        String message = failure.getMessage();
+        String text = message == null ? failure.getClass().getSimpleName() : message;
+        return prefix + " " + text;
     }
 
     private List<MlsOutboxRow> publishMlsPending() {
@@ -297,7 +355,7 @@ public class OutboxPublisher {
      * have now reached {@link #MAX_ATTEMPTS}: they stay in the table, unpublished, for an operator to
      * inspect, but neither pending poll selects them any more.
      */
-    private void countAttempts(List<UUID> eventIds) {
+    private void countAttempts(List<UUID> eventIds, String error) {
         if (eventIds.isEmpty()) return;
         List<Attempt> counted = transactions.execute(status -> named.query(COUNT_ATTEMPT_SQL,
                 new MapSqlParameterSource("ids", eventIds),
@@ -310,13 +368,21 @@ public class OutboxPublisher {
                 .map(Attempt::eventId)
                 .toList();
         if (!abandoned.isEmpty()) {
-            reportAbandoned(abandoned, "after " + MAX_ATTEMPTS + " failed publishes");
+            abandon(abandoned, "retries", error);
         }
     }
 
-    private void reportAbandoned(List<UUID> eventIds, String reason) {
-        abandonedEvents.increment(eventIds.size());
-        log.warn("Outbox abandoned {} event(s) {}: {}", eventIds.size(), reason, describe(eventIds));
+    /**
+     * Stops polling the rows for good and records why, so an operator can list them and decide
+     * between a requeue and giving up on the events.
+     */
+    private void abandon(List<UUID> eventIds, String reason, String error) {
+        String stored = error.length() <= MAX_ERROR_CHARS ? error : error.substring(0, MAX_ERROR_CHARS);
+        named.update(ABANDON_SQL, new MapSqlParameterSource("ids", eventIds)
+                .addValue("reason", reason).addValue("error", stored));
+        abandonedByReason.get(reason).increment(eventIds.size());
+        log.warn("Outbox abandoned {} event(s), reason={}, {}: {}", eventIds.size(), reason, stored,
+                describe(eventIds));
     }
 
     /** A batch is up to 100 rows: name a few ids and count the rest, so one log line stays readable. */
@@ -390,6 +456,9 @@ public class OutboxPublisher {
     private record MemberEpoch(UUID userId, int joinedEpoch) { }
 
     private record Attempt(UUID eventId, int attempts) { }
+
+    /** One event's encoded payload, kept with its id so it can be published on its own. */
+    private record Delivery(UUID eventId, byte[] payload) { }
 
     private record OutboxRow(UUID eventId, UUID conversationId, UUID messageId, UUID recipientId,
                              String eventType, UUID senderId, String content, Instant createdAt,

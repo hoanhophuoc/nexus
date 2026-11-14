@@ -74,10 +74,14 @@ Rules that the schema enforces rather than the code:
    A row is polled until it has failed `MAX_ATTEMPTS` (5) publishes: both pending polls filter on
    `attempts < 5`, so an event that keeps failing stops costing a Redis round trip every 100 ms. The
    batch that pushes a row over the line logs it at WARN — the first three event ids and a count — and
-   increments `nexus.outbox.abandoned`; the row stays in `message_outbox` unpublished as the record
-   of what was not delivered, and `nexus.outbox.max_attempts` carries that high-water mark until a
-   batch publishes again, when it returns to 0 so the alert clears.    A row that cannot be encoded is abandoned the same way without failing the rest of its batch,
-   because no number of retries can publish it. A failed publish is not retried on the next tick: the
+   increments `nexus.outbox.abandoned` with `reason=retries`; the row stays in `message_outbox`
+   unpublished, with `abandoned_at`, `abandon_reason` and `last_error` as the record of what was not
+   delivered and why, and `nexus.outbox.max_attempts` carries that high-water mark until a batch
+   publishes again, when it returns to 0 so the alert clears.    A row that cannot be encoded is abandoned the same way without failing the rest of its batch,
+   because no number of retries can publish it, and its counter carries `reason=encode`. A payload
+   Redis rejects on its own is isolated too: when a batch publish fails for a reason other than an
+   unreachable connection, the rows are sent one at a time, the ones that go out are marked
+   published, and only the rejected row counts an attempt. A failed publish is not retried on the next tick: the
    retry counter also moves `next_attempt_at` out by 2, 4, 8 and then 16 seconds, and both polls only
    take rows whose time has come, so a row rides out roughly half a minute of Redis trouble before the
    cap abandons it. There is no dead-letter table, because the unpublished row already is one —
