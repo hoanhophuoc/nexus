@@ -63,6 +63,7 @@ public final class ShellController {
     private final DateTimeFormatter dayFormat;
     private final Map<UUID, Node> messageNodes = new HashMap<>();
     private Conversation activeConversation;
+    private final OpenGeneration openGeneration = new OpenGeneration();
 
     @FXML private StackPane profileAvatarHost;
     @FXML private Label profileNameLabel;
@@ -237,6 +238,7 @@ public final class ShellController {
 
     private void openConversation(Conversation conversation, UUID messageToReveal) {
         activeConversation = conversation;
+        int open = openGeneration.open();
         boolean group = conversation.getType() == Conversation.TypeEnum.GROUP;
         reportButton.setDisable(group);
         groupSettingsButton.setDisable(!group);
@@ -254,7 +256,7 @@ public final class ShellController {
                 context.messaging().syncConversation(conversation.getId());
             }
             return null;
-        }, ignored -> refreshVisibleMessages(messageToReveal), exception -> {
+        }, ignored -> refreshIfStillOpen(open, messageToReveal), exception -> {
             showStatusError(exception);
             messageRows.getChildren().setAll(UiComponents.errorState(
                     i18n.get("error.title"),
@@ -262,6 +264,11 @@ public final class ShellController {
                     i18n.get("shell.retry"),
                     () -> openConversation(conversation, messageToReveal)));
         });
+    }
+
+    /** A completion started for one open must not repaint a conversation opened since. */
+    private void refreshIfStillOpen(int open, UUID messageToReveal) {
+        if (openGeneration.isCurrent(open)) refreshVisibleMessages(messageToReveal);
     }
 
     private void refreshVisibleMessages(UUID messageToReveal) {
@@ -388,12 +395,13 @@ public final class ShellController {
         if (current == null || content == null || content.isBlank()) return;
         composeField.clear();
         String text = content;
+        int open = openGeneration.current();
         if (current.getType() == Conversation.TypeEnum.GROUP) {
             context.runAsync(() -> {
                 context.groups().sendGroupMessage(current.getId(), text);
                 context.groups().syncGroup(current.getId());
                 return null;
-            }, ignored -> refreshVisibleMessages(null), this::showStatusError);
+            }, ignored -> refreshIfStillOpen(open, null), this::showStatusError);
             return;
         }
         try {
@@ -407,7 +415,7 @@ public final class ShellController {
             context.messaging().flushPendingMessages();
             context.messaging().syncConversation(current.getId());
             return null;
-        }, ignored -> refreshVisibleMessages(null),
+        }, ignored -> refreshIfStillOpen(open, null),
                 exception -> status(i18n.get("shell.savedLocally"), false));
     }
 
@@ -472,13 +480,14 @@ public final class ShellController {
                 friends.stream().map(this::item).toList()).ifPresent(result -> {
                     UserPickerItem selected = result.items().getFirst();
                     status(i18n.get("shell.addingMember"), false);
+                    int open = openGeneration.current();
                     context.runAsync(() -> {
                         context.groups().addMember(current.getId(), selected.id());
                         context.groups().syncGroup(current.getId());
                         return null;
                     }, ignored -> {
                         status(i18n.get("shell.memberAdded"), true);
-                        refreshVisibleMessages(null);
+                        refreshIfStillOpen(open, null);
                     }, this::showStatusError);
                 }), this::showStatusError);
     }
@@ -509,13 +518,14 @@ public final class ShellController {
                 members.stream().map(this::item).toList()).ifPresent(result -> {
                     UserPickerItem selected = result.items().getFirst();
                     status(i18n.get("shell.removingMember"), false);
+                    int open = openGeneration.current();
                     context.runAsync(() -> {
                         context.groups().removeMember(current.getId(), selected.id());
                         context.groups().syncGroup(current.getId());
                         return null;
                     }, ignored -> {
                         status(i18n.get("shell.memberRemoved"), true);
-                        refreshVisibleMessages(null);
+                        refreshIfStillOpen(open, null);
                     }, this::showStatusError);
                 }), this::showStatusError);
     }
@@ -620,6 +630,8 @@ public final class ShellController {
                 () -> {
                     conversationList.getItems().remove(current);
                     activeConversation = null;
+                    // Nothing still in flight for the deleted group may repaint the shell.
+                    openGeneration.open();
                     setConversationActionsDisabled(true);
                     showEmptyChat();
                     loadConversations();
@@ -699,6 +711,7 @@ public final class ShellController {
             return;
         }
         status(i18n.get("shell.deletingMessage"), false);
+        int open = openGeneration.current();
         context.runAsync(() -> {
             if (forEveryone) {
                 context.messaging().deleteMessageForEveryone(current.getId(), messageId);
@@ -707,7 +720,7 @@ public final class ShellController {
             }
             return null;
         }, ignored -> {
-            refreshVisibleMessages(null);
+            refreshIfStillOpen(open, null);
             status(i18n.get("shell.messageDeletedStatus"), true);
         }, this::showStatusError);
     }
@@ -725,11 +738,12 @@ public final class ShellController {
             return;
         }
         status(i18n.get("shell.clearingHistory"), false);
+        int open = openGeneration.current();
         context.runAsync(() -> {
             context.messaging().clearHistory(current.getId());
             return null;
         }, ignored -> {
-            refreshVisibleMessages(null);
+            refreshIfStillOpen(open, null);
             status(i18n.get("shell.historyCleared"), true);
         }, this::showStatusError);
     }
