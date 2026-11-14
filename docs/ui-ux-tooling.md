@@ -53,7 +53,9 @@ README baseline observed at review: release 3.0.0; Java 25+ and JavaFX 27+ are s
 - The stated JavaFX 27+ requirement aligns with Nexus JavaFX 27.0.1 and JDK 27.
 - The MIT license is permissive, subject to normal notices.
 
-**Decision: adopt as the preferred candidate, not an unconditional dependency.** First create a minimal proof in a temporary branch or isolated sample module.
+**Decision: preferred foundation and strongest runtime candidate, but not an unconditional dependency.** The v3.0.0 API confirms themes including `PrimerLight`/`PrimerDark` and a built-in `ThemeManager`; the controls package includes `Card`, `ModalPane`, `Notification`, `Popover`, `SegmentedControl`, `Sidebar`, `Tile` and `ToggleSwitch` (among other controls). The exact JavaFX 27.0.1 integration still needs a focused Nexus proof of concept.
+
+Use `PrimerLight`/`PrimerDark` as the first neutral baseline to evaluate—not as an irreversible aesthetic decision. Compare it with Cupertino and Nord in the Sampler, then test the best candidate with Nexus tokens and real screens. AtlantaFX uses looked-up CSS colors with a `-color-*` convention, which fits the existing Nexus token vocabulary better than introducing a second `-nx-*` namespace. See the [AtlantaFX 3.0.0 themes](https://mkpaz.github.io/atlantafx/atlantafx.base/atlantafx/base/theme/package-summary.html), [controls API](https://mkpaz.github.io/atlantafx/atlantafx.base/atlantafx/base/controls/package-summary.html), [theming guide](https://mkpaz.github.io/atlantafx/theming/) and [v3.0.0 changelog](https://github.com/mkpaz/atlantafx/blob/master/CHANGELOG.md).
 
 **Integration rules**
 - Start with the base theme artifact only; do not automatically import every AtlantaFX control, decoration, validation module or example.
@@ -61,6 +63,9 @@ README baseline observed at review: release 3.0.0; Java 25+ and JavaFX 27+ are s
 - Decide whether AtlantaFX themes are the user-agent baseline and Nexus CSS is the application override layer. Document the exact stylesheet order.
 - Do not run two theme managers that independently mutate the scene.
 - Ensure dialogs, popup windows, menus, ComboBox and DatePicker popup skins inherit the intended theme.
+- Use built-in controls only where their semantics fit. `ModalPane` is for an in-scene modal layer, `Popover` for anchored contextual information/actions, `Notification` for short non-blocking feedback, and `SegmentedControl` for a small mutually exclusive choice. `Card` and `Tile` are layout/presentation primitives, not a reason to wrap every piece of content in a card.
+- Do not confuse AtlantaFX `SegmentedControl` with ControlsFX `SegmentedButton`; avoid installing both for the same use case.
+- Do not use a notification/toast for every routine MLS/key-sync event. Persistent security or connection state should be represented persistently; transient notifications should be reserved for actionable events.
 - Avoid using AtlantaFX-specific styling classes from every screen if a Nexus semantic class can express the same intent.
 - Keep a product identity distinct from stock AtlantaFX sampler themes.
 
@@ -84,12 +89,23 @@ Repository: https://github.com/kordamp/ikonli
 License: Apache-2.0  
 Stable version choice: **12.4.0 GA**. Do not use 12.5.0 Early Access under Nexus's GA-only dependency policy.
 
+**Icon-pack correction:** the official Ikonli 12.4.0 pack catalogue lists Feather (`ikonli-feather-pack`) but does not list a Lucide pack. Do not invent or add `ikonli-lucide-pack` without a published artifact and official pack/provider evidence. For a coherent thin-line visual style, start the proof of concept with the official Feather pack. It is Lucide-adjacent in visual language but is not the Lucide icon set. If exact Lucide assets are a hard product requirement, evaluate licensed SVG resources separately rather than depending on an unverified Ikonli artifact.
+
 **Why it fits**
 - It provides icon packs for Java applications, including JavaFX integrations.
 - Font-backed vector glyphs scale more predictably than arbitrary Unicode symbols or raster icons.
 - It lets the project establish one coherent icon family and a repeatable icon sizing/accessibility convention.
 
 **Decision: preferred candidate after a small integration test.**
+
+Initial proof-of-concept coordinates:
+
+```groovy
+implementation 'org.kordamp.ikonli:ikonli-javafx:12.4.0'
+implementation 'org.kordamp.ikonli:ikonli-feather-pack:12.4.0'
+```
+
+The official Ikonli guide confirms JavaFX `FontIcon` can be used in FXML and exposes `-fx-icon-code`, `-fx-icon-size` and `-fx-icon-color` CSS properties. It also documents the JavaFX module names for modular applications. Verify the actual pack/font loading inside the current `jpackage` output; the current Nexus modules are not to be changed to JPMS solely by copying a documentation sample. References: [Ikonli JavaFX usage](https://kordamp.org/ikonli/#_javafx), [Feather pack](https://kordamp.org/ikonli/#_feather).
 
 Rules:
 - Select one coherent pack (for example, one Material Design or Bootstrap pack) as the primary family. Do not mix several packs for visual variety.
@@ -129,7 +145,7 @@ Reference:
 Repository: https://github.com/pbakaus/impeccable  
 License: Apache-2.0
 
-Impeccable offers a design vocabulary and structured workflows for product context, critique, audits, polish, motion, onboarding and documenting a design system. Its README and skill documentation are strongly centered on frontend interface workflows; this review did not find a JavaFX-specific implementation stack.
+Impeccable offers a design vocabulary and structured workflows for product context, critique, audits, polish, motion, onboarding and documenting a design system. Its README and skill documentation are strongly centered on frontend interface workflows; this review did not find a JavaFX-specific implementation stack. The strongest contribution to Nexus is the repeatable critique/audit/polish discipline, not a browser-specific executor.
 
 **Decision: do not install it as the primary JavaFX implementation skill.** Borrow these process ideas:
 - A persistent product brief (`PRODUCT.md` or equivalent).
@@ -182,7 +198,7 @@ Reference: https://github.com/nexu-io/open-design
 Repository: https://github.com/voltagent/awesome-design-md  
 License: MIT
 
-A curated collection of design-system documents analyzed from other brands. Useful for studying how organizations describe typography, color, spacing, layout and component rules.
+A curated collection of design-system documents analyzed from other brands. Useful for studying how organizations describe typography, color, spacing, layout and component rules. Treat `DESIGN.md` as a useful human/agent-readable Markdown convention, not as a formal 9-section specification that every project must follow.
 
 **Decision: use as a reference catalog, not a dependency and not a design to copy.**
 
@@ -222,7 +238,7 @@ License: BSD-3-Clause
 
 ControlsFX provides supplemental JavaFX controls and utilities.
 
-**Decision: allow only for a concrete missing control.** Start with built-in JavaFX controls; next check AtlantaFX's included controls; then evaluate ControlsFX if the feature gap remains. This avoids duplicate controls, competing CSS skins and unnecessary dependencies.
+**Decision: allow only for a concrete missing control.** Start with built-in JavaFX controls; next check AtlantaFX's included controls; then evaluate ControlsFX if the feature gap remains. ControlsFX exposes useful options such as `SearchableComboBox` and `SegmentedButton`; for Nexus, `SearchableComboBox` may be worth testing for genuinely large admin filter domains. AtlantaFX already has `SegmentedControl`, so do not add ControlsFX's `SegmentedButton` just to duplicate that behavior. Likewise, do not install ControlsFX `PopOver` when AtlantaFX `Popover` already covers the need. This avoids duplicate controls, competing CSS skins and unnecessary dependencies.
 
 Before adoption:
 - Verify the exact latest GA version, JavaFX 27.0.1 support and public API.
@@ -230,6 +246,7 @@ Before adoption:
 - Avoid internal/implementation packages.
 - Add a focused proof covering both themes, popup styling, accessibility, performance and target OS behavior.
 - Prefer a small, isolated dependency surface.
+- Do not add blanket `--add-exports` or `--add-opens` JVM flags based on a generic warning. Identify the exact control, package and reflective access requirement first; add only the narrowest justified flag, then test the packaged app on each target OS.
 
 Reference: https://github.com/controlsfx/controlsfx
 
@@ -238,7 +255,7 @@ Reference: https://github.com/controlsfx/controlsfx
 Repository: https://github.com/dlemmermann/FormsFX  
 License: Apache-2.0
 
-FormsFX provides a fluent JavaFX form abstraction with typed fields, grouping, validation and localization. The README sample still shows 11.3.2; the latest tagged GitHub release visible during this review is **11.6.0**, published 2023-01-23. That release age means JavaFX 27.0.1 compatibility and current maintenance must be independently demonstrated rather than assumed.
+FormsFX provides a fluent JavaFX form abstraction with typed fields, grouping, validation and localization. The latest tagged GitHub release visible during this review is **11.6.0**, published 2023-01-23. That release age means JavaFX 27.0.1 compatibility and current maintenance must be independently demonstrated rather than assumed; it is safer to say the release history is stale than to claim the project is formally abandoned.
 
 **Decision: not needed by default.** Consider it only if admin forms become sufficiently complex that the current FXML + focused controller + shared form-field conventions create measurable maintenance cost.
 
@@ -256,7 +273,7 @@ Reference: https://github.com/dlemmermann/FormsFX
 Repository: https://github.com/palexdev/MaterialFX  
 License: LGPL-3.0
 
-MaterialFX offers a set of Material Design-oriented JavaFX components and its own styling conventions. Its license is materially different from the MIT/BSD/Apache alternatives, and its styling system has changed between major releases.
+MaterialFX offers a set of Material Design-oriented JavaFX components and its own styling conventions. The latest tagged release visible in the GitHub releases during this review is **11.16.0** (2023); a claimed 11.17.0 release was not verified. Its license is materially different from the MIT/BSD/Apache alternatives, and its styling system has changed between major releases.
 
 **Decision: not selected.** AtlantaFX already addresses the main theme/base-control problem and is the better-aligned choice for JavaFX 27. Combining both introduces overlapping control skins, CSS precedence complexity and greater maintenance. LGPL-3.0 also requires an explicit legal review for the planned desktop distribution model; do not treat it as interchangeable with MIT.
 
@@ -309,6 +326,7 @@ The root Gradle build runs a GA-only dependency gate. Do not weaken it to accomm
 | Awesome DESIGN.md / Awesome Design Skills / AwesomeJavaFX | Reference registries, not product dependencies |
 | MaterialFX | Overlaps the chosen AtlantaFX theme/control layer; LGPL-3.0 requires additional legal review |
 | JMetro | Alternative theme direction; never stack with AtlantaFX |
+| `ikonli-lucide-pack` | Not listed in the official Ikonli 12.4.0 pack catalogue; use the documented Feather pack unless a published Lucide artifact is independently verified |
 | FormsFX | More abstraction than needed unless complex admin forms justify it |
 | ControlsFX | Add only for a demonstrated control gap after checking built-in and AtlantaFX controls |
 | PixelDuke FXComponents | The observed JavaFX 22 documentation does not establish JavaFX 27 compatibility |
