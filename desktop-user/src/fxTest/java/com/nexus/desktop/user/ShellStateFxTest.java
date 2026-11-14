@@ -93,9 +93,8 @@ class ShellStateFxTest {
                                     return true;
                                 }),
                                 () -> titleIs(stage, FakeChatServer.FRIEND_NAME)
-                                        && labelContaining(stage, "hello again")
-                                        && labelContaining(stage, "mine to delete")
-                                        && !titleIs(stage, FakeChatServer.GROUP_NAME)),
+                                        && mentions(stage, "hello again")
+                                        && mentions(stage, "mine to delete")),
                         new Step("delete a message for this user only",
                                 () -> assertThat(onFx(() -> fireMessageMenu(stage, "mine to delete", "for me")))
                                         .isTrue(),
@@ -105,12 +104,12 @@ class ShellStateFxTest {
                                         "mine to delete for everyone", "everyone")).isTrue(), false),
                                 () -> server.deletedScopes().equals(List.of("me"))
                                         && showsExactly(stage, "mine to delete for everyone")
-                                        && !labelContaining(stage, "This message was deleted.")),
+                                        && !mentions(stage, "This message was deleted.")),
                         new Step("delete for everyone through its confirmation",
                                 () -> confirmThen(() -> assertThat(fireMessageMenu(stage,
                                         "mine to delete for everyone", "everyone")).isTrue()),
                                 () -> server.deletedScopes().contains("everyone")
-                                        && labelContaining(stage, "This message was deleted.")),
+                                        && mentions(stage, "This message was deleted.")),
                         new Step("decline clearing the history at its confirmation",
                                 () -> answerConfirmation(() -> {
                                     Button clear = button(stage, "Clear history");
@@ -129,9 +128,12 @@ class ShellStateFxTest {
                                 () -> server.clearedHistories() == 1
                                         && !showsExactly(stage, "hello again")
                                         && !showsExactly(stage, "from bob")),
+                        new Step("a realtime event for the open chat",
+                                () -> sendCreated(realtime, FakeChatServer.CONVERSATION_ID, "live from bob"),
+                                () -> showsExactly(stage, "live from bob")),
                         new Step("a realtime event for the group that is no longer open",
-                                () -> sendGroupMessage(realtime),
-                                () -> !labelContaining(stage, "late group message")));
+                                () -> sendCreated(realtime, FakeChatServer.GROUP_ID, "late group message"),
+                                () -> !mentions(stage, "late group message")));
 
                 for (Step step : table) {
                     step.action().run();
@@ -194,16 +196,16 @@ class ShellStateFxTest {
         return null;
     }
 
-    private static void sendGroupMessage(FakeWebSocketServer realtime) {
+    private static void sendCreated(FakeWebSocketServer realtime, UUID conversation, String content) {
         try {
-            realtime.sendText("{\"type\":\"MessageCreated\",\"conversationId\":\""
-                    + FakeChatServer.GROUP_ID + "\",\"message\":{\"id\":\""
-                    + UUID.randomUUID() + "\",\"conversationId\":\""
-                    + FakeChatServer.GROUP_ID + "\",\"senderId\":\""
-                    + FakeChatServer.FRIEND_ID + "\",\"content\":\"late group message\","
+            realtime.sendText("{\"type\":\"MessageCreated\",\"conversationId\":\"" + conversation
+                    + "\",\"message\":{\"id\":\"" + UUID.randomUUID()
+                    + "\",\"conversationId\":\"" + conversation
+                    + "\",\"senderId\":\"" + FakeChatServer.FRIEND_ID
+                    + "\",\"content\":\"" + content + "\","
                     + "\"createdAt\":\"2026-11-14T10:00:00Z\"}}");
         } catch (java.io.IOException failure) {
-            throw new AssertionError("The test could not send the late realtime event", failure);
+            throw new AssertionError("The test could not send a realtime event", failure);
         }
     }
 
@@ -227,16 +229,11 @@ class ShellStateFxTest {
         return false;
     }
 
-    /**
-     * True when the message row around {@code menu} shows exactly {@code text}. Exact, because one
-     * seeded message's text is a prefix of another's ("mine to delete" / "… for everyone").
-     */
+    /** True when the message row around {@code menu}, and no other row, shows exactly {@code text}. */
     private static boolean rowShows(Node menu, String text) {
         Node row = menu.getParent();
         while (row != null && !row.getStyleClass().contains("message-row")) row = row.getParent();
-        return row != null && row.lookupAll(".label").stream()
-                .filter(Label.class::isInstance).map(Label.class::cast)
-                .anyMatch(label -> text.equals(label.getText()));
+        return row != null && labelsIn(row).contains(text);
     }
 
     /** Enough of the shell to tell a repaint that never happened from one that painted the wrong thing. */
@@ -248,9 +245,7 @@ class ShellStateFxTest {
 
     private static String rowsOf(Stage stage) {
         Node rows = stage.getScene().lookup("#messageRows");
-        if (rows == null) return "none";
-        return rows.lookupAll(".label").stream().filter(Label.class::isInstance)
-                .map(Label.class::cast).map(Label::getText).toList().toString();
+        return rows == null ? "none" : labelsIn(rows).toString();
     }
 
     private static boolean titleIs(Stage stage, String title) {
@@ -282,20 +277,21 @@ class ShellStateFxTest {
         return false;
     }
 
-    private static boolean showsExactly(Stage stage, String text) {
-        Scene scene = stage.getScene();
-        if (scene == null) return false;
-        return scene.getRoot().lookupAll(".label").stream()
-                .filter(Label.class::isInstance).map(Label.class::cast)
-                .anyMatch(label -> text.equals(label.getText()));
+    /** Every label text under {@code node}: the one traversal the shell's assertions are built on. */
+    private static List<String> labelsIn(Node node) {
+        return node.lookupAll(".label").stream().filter(Label.class::isInstance)
+                .map(Label.class::cast).map(Label::getText)
+                .filter(text -> text != null).toList();
     }
 
-    private static boolean labelContaining(Stage stage, String text) {
-        Scene scene = stage.getScene();
-        if (scene == null) return false;
-        return scene.getRoot().lookupAll(".label").stream()
-                .filter(Label.class::isInstance).map(Label.class::cast)
-                .anyMatch(label -> label.getText() != null && label.getText().contains(text));
+    /** A label whose whole text is {@code text}; exact, because one message's text prefixes another's. */
+    private static boolean showsExactly(Stage stage, String text) {
+        return stage.getScene() != null && labelsIn(stage.getScene().getRoot()).contains(text);
+    }
+
+    private static boolean mentions(Stage stage, String text) {
+        return stage.getScene() != null && labelsIn(stage.getScene().getRoot()).stream()
+                .anyMatch(label -> label.contains(text));
     }
 
     private static TextField messageField(Stage stage) {

@@ -146,7 +146,7 @@ tasks.register('coverageReport', JacocoReport) {
 
 // Anti-regression gate over the product modules. The floors are the baseline measured on
 // 2026-11-14 across all four product modules and both desktop suites (bundle 81.35% line /
-// 57.48% branch, from the aggregate coverageReport the BUNDLE rule reads), rounded down so a
+// 57.51% branch, from the aggregate coverageReport the BUNDLE rule reads), rounded down so a
 // small refactor cannot fail the build on a fraction of a point. Both bundle floors keep about a
 // point and a half of headroom, like the package floors below.
 // Raise them as the remaining workflows gain tests.
@@ -187,7 +187,7 @@ def coverageVerification = tasks.register('coverageVerification', JacocoCoverage
         }
         // The three classes every delivery path runs through, held on their own because a package
         // average absorbs them. Measured 2026-11-14: OutboxPublisher 98.39% line / 92.75% branch,
-        // ShellController 48.56% / 37.88%, AdminAppContext 74.19% / 60.00%. ShellController's floor
+        // ShellController 48.56% / 38.26%, AdminAppContext 74.19% / 60.00%. ShellController's floor
         // is that low on purpose: it records where the FX shell stands, it does not bless it.
         [
                 'com.nexus.server.messaging.OutboxPublisher' : [0.97d, 0.92d],

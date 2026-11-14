@@ -19,7 +19,7 @@ coverage report, the gate and `./gradlew sonar` (`build-test` therefore waits fo
 Without that data the module reports were empty, SonarQube counted both UI modules as 0% covered,
 and the project sat at 38%. With it they measure 70.36% and 84.86% of lines, which takes the reported
 project coverage from 38% to 67%. Across the four product modules and both desktop suites the
-aggregate report — the one the bundle floor is checked against — measures 81.35% of lines and 57.48%
+aggregate report — the one the bundle floor is checked against — measures 81.35% of lines and 57.51%
 of branches, about two points above both bundle floors. Summing the four per-module reports
 instead gives 76.46% and 54.16%, because a module's report only credits its own suites:
 `com.nexus.desktop.shared/ui` reads as 11 covered lines of 191 in the shared report but 175 of 191 in
@@ -38,12 +38,12 @@ the suite and the missing classes. Measure a tree with
 
 A package average still hides a weak class, so three floors are per class rather than per package:
 `OutboxPublisher` (98.39% line / 92.75% branch when the floor was set), `ShellController`
-(48.56% / 37.88%) and `AdminAppContext` (74.19% / 60.00%) — the classes every delivery path and both
+(48.56% / 38.26%) and `AdminAppContext` (74.19% / 60.00%) — the classes every delivery path and both
 shells run through. `ShellController` moved up with `ShellStateFxTest`, which drives one shell through
 a table of states — open a group, switch to the direct chat and send, delete for this user only,
 delete for everyone through its confirmation, decline that confirmation and the one that clears the
-history and check nothing changed, clear the history through its confirmation, and receive a realtime
-event for the group that is no longer open. Its floor is still the low one because the dialogs
+history and check nothing changed, clear the history through its confirmation, receive a realtime event for the open chat and then one
+for the group that is no longer open, which must repaint nothing. Its floor is still the low one because the dialogs
 the rows do not open (friends, groups, report, account) are still uncovered. Its floor is still the low one because
 the class's dialogs are not covered; it records where the JavaFX shell stands and fails if it slips.
 
