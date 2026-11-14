@@ -19,7 +19,7 @@ coverage report, the gate and `./gradlew sonar` (`build-test` therefore waits fo
 Without that data the module reports were empty, SonarQube counted both UI modules as 0% covered,
 and the project sat at 38%. With it they measure 70.36% and 84.86% of lines, which takes the reported
 project coverage from 38% to 67%. Across the four product modules and both desktop suites the
-aggregate report — the one the bundle floor is checked against — measures 79.98% of lines and 55.95%
+aggregate report — the one the bundle floor is checked against — measures 79.98% of lines and 55.98%
 of branches, roughly a point and a half above both bundle floors. Summing the four per-module reports
 instead gives 76.46% and 54.16%, because a module's report only credits its own suites:
 `com.nexus.desktop.shared/ui` reads as 11 covered lines of 191 in the shared report but 175 of 191 in
@@ -27,10 +27,12 @@ the aggregate, since the desktop FX suites are what exercise it. The package flo
 the same way.
 
 Both `coverageReport` and the gate depend on `coverageDataCheck`, which refuses the measurement when
-an exec file is missing or older than the sources of the module it covers: a second
-`./gradlew fullTest coverageReport` leaves the suites up-to-date and reports the first run's data,
-and the JavaFX exec files arrive as separate artifacts. Measure a tree with
-`xvfb-run -a ./gradlew fullTest coverageReport --rerun-tasks`.
+an exec file is missing, older than the sources of the module it covers, or written by a `--tests`
+filter. The first two catch a stale run: a second `./gradlew fullTest coverageReport` leaves the
+suites up-to-date and reports the first run's data, and the JavaFX exec files arrive as separate
+artifacts. The third catches a partial one, which the timestamps cannot see — one filtered suite
+leaves the other suites' data alone while replacing its own with fewer tests' worth. Measure a tree
+with `xvfb-run -a ./gradlew fullTest coverageReport --rerun-tasks`.
 
 The line figure is reproducible because no suite relies on a timer to reach a line. The presence
 heartbeat used to be covered only when a Spring context happened to outlive its 30-second first run,

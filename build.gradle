@@ -76,14 +76,22 @@ def coverageDataCheck = tasks.register('coverageDataCheck') {
             }
         }
         def execFiles = coverageExecutionData()
+        // A filtered run writes fresh but partial data, which the timestamps above cannot see.
+        def filtered = [':server:test', ':server:integrationTest', ':desktop-shared:test',
+                        ':desktop-user:test', ':desktop-admin:test',
+                        ':desktop-user:fxTest', ':desktop-admin:fxTest'].findAll { path ->
+            def task = tasks.findByPath(path)
+            task instanceof Test && (!task.filter.includePatterns.isEmpty()
+                    || !task.filter.commandLineIncludePatterns.isEmpty())
+        }
         def missing = execFiles.findAll { !it.exists() }
         def stale = execFiles.findAll { exec ->
             exec.exists() && exec.lastModified() < sourcesChangedAt(moduleOf(exec))
         }
-        if (!missing.isEmpty() || !stale.isEmpty()) {
+        if (!missing.isEmpty() || !stale.isEmpty() || !filtered.isEmpty()) {
             def details = (missing.collect { "no data in ${relative(it)}" } +
-                    stale.collect { "${relative(it)} is older than the ${moduleOf(it)} sources" })
-                    .join('; ')
+                    stale.collect { "${relative(it)} is older than the ${moduleOf(it)} sources" } +
+                    filtered.collect { "${it} only ran a filtered subset" }).join('; ')
             throw new GradleException("Coverage data cannot be trusted (${details}). Measure this " +
                     'tree with "xvfb-run -a ./gradlew fullTest coverageReport --rerun-tasks".')
         }
@@ -111,7 +119,7 @@ tasks.register('coverageReport', JacocoReport) {
 
 // Anti-regression gate over the product modules. The floors are the baseline measured on
 // 2026-11-14 across all four product modules and both desktop suites (bundle 79.98% line /
-// 55.95% branch, from the aggregate coverageReport the BUNDLE rule reads), rounded down so a
+// 55.98% branch, from the aggregate coverageReport the BUNDLE rule reads), rounded down so a
 // small refactor cannot fail the build on a fraction of a point. Both bundle floors keep about a
 // point and a half of headroom, like the package floors below.
 // Raise them as the remaining workflows gain tests.
