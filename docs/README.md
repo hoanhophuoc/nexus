@@ -1,7 +1,8 @@
 # Nexus documentation
 
 This directory is the single source of truth for how Nexus is built, configured, operated
-and measured. `README.md` at the repository root is only a landing page.
+and measured. The root `DESIGN.md` is a short UI/UX entry point; canonical design rules live in
+`docs/ui-ux-design-system.md` and `docs/ui-ux-tooling.md`.
 
 ## The documents
 
