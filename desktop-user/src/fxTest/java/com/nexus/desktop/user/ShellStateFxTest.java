@@ -84,7 +84,12 @@ class ShellStateFxTest {
                         new Step("open the group",
                                 () -> assertThat(onFx(() -> selectConversation(stage, FakeChatServer.GROUP_NAME)))
                                         .isTrue(),
-                                () -> titleIs(stage, FakeChatServer.GROUP_NAME)),
+                                () -> titleIs(stage, FakeChatServer.GROUP_NAME)
+                                        // The "direct chats only" guards are buttons that a group
+                                        // disables, so this is the user-visible form of the rule: the
+                                        // status string behind them is unreachable from the UI.
+                                        && disabled(stage, "#clearHistoryButton")
+                                        && disabled(stage, "#reportButton")),
                         new Step("switch to the direct chat and send",
                                 () -> onFx(() -> {
                                     assertThat(selectConversation(stage, FakeChatServer.FRIEND_NAME)).isTrue();
@@ -128,6 +133,27 @@ class ShellStateFxTest {
                                 () -> server.clearedHistories() == 1
                                         && !showsExactly(stage, "hello again")
                                         && !showsExactly(stage, "from bob")),
+                        new Step("open a chat from the friends dialog",
+                                () -> {
+                                    Platform.runLater(() -> button(stage, "Friends").fire());
+                                    Window dialog = awaitDialog("#userList");
+                                    Platform.runLater(() -> primaryButton(dialog).fire());
+                                },
+                                () -> server.directChatsOpened() == 1
+                                        && titleIs(stage, FakeChatServer.FRIEND_NAME)),
+                        new Step("create a group from the picker",
+                                () -> {
+                                    Platform.runLater(() -> button(stage, "New group").fire());
+                                    Window dialog = awaitDialog("#userList");
+                                    Platform.runLater(() -> {
+                                        ((TextField) dialog.getScene().lookup("#nameField"))
+                                                .setText("Second team");
+                                        ((ListView<?>) dialog.getScene().lookup("#userList"))
+                                                .getSelectionModel().select(0);
+                                        primaryButton(dialog).fire();
+                                    });
+                                },
+                                () -> server.groupsCreated() == 1),
                         new Step("a realtime event for the open chat",
                                 () -> sendCreated(realtime, FakeChatServer.CONVERSATION_ID, "live from bob"),
                                 () -> showsExactly(stage, "live from bob")),
@@ -184,6 +210,34 @@ class ShellStateFxTest {
             if (answer instanceof Button button) button.fire();
         });
         waitForFx(() -> confirmButton(id) == null, Duration.ofSeconds(10));
+    }
+
+    /** The picker dialog's own window, once the asynchronous friend list has filled it. */
+    private static Window awaitDialog(String lookupId) {
+        waitForFx(() -> dialogShowing(lookupId), Duration.ofSeconds(10));
+        Window dialog = null;
+        for (Window window : Window.getWindows()) {
+            if (window.isShowing() && window.getScene() != null && window.getScene().lookup(lookupId) != null) {
+                dialog = window;
+            }
+        }
+        if (dialog == null) throw new AssertionError("The dialog with " + lookupId + " closed before it was used");
+        return dialog;
+    }
+
+    private static boolean dialogShowing(String lookupId) {
+        return Window.getWindows().stream().anyMatch(window -> window.isShowing()
+                && window.getScene() != null && window.getScene().lookup(lookupId) != null);
+    }
+
+    /** A picker's confirm button is the styled primary one; its cancel is the ghost next to it. */
+    private static Button primaryButton(Window dialog) {
+        if (dialog.getScene().lookup(".primary-button") instanceof Button confirm) return confirm;
+        throw new AssertionError("The dialog has no primary button");
+    }
+
+    private static boolean disabled(Stage stage, String id) {
+        return stage.getScene().lookup(id) instanceof Node node && node.isDisabled();
     }
 
     /** The dialog's own buttons live in a second window, not in the shell's scene. */
@@ -246,6 +300,14 @@ class ShellStateFxTest {
     private static String rowsOf(Stage stage) {
         Node rows = stage.getScene().lookup("#messageRows");
         return rows == null ? "none" : labelsIn(rows).toString();
+    }
+
+    private static boolean statusIs(Stage stage, String text) {
+        return text.equals(statusOf(stage));
+    }
+
+    private static String statusOf(Stage stage) {
+        return stage.getScene().lookup("#statusLabel") instanceof Label status ? status.getText() : null;
     }
 
     private static boolean titleIs(Stage stage, String title) {
