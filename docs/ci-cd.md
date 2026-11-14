@@ -19,7 +19,7 @@ coverage report, the gate and `./gradlew sonar` (`build-test` therefore waits fo
 Without that data the module reports were empty, SonarQube counted both UI modules as 0% covered,
 and the project sat at 38%. With it they measure 70.36% and 84.86% of lines, which takes the reported
 project coverage from 38% to 67%. Across the four product modules and both desktop suites the
-aggregate report — the one the bundle floor is checked against — measures 80.81% of lines and 57.02%
+aggregate report — the one the bundle floor is checked against — measures 80.82% of lines and 57.02%
 of branches, about two points above both bundle floors. Summing the four per-module reports
 instead gives 76.46% and 54.16%, because a module's report only credits its own suites:
 `com.nexus.desktop.shared/ui` reads as 11 covered lines of 191 in the shared report but 175 of 191 in
@@ -38,7 +38,7 @@ the suite and the missing classes. Measure a tree with
 
 A package average still hides a weak class, so three floors are per class rather than per package:
 `OutboxPublisher` (98.39% line / 92.75% branch when the floor was set), `ShellController`
-(45.35% / 34.09%) and `AdminAppContext` (74.19% / 60.00%) — the classes every delivery path and both
+(45.51% / 34.09%) and `AdminAppContext` (74.19% / 60.00%) — the classes every delivery path and both
 shells run through. `ShellController` moved up with `ShellStateFxTest`, which drives one shell through
 a table of states — open a group, switch to the direct chat and send, delete a message the user sent
 and watch it leave the screen, and receive a realtime event for the group that is no longer open. Its floor is still the low one because
