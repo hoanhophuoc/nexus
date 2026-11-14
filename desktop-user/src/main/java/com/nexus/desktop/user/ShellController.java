@@ -211,11 +211,13 @@ public final class ShellController {
 
     private void refreshConversations() {
         if (context.session() == null) return;
-        UUID selectedId = activeConversation == null ? null : activeConversation.getId();
         context.runAsync(this::listConversations, all -> {
             conversationList.setItems(FXCollections.observableArrayList(all));
-            if (selectedId != null) {
-                all.stream().filter(conversation -> conversation.getId().equals(selectedId))
+            // Read at completion, not at start: a refresh that was already in flight when the user
+            // opened another chat would otherwise put the old one back and take the title with it.
+            UUID open = activeConversation == null ? null : activeConversation.getId();
+            if (open != null) {
+                all.stream().filter(conversation -> conversation.getId().equals(open))
                         .findFirst().ifPresent(conversation ->
                                 conversationList.getSelectionModel().select(conversation));
             }
