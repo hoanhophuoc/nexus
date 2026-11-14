@@ -100,11 +100,26 @@ class ShellStateFxTest {
                                 () -> assertThat(onFx(() -> fireMessageMenu(stage, "mine to delete", "for me")))
                                         .isTrue(),
                                 () -> !showsExactly(stage, "mine to delete")),
+                        new Step("decline delete for everyone at its confirmation",
+                                () -> answerConfirmation(() -> assertThat(fireMessageMenu(stage,
+                                        "mine to delete for everyone", "everyone")).isTrue(), false),
+                                () -> server.deletedScopes().equals(List.of("me"))
+                                        && showsExactly(stage, "mine to delete for everyone")
+                                        && !labelContaining(stage, "This message was deleted.")),
                         new Step("delete for everyone through its confirmation",
                                 () -> confirmThen(() -> assertThat(fireMessageMenu(stage,
                                         "mine to delete for everyone", "everyone")).isTrue()),
                                 () -> server.deletedScopes().contains("everyone")
                                         && labelContaining(stage, "This message was deleted.")),
+                        new Step("decline clearing the history at its confirmation",
+                                () -> answerConfirmation(() -> {
+                                    Button clear = button(stage, "Clear history");
+                                    assertThat(clear).as("the direct chat offers clear history").isNotNull();
+                                    clear.fire();
+                                }, false),
+                                () -> server.clearedHistories() == 0
+                                        && showsExactly(stage, "from bob")
+                                        && showsExactly(stage, "hello again")),
                         new Step("clear the history through its confirmation",
                                 () -> confirmThen(() -> {
                                     Button clear = button(stage, "Clear history");
@@ -148,19 +163,25 @@ class ShellStateFxTest {
         }
     }
 
+    /** Answers a confirmation the way most rows do: accept it. */
+    private static void confirmThen(Runnable open) {
+        answerConfirmation(open, true);
+    }
+
     /**
      * Opens a modal confirmation from the test thread and answers it, waiting for the dialog to appear
      * and for it to go away — a click that never lands would otherwise leave the FX thread parked in
      * {@code showAndWait} and fail the next row with a timeout that names nothing.
      */
-    private static void confirmThen(Runnable open) {
+    private static void answerConfirmation(Runnable open, boolean accept) {
+        String id = accept ? "#confirmDialogConfirm" : "#confirmDialogCancel";
         Platform.runLater(open);
-        waitForFx(() -> confirmButton("#confirmDialogConfirm") != null, Duration.ofSeconds(10));
+        waitForFx(() -> confirmButton(id) != null, Duration.ofSeconds(10));
         Platform.runLater(() -> {
-            Node confirm = confirmButton("#confirmDialogConfirm");
-            if (confirm instanceof Button button) button.fire();
+            Node answer = confirmButton(id);
+            if (answer instanceof Button button) button.fire();
         });
-        waitForFx(() -> confirmButton("#confirmDialogConfirm") == null, Duration.ofSeconds(10));
+        waitForFx(() -> confirmButton(id) == null, Duration.ofSeconds(10));
     }
 
     /** The dialog's own buttons live in a second window, not in the shell's scene. */
