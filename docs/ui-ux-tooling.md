@@ -61,7 +61,7 @@ README baseline observed at review: release 3.0.0; Java 25+ and JavaFX 27+ are s
 - Decide whether AtlantaFX themes are the user-agent baseline and Nexus CSS is the application override layer. Document the exact stylesheet order.
 - Do not run two theme managers that independently mutate the scene.
 - Ensure dialogs, popup windows, menus, ComboBox and DatePicker popup skins inherit the intended theme.
-- Avoid using Atlas/AtlantaFX-specific styling classes from every screen if a Nexus semantic class can express the same intent.
+- Avoid using AtlantaFX-specific styling classes from every screen if a Nexus semantic class can express the same intent.
 - Keep a product identity distinct from stock AtlantaFX sampler themes.
 
 **Proof-of-concept exit criteria**
@@ -238,7 +238,7 @@ Reference: https://github.com/controlsfx/controlsfx
 Repository: https://github.com/dlemmermann/FormsFX  
 License: Apache-2.0
 
-FormsFX provides a fluent JavaFX form abstraction with typed fields, grouping, validation and localization. The repository uses a `master-11` branch and the version observed during this review is 11.3.2.
+FormsFX provides a fluent JavaFX form abstraction with typed fields, grouping, validation and localization. The README sample still shows 11.3.2; the latest tagged GitHub release visible during this review is **11.6.0**, published 2023-01-23. That release age means JavaFX 27.0.1 compatibility and current maintenance must be independently demonstrated rather than assumed.
 
 **Decision: not needed by default.** Consider it only if admin forms become sufficiently complex that the current FXML + focused controller + shared form-field conventions create measurable maintenance cost.
 
@@ -273,7 +273,7 @@ PixelDuke publishes JavaFX-related offerings including JMetro (Fluent-inspired t
 **Decision: not selected for the current theme direction.**
 - JMetro is an alternative visual theme direction, not an additional theme to stack with AtlantaFX.
 - FXRibbon is relevant only if an actual command-ribbon interaction is needed; Nexus's messaging and admin workflows do not currently establish that need.
-- FXComponents documentation observed during review refers to Java 21 / JavaFX 22, which is not adequate evidence of compatibility with JavaFX 27.0.1.
+- Do not infer JavaFX 27 compatibility from a product page or an older sample; verify the exact PixelDuke component and release against JavaFX 27.0.1 before adoption.
 
 Any future use requires an exact product/release, license review and JavaFX 27 proof of compatibility.
 
