@@ -547,7 +547,7 @@ class OutboxPublisherIntegrationTest {
     }
 
     @Test
-    void waitsForTheBackoffBeforeItRetriesAFailedRow() throws Exception {
+    void doublesTheWaitOnEveryFailureAndAbandonsTheRowOnlyAfterTheLast() throws Exception {
         UUID conversation = id(116);
         UUID message = id(219);
         UUID event = id(420);
@@ -560,30 +560,32 @@ class OutboxPublisherIntegrationTest {
         OutboxPublisher failing = new OutboxPublisher(jdbc, named, failingWhile(redis, redisDown),
                 mapper, meters, transactions);
 
-        assertThatThrownBy(failing::publishPending)
-                .isInstanceOf(RedisConnectionFailureException.class);
-        assertThat(secondsUntilDue(event))
-                .as("the first retry waits seconds, not one 100 ms poll")
-                .isBetween(1, 3);
+        // Every wait is real time waited out and read back from the column the poll uses; nothing
+        // here moves next_attempt_at, so a schedule that does not double fails the test.
+        int[] waits = {2, 4, 8, 16};
+        for (int failure = 0; failure < waits.length; failure++) {
+            awaitDue(event);
+            assertThatThrownBy(failing::publishPending)
+                    .isInstanceOf(RedisConnectionFailureException.class);
+            assertThat(attempts(event)).isEqualTo(failure + 1);
+            assertThat(secondsUntilDue(event))
+                    .as("failure %d waits %d seconds", failure + 1, waits[failure])
+                    .isBetween(waits[failure] - 1, waits[failure] + 1);
+        }
 
-        // The delay doubles per failure; drive the second one without waiting for the first.
-        backoffElapsed(event);
+        awaitDue(event);
         assertThatThrownBy(failing::publishPending)
                 .isInstanceOf(RedisConnectionFailureException.class);
-        assertThat(secondsUntilDue(event)).as("the second failure waits twice as long").isBetween(3, 5);
+        assertThat(attempts(event)).as("the fifth failure is the one that gives up")
+                .isEqualTo(OutboxPublisher.MAX_ATTEMPTS);
 
         redisDown.set(false);
         withSubscriber(published -> {
             failing.publishPending();
             assertThat(published.poll(500, TimeUnit.MILLISECONDS))
-                    .as("a row that is not due yet is left alone").isNull();
-            assertThat(publishedAt(event)).isNull();
-
-            awaitDue(event);
-            failing.publishPending();
-            awaitEvent(published, event);
+                    .as("an abandoned row is not published by a later healthy poll").isNull();
         });
-        assertThat(publishedAt(event)).as("the retry after the backoff delivers it").isNotNull();
+        assertThat(publishedAt(event)).isNull();
     }
 
     @Test
@@ -802,7 +804,8 @@ class OutboxPublisherIntegrationTest {
     }
 
     private void awaitDue(UUID event) throws InterruptedException {
-        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+        // The longest backoff the schedule produces is 16 s, and it is waited out, not skipped.
+        long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
         while (System.nanoTime() < deadline) {
             Boolean due = jdbc.queryForObject(
                     "SELECT next_attempt_at <= clock_timestamp() FROM nexus.message_outbox "
