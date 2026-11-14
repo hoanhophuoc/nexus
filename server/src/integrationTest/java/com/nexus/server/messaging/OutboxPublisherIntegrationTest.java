@@ -12,6 +12,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.listener.ChannelTopic;
 import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -272,6 +273,7 @@ class OutboxPublisherIntegrationTest {
             assertThatThrownBy(failing::publishPending)
                     .as("failure " + attempt + " reaches the scheduler instead of being swallowed")
                     .isInstanceOf(RedisConnectionFailureException.class);
+            backoffElapsed(messageEvent, mlsEvent);
         }
         assertThat(attempts(messageEvent)).as("the message row counts each failed publish")
                 .isEqualTo(2);
@@ -284,6 +286,7 @@ class OutboxPublisherIntegrationTest {
         for (int attempt = 3; attempt <= 4; attempt++) {
             assertThatThrownBy(failing::publishPending)
                     .isInstanceOf(RedisConnectionFailureException.class);
+            backoffElapsed(messageEvent, mlsEvent);
         }
 
         assertThat(attempts(messageEvent)).as("four failures leave four attempts on the row")
@@ -336,6 +339,7 @@ class OutboxPublisherIntegrationTest {
                 assertThatThrownBy(failing::publishPending)
                         .as("failure " + attempt + " is reported")
                         .isInstanceOf(RedisConnectionFailureException.class);
+                backoffElapsed(messageEvent, mlsEvent);
             }
             assertThat(attempts(messageEvent)).as("the message row stops at the cap")
                     .isEqualTo(OutboxPublisher.MAX_ATTEMPTS);
@@ -492,16 +496,84 @@ class OutboxPublisherIntegrationTest {
                 assertThat(attempts(event)).isEqualTo(1);
 
                 droppingFailingMark();
+                backoffElapsed(event);
                 publisher.publishPending();
 
-                assertThat(awaitEvent(published, event))
-                        .as("at-least-once: the retry re-sends the event the subscriber already saw")
-                        .isNotNull();
+                // At-least-once: the retry re-sends the event the subscriber has already seen.
+                awaitEvent(published, event);
                 assertThat(publishedAt(event)).isNotNull();
             });
         } finally {
             droppingFailingMark();
         }
+    }
+
+    @Test
+    void waitsForTheBackoffBeforeItRetriesAFailedRow() throws Exception {
+        UUID conversation = id(116);
+        UUID message = id(219);
+        UUID event = id(420);
+        group(conversation, SENDER, MEMBER);
+        message(message, conversation, SENDER);
+        messageEvent(event, conversation, message, "message.created");
+
+        AtomicBoolean redisDown = new AtomicBoolean(true);
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        OutboxPublisher failing = new OutboxPublisher(jdbc, named, failingWhile(redis, redisDown),
+                mapper, meters, transactions);
+
+        assertThatThrownBy(failing::publishPending)
+                .isInstanceOf(RedisConnectionFailureException.class);
+        assertThat(secondsUntilDue(event))
+                .as("the first retry waits seconds, not one 100 ms poll")
+                .isBetween(1, 3);
+
+        // The delay doubles per failure; drive the second one without waiting for the first.
+        backoffElapsed(event);
+        assertThatThrownBy(failing::publishPending)
+                .isInstanceOf(RedisConnectionFailureException.class);
+        assertThat(secondsUntilDue(event)).as("the second failure waits twice as long").isBetween(3, 5);
+
+        redisDown.set(false);
+        withSubscriber(published -> {
+            failing.publishPending();
+            assertThat(published.poll(500, TimeUnit.MILLISECONDS))
+                    .as("a row that is not due yet is left alone").isNull();
+            assertThat(publishedAt(event)).isNull();
+
+            awaitDue(event);
+            failing.publishPending();
+            awaitEvent(published, event);
+        });
+        assertThat(publishedAt(event)).as("the retry after the backoff delivers it").isNotNull();
+    }
+
+    @Test
+    void reportsTheOldestAgeFromTheDatabaseClock() throws Exception {
+        UUID conversation = id(114);
+        UUID message = id(217);
+        UUID event = id(418);
+        group(conversation, SENDER, MEMBER);
+        message(message, conversation, SENDER);
+        messageEvent(event, conversation, message, "message.created");
+        jdbc.update("UPDATE nexus.message SET created_at = clock_timestamp() - interval '90 seconds' "
+                + "WHERE id = ?", message);
+
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        OutboxPublisher measured = new OutboxPublisher(jdbc, named, redis, mapper, meters, transactions);
+
+        withSubscriber(published -> {
+            measured.publishPending();
+            awaitEvent(published, event);
+
+            assertThat(meters.find("nexus.outbox.oldest_age_seconds").gauge().value())
+                    .as("the age is measured with the database clock, not the application's")
+                    .isBetween(90.0, 95.0);
+
+            measured.publishPending();
+            assertThat(meters.find("nexus.outbox.oldest_age_seconds").gauge().value())
+                    .as("an empty poll reports no backlog").isZero();
+        });
     }
 
     @Test
@@ -682,6 +754,31 @@ class OutboxPublisherIntegrationTest {
             targets.add(UUID.fromString(target.asString()));
         }
         return targets;
+    }
+
+    /** Seconds until the row may be polled again, read on the database clock. */
+    private int secondsUntilDue(UUID event) {
+        return jdbc.queryForObject(
+                "SELECT ROUND(EXTRACT(EPOCH FROM next_attempt_at - clock_timestamp()))::int "
+                        + "FROM nexus.message_outbox WHERE event_id = ?", Integer.class, event);
+    }
+
+    private void awaitDue(UUID event) throws InterruptedException {
+        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+        while (System.nanoTime() < deadline) {
+            Boolean due = jdbc.queryForObject(
+                    "SELECT next_attempt_at <= clock_timestamp() FROM nexus.message_outbox "
+                            + "WHERE event_id = ?", Boolean.class, event);
+            if (Boolean.TRUE.equals(due)) return;
+            Thread.sleep(200);
+        }
+        throw new AssertionError("The backoff for " + event + " never elapsed.");
+    }
+
+    /** Pretends the backoff elapsed, so a test can drive several failures without waiting for it. */
+    private void backoffElapsed(UUID... events) {
+        named.update("UPDATE nexus.message_outbox SET next_attempt_at = clock_timestamp() "
+                + "WHERE event_id IN (:ids)", new MapSqlParameterSource("ids", List.of(events)));
     }
 
     private int attempts(UUID event) {

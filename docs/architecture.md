@@ -61,10 +61,13 @@ Rules that the schema enforces rather than the code:
    event.
 2. The outbox publisher polls pending events every 100 ms through a partial index (`FOR UPDATE OF o
    SKIP LOCKED`, so a second publisher skips the rows a first one holds instead of waiting for
-   them), fans them out to connected sessions, and marks them published. A batch whose Redis publish fails is rolled
+   them, and only rows whose backoff has elapsed), fans them out to connected sessions, and marks
+   them published. A batch whose Redis publish fails is rolled
    back and its rows' `attempts` counter is incremented in a separate transaction, so the failed
    events stay pending for the next poll; that batch also increments `nexus.outbox.publish_failures`
-   and sets `nexus.outbox.max_attempts` from the counts it just wrote. Delivery is at-least-once —
+   and sets `nexus.outbox.max_attempts` from the counts it just wrote. Ages come from the database
+   (`clock_timestamp() - created_at`) rather than from the application clock, so a drifting host
+   cannot falsify the latency alarm. Delivery is at-least-once —
    a failed mark after a successful publish makes the next poll send the same event again, which
    `OutboxPublisherIntegrationTest` demonstrates — and clients deduplicate on message id and sequence.
 
@@ -73,12 +76,13 @@ Rules that the schema enforces rather than the code:
    batch that pushes a row over the line logs it at WARN — the first three event ids and a count — and
    increments `nexus.outbox.abandoned`; the row stays in `message_outbox` unpublished as the record
    of what was not delivered, and `nexus.outbox.max_attempts` carries that high-water mark until a
-   batch publishes again, when it returns to 0 so the alert clears. A row that cannot be encoded is
-   abandoned the same way without failing the rest of its batch, because no number of retries can
-   publish it. There is no backoff, because the failure counted here is Redis being unavailable and
-   that hits a whole batch rather than one row, and no dead-letter table, because the unpublished row
-   already is one — `docs/operations.md` has the query that lists those rows and the way to requeue
-   them once Redis is healthy again.
+   batch publishes again, when it returns to 0 so the alert clears.    A row that cannot be encoded is abandoned the same way without failing the rest of its batch,
+   because no number of retries can publish it. A failed publish is not retried on the next tick: the
+   retry counter also moves `next_attempt_at` out by 2, 4, 8 and then 16 seconds, and both polls only
+   take rows whose time has come, so a row rides out roughly half a minute of Redis trouble before the
+   cap abandons it. There is no dead-letter table, because the unpublished row already is one —
+   `docs/operations.md` has the query that lists those rows and the way to requeue them once Redis is
+   healthy again.
 3. The receiving client appends the message to its encrypted local cache and acknowledges it
    over the WebSocket. Acknowledgements are what make the "delivered" state appear for the
    sender.

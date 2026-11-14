@@ -19,7 +19,7 @@ class MlsOutboxRowTest {
 
     private static OutboxPublisher.MlsOutboxRow row(byte[] ciphertext) {
         return new OutboxPublisher.MlsOutboxRow(EVENT_ID, CONVERSATION_ID, MESSAGE_ID, "mls.message",
-                SENDER_ID, 7, "application", ciphertext, CREATED_AT);
+                SENDER_ID, 7, "application", ciphertext, CREATED_AT, 0);
     }
 
     @Test
@@ -36,13 +36,13 @@ class MlsOutboxRowTest {
         OutboxPublisher.MlsOutboxRow base = row(new byte[]{1});
 
         assertNotEquals(base, new OutboxPublisher.MlsOutboxRow(UUID.randomUUID(), CONVERSATION_ID, MESSAGE_ID,
-                "mls.message", SENDER_ID, 7, "application", new byte[]{1}, CREATED_AT));
+                "mls.message", SENDER_ID, 7, "application", new byte[]{1}, CREATED_AT, 0));
         assertNotEquals(base, new OutboxPublisher.MlsOutboxRow(EVENT_ID, CONVERSATION_ID, MESSAGE_ID,
-                "mls.message", SENDER_ID, 8, "application", new byte[]{1}, CREATED_AT));
+                "mls.message", SENDER_ID, 8, "application", new byte[]{1}, CREATED_AT, 0));
         assertNotEquals(base, new OutboxPublisher.MlsOutboxRow(EVENT_ID, CONVERSATION_ID, MESSAGE_ID,
-                "mls.message", SENDER_ID, 7, "proposal", new byte[]{1}, CREATED_AT));
+                "mls.message", SENDER_ID, 7, "proposal", new byte[]{1}, CREATED_AT, 0));
         assertNotEquals(base, new OutboxPublisher.MlsOutboxRow(EVENT_ID, CONVERSATION_ID, MESSAGE_ID,
-                "mls.message", SENDER_ID, 7, "application", new byte[]{1}, CREATED_AT.plusSeconds(1)));
+                "mls.message", SENDER_ID, 7, "application", new byte[]{1}, CREATED_AT.plusSeconds(1), 0));
     }
 
     @Test

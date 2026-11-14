@@ -44,23 +44,34 @@ public class OutboxPublisher {
      * the abandon statement, so the number has one definition.
      */
     static final int MAX_ATTEMPTS = 5;
+    /**
+     * A failed row waits 2, 4, 8 and 16 seconds before its next attempt, so a Redis restart is ridden
+     * out instead of exhausting the attempts in half a second; the cap keeps a longer outage bounded.
+     */
+    static final int BACKOFF_CAP_SECONDS = 60;
     /** Both pending polls are package-private so the plan test explains the statements the fan-out runs. */
     static final String PENDING_MESSAGES_SQL = """
             SELECT o.event_id, o.conversation_id, o.message_id, o.recipient_user_id, o.event_type,
-                   m.sender_id, m.content, m.created_at, m.deleted_for_everyone_at
+                   m.sender_id, m.content, m.created_at, m.deleted_for_everyone_at,
+                   GREATEST(0, EXTRACT(EPOCH FROM clock_timestamp() - m.created_at))::bigint
+                       AS age_seconds
             FROM nexus.message_outbox o
             JOIN nexus.message m ON m.id = o.message_id
             WHERE o.published_at IS NULL AND o.attempts < %d
+              AND o.next_attempt_at <= clock_timestamp()
             ORDER BY o.created_at, o.event_id
             LIMIT 100 FOR UPDATE OF o SKIP LOCKED
             """.formatted(MAX_ATTEMPTS);
 
     static final String PENDING_MLS_SQL = """
             SELECT o.event_id, o.conversation_id, o.mls_message_id, o.event_type,
-                   m.sender_id, m.epoch, m.kind, m.ciphertext, m.created_at
+                   m.sender_id, m.epoch, m.kind, m.ciphertext, m.created_at,
+                   GREATEST(0, EXTRACT(EPOCH FROM clock_timestamp() - m.created_at))::bigint
+                       AS age_seconds
             FROM nexus.message_outbox o
             JOIN nexus.mls_message m ON m.id = o.mls_message_id
             WHERE o.published_at IS NULL AND o.attempts < %d
+              AND o.next_attempt_at <= clock_timestamp()
             ORDER BY o.created_at, o.event_id
             LIMIT 100 FOR UPDATE OF o SKIP LOCKED
             """.formatted(MAX_ATTEMPTS);
@@ -83,10 +94,13 @@ public class OutboxPublisher {
             """;
 
     private static final String COUNT_ATTEMPT_SQL = """
-            UPDATE nexus.message_outbox SET attempts = attempts + 1
+            UPDATE nexus.message_outbox
+            SET attempts = attempts + 1,
+                next_attempt_at = clock_timestamp()
+                    + LEAST(%d, power(2, attempts + 1)) * interval '1 second'
             WHERE event_id IN (:ids)
             RETURNING event_id, attempts
-            """;
+            """.formatted(BACKOFF_CAP_SECONDS);
 
     private static final String ABANDON_SQL = """
             UPDATE nexus.message_outbox SET attempts = %d
@@ -174,11 +188,10 @@ public class OutboxPublisher {
         List<byte[]> payloads = new ArrayList<>(rows.size() + mlsRows.size());
         List<UUID> messageEventIds = new ArrayList<>(rows.size());
         List<UUID> mlsEventIds = new ArrayList<>(mlsRows.size());
-        Instant now = Instant.now();
         long oldest = 0;
         List<UUID> unencodable = new ArrayList<>();
         for (OutboxRow row : rows) {
-            oldest = Math.max(oldest, ageSeconds(row.createdAt(), now));
+            oldest = Math.max(oldest, row.ageSeconds());
             List<UUID> targets = row.recipientId() == null
                     ? members.getOrDefault(row.conversationId(), List.of())
                     : List.of(row.recipientId());
@@ -191,7 +204,7 @@ public class OutboxPublisher {
             messageEventIds.add(row.eventId());
         }
         for (MlsOutboxRow row : mlsRows) {
-            oldest = Math.max(oldest, ageSeconds(row.createdAt(), now));
+            oldest = Math.max(oldest, row.ageSeconds());
             // only members whose join epoch covers this ciphertext receive the event
             List<UUID> targets = mlsMembers.getOrDefault(row.conversationId(), List.of()).stream()
                     .filter(member -> member.joinedEpoch() <= row.epoch())
@@ -237,7 +250,7 @@ public class OutboxPublisher {
                 rs.getObject("conversation_id", UUID.class), rs.getObject("mls_message_id", UUID.class),
                 rs.getString("event_type"), rs.getObject("sender_id", UUID.class), rs.getLong("epoch"),
                 rs.getString("kind"), rs.getBytes("ciphertext"),
-                rs.getTimestamp("created_at").toInstant()));
+                rs.getTimestamp("created_at").toInstant(), rs.getLong("age_seconds")));
     }
 
     private static List<UUID> conversationIds(List<OutboxRow> rows, List<MlsOutboxRow> mlsRows) {
@@ -316,10 +329,6 @@ public class OutboxPublisher {
         return rest == 0 ? first : first + " and " + rest + " more";
     }
 
-    private static long ageSeconds(Instant createdAt, Instant now) {
-        return Math.max(0, Duration.between(createdAt, now).toSeconds());
-    }
-
     private Map<String, Object> mlsEnvelope(MlsOutboxRow row, List<UUID> targets) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("eventId", row.eventId());
@@ -375,7 +384,8 @@ public class OutboxPublisher {
                 rs.getString("event_type"), rs.getObject("sender_id", UUID.class), rs.getString("content"),
                 rs.getTimestamp("created_at").toInstant(),
                 rs.getTimestamp("deleted_for_everyone_at") == null ? null
-                        : rs.getTimestamp("deleted_for_everyone_at").toInstant());
+                        : rs.getTimestamp("deleted_for_everyone_at").toInstant(),
+                rs.getLong("age_seconds"));
     }
 
     private record MemberEpoch(UUID userId, int joinedEpoch) { }
@@ -384,11 +394,11 @@ public class OutboxPublisher {
 
     private record OutboxRow(UUID eventId, UUID conversationId, UUID messageId, UUID recipientId,
                              String eventType, UUID senderId, String content, Instant createdAt,
-                             Instant deletedAt) { }
+                             Instant deletedAt, long ageSeconds) { }
 
     record MlsOutboxRow(UUID eventId, UUID conversationId, UUID messageId, String eventType,
                                 UUID senderId, long epoch, String kind, byte[] ciphertext,
-                                Instant createdAt) {
+                                Instant createdAt, long ageSeconds) {
         @Override
         public boolean equals(Object other) {
             return other instanceof MlsOutboxRow row && Objects.equals(eventId, row.eventId)

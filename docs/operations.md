@@ -103,7 +103,7 @@ Application meters:
 | `nexus.outbox.publish` | timer | Time to publish one batch |
 | `nexus.outbox.published` | counter | Events published |
 | `nexus.outbox.batch_rows` | gauge | Rows in the last batch |
-| `nexus.outbox.oldest_age_seconds` | gauge | Age of the oldest pending event — the delivery-latency alarm |
+| `nexus.outbox.oldest_age_seconds` | gauge | Age of the oldest pending event, measured by the database clock — the delivery-latency alarm |
 | `nexus.outbox.publish_failures` | counter | Batches whose Redis publish failed |
 | `nexus.outbox.max_attempts` | gauge | Highest `attempts` a row reached in the last failed batch — a row stuck retrying |
 | `nexus.outbox.abandoned` | counter | Events given up on: unencodable, or five failed publishes |
@@ -111,21 +111,25 @@ Application meters:
 | `nexus.ws.sessions` | gauge | Open WebSocket sessions |
 
 Alert on `nexus.outbox.oldest_age_seconds` growing, on `nexus.outbox.max_attempts` staying above a
-few attempts, on any increase of `nexus.outbox.abandoned` (it only ever grows), and on
+few attempts (rows backed off for retry keep it raised until one publishes), on any increase of
+`nexus.outbox.abandoned` (it only ever grows), and on
 `nexus.ws.sessions` approaching `NEXUS_MAX_CONNECTIONS`: delivery stalled, publishes failing, events
 given up on, connection ceiling. A batch that publishes returns `max_attempts` to 0, so the alert
 clears itself once Redis recovers; a poll that finds nothing pending does not, which keeps the alert
 raised while a capped row is still waiting to be requeued.
 
-A row that reaches five failed publishes is never polled again, and each batch that abandons rows
-logs the first three event ids plus a count — the rest are in the table. Once Redis is healthy,
-requeue what was given up on:
+A failed publish pushes the row's `next_attempt_at` out by 2, 4, 8 and then 16 seconds, so a row is
+retried about half a minute after its first failure instead of on every 100 ms poll, and a restart of
+Redis shorter than that loses nothing. A row that reaches five failed publishes is never polled again,
+and each batch that abandons rows logs the first three event ids plus a count — the rest are in the
+table. Once Redis is healthy, requeue what was given up on:
 
 ```sql
-SELECT event_id, conversation_id, event_type, attempts FROM message_outbox
+SELECT event_id, conversation_id, event_type, attempts, next_attempt_at FROM message_outbox
 WHERE published_at IS NULL AND attempts >= 5;
 
-UPDATE message_outbox SET attempts = 0 WHERE published_at IS NULL AND attempts >= 5;
+UPDATE message_outbox SET attempts = 0, next_attempt_at = clock_timestamp()
+WHERE published_at IS NULL AND attempts >= 5;
 ```
 
 ## Backups and recovery
