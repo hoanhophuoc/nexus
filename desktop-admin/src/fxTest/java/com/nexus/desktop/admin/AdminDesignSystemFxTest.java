@@ -25,6 +25,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -95,57 +96,82 @@ class AdminDesignSystemFxTest {
     @Test
     void accountAndReportScreensKeepLabelsFocusAndBundleContractInBothLocales() throws Exception {
         try (FakeAdminServer server = new FakeAdminServer()) {
-            assertThat(onFx(() -> {
+            // The sign-in is three blocking HTTP calls; keeping it off the FX thread is what stops a
+            // loaded machine from turning it into a stalled 30 second FX task.
+            AtomicReference<Stage> stageReference = new AtomicReference<>();
+            AtomicReference<ThemeManager> themeReference = new AtomicReference<>();
+            AtomicReference<I18n> viReference = new AtomicReference<>();
+            AdminAppContext signInContext = onFx(() -> {
                 Stage stage = new Stage();
+                stageReference.set(stage);
                 ThemeManager theme = new ThemeManager();
                 theme.setTheme(Theme.LIGHT);
+                themeReference.set(theme);
                 I18n vietnamese = new I18n(BASE, Locale.forLanguageTag("vi"));
-                AdminAppContext context = new AdminAppContext(stage, server.origin().toString(), theme, vietnamese);
+                viReference.set(vietnamese);
+                return new AdminAppContext(stage, server.origin().toString(), theme, vietnamese);
+            });
+            var signedIn = signInContext.signIn("admin", "correct horse battery staple".toCharArray());
+            assertThat(onFx(() -> {
+                Stage stage = stageReference.get();
+                ThemeManager theme = themeReference.get();
+                I18n vietnamese = viReference.get();
+                AdminAppContext context = signInContext;
+                context.activate(signedIn);
+                Parent accounts = AdminViewLoader.load(AdminViewLoader.ACCOUNTS,
+                        new AccountsController(context), vietnamese);
+                Scene accountsScene = new Scene(accounts, 1280, 720);
+                theme.apply(accountsScene);
+                AdminViewLoader.applyStylesheet(accountsScene);
+                stage.setScene(accountsScene);
+                stage.show();
+                accounts.applyCss();
+                accounts.layout();
+
+                ResourceBundle vi = vietnamese.bundle();
+                assertThat(labels(accounts)).contains(
+                        vi.getString("admin.accounts.loginHistoryTitle"),
+                        vi.getString("admin.accounts.friendListTitle"));
+                assertThat(buttonTexts(accounts)).contains(
+                        vi.getString("admin.accounts.newUser"),
+                        vi.getString("admin.accounts.resetPassword"));
+                TextField username = (TextField) accounts.lookup("#usernameField");
+                TextField fullName = (TextField) accounts.lookup("#fullNameField");
+                DatePicker birthDate = (DatePicker) accounts.lookup("#birthDateField");
+                ComboBox<?> gender = (ComboBox<?>) accounts.lookup("#genderField");
+                assertThat(username.getAccessibleText()).isNotBlank();
+                assertThat(fullName.getAccessibleText()).isNotBlank();
+                assertThat(((TextField) accounts.lookup("#filterField")).getAccessibleText())
+                        .isNotBlank();
+                assertThat(accounts.lookupAll(".field-label").stream()
+                        .filter(Label.class::isInstance).map(Label.class::cast)
+                        .anyMatch(label -> label.getLabelFor() == username)).isTrue();
+                assertThat(accounts.lookupAll(".field-label").stream()
+                        .filter(Label.class::isInstance).map(Label.class::cast)
+                        .anyMatch(label -> label.getLabelFor() == fullName)).isTrue();
+                assertThat(List.of(username, fullName, birthDate, gender))
+                        .allMatch(node -> node.isFocusTraversable());
+                assertThat(((Button) accounts.lookup("#saveButton")).isDefaultButton()).isTrue();
+                assertThat(((TableView<?>) accounts.lookup("#historyTable")).getAccessibleText())
+                        .isNotBlank();
+                assertThat(((TableView<?>) accounts.lookup("#friendsTable")).getAccessibleText())
+                        .isNotBlank();
+                assertThat(accounts.lookupAll(".button").stream()
+                        .filter(Button.class::isInstance).map(Button.class::cast)
+                        .allMatch(candidate -> candidate.getText() != null
+                                && !candidate.getText().isBlank())).isTrue();
+                return true;
+            })).isTrue();
+
+            // A second, shorter FX task: each screen gets its own window, so one slow load cannot
+            // consume the budget of the whole test on a loaded machine.
+            assertThat(onFx(() -> {
+                Stage stage = stageReference.get();
+                ThemeManager theme = themeReference.get();
+                I18n vietnamese = viReference.get();
+                AdminAppContext context = signInContext;
                 try {
-                    context.activate(context.signIn("admin", "correct horse battery staple".toCharArray()));
-                    Parent accounts = AdminViewLoader.load(AdminViewLoader.ACCOUNTS,
-                            new AccountsController(context), vietnamese);
-                    Scene accountsScene = new Scene(accounts, 1280, 720);
-                    theme.apply(accountsScene);
-                    AdminViewLoader.applyStylesheet(accountsScene);
-                    stage.setScene(accountsScene);
-                    stage.show();
-                    accounts.applyCss();
-                    accounts.layout();
-
                     ResourceBundle vi = vietnamese.bundle();
-                    assertThat(labels(accounts)).contains(
-                            vi.getString("admin.accounts.loginHistoryTitle"),
-                            vi.getString("admin.accounts.friendListTitle"));
-                    assertThat(buttonTexts(accounts)).contains(
-                            vi.getString("admin.accounts.newUser"),
-                            vi.getString("admin.accounts.resetPassword"));
-                    TextField username = (TextField) accounts.lookup("#usernameField");
-                    TextField fullName = (TextField) accounts.lookup("#fullNameField");
-                    DatePicker birthDate = (DatePicker) accounts.lookup("#birthDateField");
-                    ComboBox<?> gender = (ComboBox<?>) accounts.lookup("#genderField");
-                    assertThat(username.getAccessibleText()).isNotBlank();
-                    assertThat(fullName.getAccessibleText()).isNotBlank();
-                    assertThat(((TextField) accounts.lookup("#filterField")).getAccessibleText())
-                            .isNotBlank();
-                    assertThat(accounts.lookupAll(".field-label").stream()
-                            .filter(Label.class::isInstance).map(Label.class::cast)
-                            .anyMatch(label -> label.getLabelFor() == username)).isTrue();
-                    assertThat(accounts.lookupAll(".field-label").stream()
-                            .filter(Label.class::isInstance).map(Label.class::cast)
-                            .anyMatch(label -> label.getLabelFor() == fullName)).isTrue();
-                    assertThat(List.of(username, fullName, birthDate, gender))
-                            .allMatch(node -> node.isFocusTraversable());
-                    assertThat(((Button) accounts.lookup("#saveButton")).isDefaultButton()).isTrue();
-                    assertThat(((TableView<?>) accounts.lookup("#historyTable")).getAccessibleText())
-                            .isNotBlank();
-                    assertThat(((TableView<?>) accounts.lookup("#friendsTable")).getAccessibleText())
-                            .isNotBlank();
-                    assertThat(accounts.lookupAll(".button").stream()
-                            .filter(Button.class::isInstance).map(Button.class::cast)
-                            .allMatch(candidate -> candidate.getText() != null
-                                    && !candidate.getText().isBlank())).isTrue();
-
                     I18n english = new I18n(BASE, Locale.ENGLISH);
                     Parent reports = AdminViewLoader.load(AdminViewLoader.REPORTS,
                             new ReportsController(context), english);
