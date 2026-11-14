@@ -13,6 +13,9 @@ and measured. `README.md` at the repository root is only a landing page.
 | [operations.md](operations.md) | Every environment variable, deployment topology, health and metrics, backups, scaling knobs |
 | [ci-cd.md](ci-cd.md) | What each workflow does, which gates can fail a build, how a release is cut |
 | [performance.md](performance.md) | Measured capacity, latency, and the database cost of each hot path |
+| [ui-ux-design-system.md](ui-ux-design-system.md) | Canonical native JavaFX visual language, component contracts, interaction, motion, accessibility and UI quality gates |
+| [ui-ux-tooling.md](ui-ux-tooling.md) | Evaluated design/JavaFX libraries, agent skills, adoption decisions, compatibility and dependency gates |
+
 
 ## One name
 
