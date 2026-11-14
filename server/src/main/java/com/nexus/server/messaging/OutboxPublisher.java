@@ -13,7 +13,6 @@ import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
 import java.sql.ResultSet;
@@ -26,6 +25,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.Arrays;
 import java.util.Objects;
@@ -72,21 +74,29 @@ public class OutboxPublisher {
             WHERE event_id IN (:ids)
             """;
 
+    private static final String COUNT_ATTEMPT_SQL = """
+            UPDATE nexus.message_outbox SET attempts = attempts + 1
+            WHERE event_id IN (:ids)
+            """;
+
     private final JdbcTemplate jdbc;
     private final NamedParameterJdbcTemplate named;
     private final StringRedisTemplate redis;
     private final ObjectMapper mapper;
+    private final TransactionTemplate transactions;
     private final Timer publishTimer;
     private final Counter publishedEvents;
     private final AtomicLong batchRows = new AtomicLong();
     private final AtomicLong oldestAgeSeconds = new AtomicLong();
 
     public OutboxPublisher(JdbcTemplate jdbc, NamedParameterJdbcTemplate named,
-                           StringRedisTemplate redis, ObjectMapper mapper, MeterRegistry meters) {
+                           StringRedisTemplate redis, ObjectMapper mapper, MeterRegistry meters,
+                           PlatformTransactionManager transactions) {
         this.jdbc = jdbc;
         this.named = named;
         this.redis = redis;
         this.mapper = mapper;
+        this.transactions = new TransactionTemplate(transactions);
         this.publishTimer = Timer.builder("nexus.outbox.publish")
                 .description("Time to fan out one outbox batch to Redis")
                 .register(meters);
@@ -102,8 +112,23 @@ public class OutboxPublisher {
     }
 
     @Scheduled(fixedDelayString = "${chat.messaging.outbox-poll-ms:100}")
-    @Transactional
     public void publishPending() {
+        List<UUID> attempted = new ArrayList<>();
+        try {
+            transactions.executeWithoutResult(status -> publishBatch(attempted));
+        } catch (RuntimeException failure) {
+            // The batch's transaction rolled back and took its row locks with it, so the retry
+            // counter has to be written afterwards; inside the batch it would roll back too.
+            try {
+                countAttempts(attempted);
+            } catch (RuntimeException countFailure) {
+                failure.addSuppressed(countFailure);
+            }
+            throw failure;
+        }
+    }
+
+    private void publishBatch(List<UUID> attempted) {
         long started = System.nanoTime();
         List<OutboxRow> rows = jdbc.query(PENDING_MESSAGES_SQL, OutboxPublisher::map);
         List<MlsOutboxRow> mlsRows = publishMlsPending();
@@ -141,6 +166,9 @@ public class OutboxPublisher {
             oldest = Math.max(oldest, ageSeconds(row.createdAt(), now));
         }
         oldestAgeSeconds.set(oldest);
+        List<UUID> eventIds = new ArrayList<>(messageEventIds);
+        eventIds.addAll(mlsEventIds);
+        attempted.addAll(eventIds);
 
         // A pipelined callback borrows a dedicated Lettuce connection, i.e. a new TCP handshake
         // per batch. Publishing on the shared connection keeps one socket for all batches.
@@ -150,8 +178,6 @@ public class OutboxPublisher {
             }
             return null;
         });
-        List<UUID> eventIds = new ArrayList<>(messageEventIds);
-        eventIds.addAll(mlsEventIds);
         markPublished(eventIds);
         publishedEvents.increment(payloads.size());
         publishTimer.record(Duration.ofNanos(System.nanoTime() - started));
@@ -203,6 +229,12 @@ public class OutboxPublisher {
     private void markPublished(List<UUID> eventIds) {
         if (eventIds.isEmpty()) return;
         named.update(MARK_PUBLISHED_SQL, new MapSqlParameterSource("ids", eventIds));
+    }
+
+    private void countAttempts(List<UUID> eventIds) {
+        if (eventIds.isEmpty()) return;
+        transactions.executeWithoutResult(status ->
+                named.update(COUNT_ATTEMPT_SQL, new MapSqlParameterSource("ids", eventIds)));
     }
 
     private static long ageSeconds(Instant createdAt, Instant now) {

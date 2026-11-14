@@ -14,6 +14,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -24,7 +25,10 @@ import tools.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
@@ -80,6 +84,8 @@ class OutboxPublisherIntegrationTest {
     @Autowired
     private ObjectMapper mapper;
     @Autowired
+    private PlatformTransactionManager transactions;
+    @Autowired
     private OutboxPublisher publisher;
 
     @Test
@@ -116,8 +122,6 @@ class OutboxPublisherIntegrationTest {
         group(conversation, SENDER, MEMBER);
         message(message, conversation, SENDER);
         messageEvent(event, conversation, message, "message.deleted");
-        // Nothing writes attempts yet; this is the state an earlier failed poll leaves behind.
-        jdbc.update("UPDATE nexus.message_outbox SET attempts = 3 WHERE event_id = ?", event);
 
         withSubscriber(published -> {
             publisher.publishPending();
@@ -129,7 +133,7 @@ class OutboxPublisherIntegrationTest {
             assertThat(envelope.get("payload").get("message"))
                     .as("a deletion carries no message body").isNull();
             assertThat(targets(envelope))
-                    .as("a row left by an earlier failed poll reaches the message's audience")
+                    .as("the deletion is addressed like the message was")
                     .containsExactlyInAnyOrder(SENDER, MEMBER);
         });
     }
@@ -203,7 +207,38 @@ class OutboxPublisherIntegrationTest {
     }
 
     @Test
-    void leavesTheRowPendingWhenRedisIsUnreachable() throws Exception {
+    void publishesAMessageRowAndAnMlsRowInTheSamePoll() throws Exception {
+        UUID conversation = id(107);
+        UUID message = id(207);
+        UUID mlsMessage = id(307);
+        UUID createdEvent = id(407);
+        UUID mlsEvent = id(408);
+        group(conversation, SENDER, MEMBER);
+        message(message, conversation, SENDER);
+        mlsMessage(mlsMessage, conversation, SENDER, 1, "application");
+        messageEvent(createdEvent, conversation, message, "message.created");
+        mls(mlsEvent, conversation, mlsMessage, "mls.message");
+
+        withSubscriber(published -> {
+            publisher.publishPending();
+
+            Map<UUID, JsonNode> batch = awaitEvents(published, createdEvent, mlsEvent);
+            assertThat(type(batch.get(createdEvent))).isEqualTo("MessageCreated");
+            assertThat(type(batch.get(mlsEvent))).isEqualTo("MlsMessage");
+            assertThat(targets(batch.get(createdEvent)))
+                    .as("both pending queries feed the one batch")
+                    .containsExactlyInAnyOrder(SENDER, MEMBER);
+            assertThat(targets(batch.get(mlsEvent))).containsExactlyInAnyOrder(SENDER, MEMBER);
+
+            publisher.publishPending();
+            assertThat(published.poll(1, TimeUnit.SECONDS))
+                    .as("the batch marks both rows, so nothing is sent again")
+                    .isNull();
+        });
+    }
+
+    @Test
+    void keepsTheRowPendingAndCountsEveryFailedAttempt() throws Exception {
         UUID conversation = id(106);
         UUID message = id(206);
         UUID event = id(406);
@@ -218,15 +253,19 @@ class OutboxPublisherIntegrationTest {
             StringRedisTemplate noRedis = new StringRedisTemplate(unreachable);
             noRedis.afterPropertiesSet();
             OutboxPublisher failing = new OutboxPublisher(jdbc, named, noRedis, mapper,
-                    new SimpleMeterRegistry());
+                    new SimpleMeterRegistry(), transactions);
 
-            assertThatThrownBy(failing::publishPending)
-                    .as("the failure reaches the scheduler instead of being swallowed")
-                    .isInstanceOf(RedisConnectionFailureException.class);
+            for (int attempt = 1; attempt <= 2; attempt++) {
+                assertThatThrownBy(failing::publishPending)
+                        .as("failure " + attempt + " reaches the scheduler instead of being swallowed")
+                        .isInstanceOf(RedisConnectionFailureException.class);
+            }
         } finally {
             unreachable.destroy();
         }
 
+        assertThat(attempts(event)).as("each failed publish is counted on the row")
+                .isEqualTo(2);
         assertThat(publishedAt(event)).as("an unpublished row is what the next poll retries").isNull();
 
         withSubscriber(published -> {
@@ -235,6 +274,7 @@ class OutboxPublisherIntegrationTest {
             assertThat(targets(awaitEvent(published, event)))
                     .as("the retry delivers the same batch")
                     .containsExactlyInAnyOrder(SENDER, MEMBER);
+            assertThat(attempts(event)).as("a successful publish adds no attempt").isEqualTo(2);
         });
     }
 
@@ -273,16 +313,28 @@ class OutboxPublisherIntegrationTest {
     }
 
     private JsonNode awaitEvent(BlockingQueue<String> published, UUID event) throws InterruptedException {
+        return awaitEvents(published, event).get(event);
+    }
+
+    /** Collects the named events from one batch without dropping the others in it. */
+    private Map<UUID, JsonNode> awaitEvents(BlockingQueue<String> published, UUID... events)
+            throws InterruptedException {
+        Set<UUID> pending = new LinkedHashSet<>(List.of(events));
+        Map<UUID, JsonNode> envelopes = new LinkedHashMap<>();
         long deadline = System.nanoTime() + RECEIVE_TIMEOUT.toNanos();
-        while (System.nanoTime() < deadline) {
+        while (!pending.isEmpty() && System.nanoTime() < deadline) {
             String payload = published.poll(200, TimeUnit.MILLISECONDS);
             if (payload == null) continue;
             JsonNode envelope = mapper.readTree(payload);
-            if (event.toString().equals(envelope.get("payload").get("eventId").asString())) {
-                return envelope;
+            UUID event = UUID.fromString(envelope.get("payload").get("eventId").asString());
+            if (pending.remove(event)) {
+                envelopes.put(event, envelope);
             }
         }
-        throw new AssertionError("No event " + event + " was published within " + RECEIVE_TIMEOUT + ".");
+        if (!pending.isEmpty()) {
+            throw new AssertionError("No event " + pending + " was published within " + RECEIVE_TIMEOUT + ".");
+        }
+        return envelopes;
     }
 
     private static String type(JsonNode envelope) {
@@ -295,6 +347,11 @@ class OutboxPublisherIntegrationTest {
             targets.add(UUID.fromString(target.asString()));
         }
         return targets;
+    }
+
+    private int attempts(UUID event) {
+        return jdbc.queryForObject("SELECT attempts FROM nexus.message_outbox WHERE event_id = ?",
+                Integer.class, event);
     }
 
     private Timestamp publishedAt(UUID event) {

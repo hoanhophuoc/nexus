@@ -19,9 +19,9 @@ coverage report, the gate and `./gradlew sonar` (`build-test` therefore waits fo
 Without that data the module reports were empty, SonarQube counted both UI modules as 0% covered,
 and the project sat at 38%. With it they measure 70.36% and 84.86% of lines, which takes the reported
 project coverage from 38% to 67%. Across the four product modules and both desktop suites the
-aggregate report — the one the bundle floor is checked against — measures 79.72% of lines and 55.49%
+aggregate report — the one the bundle floor is checked against — measures 79.77% of lines and 55.51%
 of branches, about a point and a half above both bundle floors. Summing the four per-module reports
-instead gives 76.14% and 53.58%, because a module's report only credits its own suites:
+instead gives 76.21% and 53.72%, because a module's report only credits its own suites:
 `com.nexus.desktop.shared/ui` reads as 11 covered lines of 191 in the shared report but 175 of 191 in
 the aggregate, since the desktop FX suites are what exercise it. The package floors are rounded down
 the same way.
@@ -41,7 +41,8 @@ each one against a seeded database (3,000 groups, 20,000 messages, 2,000 outbox 
 `OutboxPublisherIntegrationTest` covers the fan-out itself: each envelope variant is addressed to the
 audience it is meant for — a created or deleted message to every member still in the conversation, a
 hidden one only to the person who hid it, MLS ciphertext and commits only to members whose join epoch
-covers them — and a batch whose Redis publish failed stays unpublished so the next poll delivers it.
+covers them — and a batch whose Redis publish failed stays unpublished, with its `attempts` counter
+raised once per failure, so the next poll retries it.
 
 `server/social` no longer needs the exclusion. `JdbcSocialRepository` now runs five compile-time
 statements and always binds a cursor, using the nil UUID for the first page (`AND u.id > ?` with

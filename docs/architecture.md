@@ -60,8 +60,10 @@ Rules that the schema enforces rather than the code:
    message with the next `conversation_sequence` and an idempotency key, and inserts an outbox
    event.
 2. The outbox publisher polls pending events every 100 ms through a partial index, fans them out
-   to connected sessions, and marks them published. Delivery is at-least-once; clients
-   deduplicate on message id and sequence.
+   to connected sessions, and marks them published. A batch whose Redis publish fails is rolled
+   back and its rows' `attempts` counter is incremented in a separate transaction, so the failed
+   events stay pending for the next poll. Delivery is at-least-once; clients deduplicate on message
+   id and sequence.
 3. The receiving client appends the message to its encrypted local cache and acknowledges it
    over the WebSocket. Acknowledgements are what make the "delivered" state appear for the
    sender.
