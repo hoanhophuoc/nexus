@@ -2,7 +2,8 @@
 
 This directory is the single source of truth for how Nexus is built, configured, operated
 and measured. The root `DESIGN.md` is a short UI/UX entry point; canonical design rules live in
-`docs/ui-ux-design-system.md` and `docs/ui-ux-tooling.md`.
+`docs/ui-ux-design-system.md` and `docs/ui-ux-tooling.md`. Root `CLAUDE.md` imports
+`AGENTS.md` so Claude Code receives the same repository rules.
 
 ## The documents
 
