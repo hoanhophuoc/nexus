@@ -47,7 +47,9 @@ For a major new screen or redesign, consider at least two design directions and 
 - Do not block the FX Application Thread with networking, disk, database, crypto or expensive parsing. Use the existing async services or JavaFX Task/Service patterns and update the scene graph on the FX thread.
 - Use observable collections and virtualized controls for potentially large message/conversation lists. Do not create one scene-graph node per message in an unbounded history.
 - Preserve scroll position and focus; do not force the chat timeline to the bottom while the user is reading older messages.
-- Use JavaFX-native animation APIs. Motion must be purposeful, short, interruptible, lightweight and reduced-motion-aware.
+- Use JavaFX-native animation APIs. Motion must be purposeful, short, interruptible, lightweight and reduced-motion-aware. If a repeated motion pattern is justified, centralize it in `MotionPresets`; support `-Dnexus.ui.animations.enabled=false` for deterministic FX tests and respect reduced motion. Do not promise 60fps without measuring.
+- Do not blanket-enable `Node.cache`/`CacheHint.SPEED`; JavaFX documents the visual-quality trade-off. Apply it only to expensive nodes after measurement.
+- Do not use internal `com.sun.javafx.*` APIs such as `VirtualFlow`; use public controls/cell factories and prove that they handle large, variable-height chat histories before migrating.
 - Design for desktop keyboard/pointer conventions and high-DPI scaling; do not blindly apply mobile 44px target or web responsive rules.
 - Do not add dependencies to server/client-sdk/api for desktop visual features.
 
@@ -55,7 +57,7 @@ For a major new screen or redesign, consider at least two design directions and 
 
 Follow `docs/ui-ux-tooling.md`:
 - AtlantaFX 3.0.0 is the preferred theme candidate but still requires a JavaFX 27.0.1 proof of concept before production adoption.
-- Ikonli 12.4.0 GA is the preferred icon candidate; Early Access releases are disallowed by the GA-only policy.
+- Ikonli 12.4.0 GA is the preferred icon candidate; the official pack catalogue lists `ikonli-feather-pack`, not `ikonli-lucide-pack`. Early Access releases are disallowed by the GA-only policy.
 - UI UX Pro Max can be used as a UX/design-research assistant; verify JavaFX guidance against JavaFX 27 and this repository.
 - Impeccable is process inspiration only unless JavaFX support is explicitly proven.
 - Taste Skill is website-specific inspiration, not the JavaFX implementation skill.
@@ -71,6 +73,7 @@ No dependency may be added without checking its latest GA release, JavaFX/JDK co
 - User desktop: prioritize conversations, message timeline, composer, presence, unread state, delivery/retry, connection recovery and accurate group-security status.
 - Admin desktop: prioritize operational visibility, filterable data, auditability, moderation evidence and safe destructive actions.
 - Keep user and admin layouts appropriately distinct while sharing foundations.
+- Use `Tactile Privacy & Precision Craft` as a working design direction: human, calm, content-first messaging; precise, high-signal administration; refined tactile feedback without decorative noise.
 - Never clone another product's branding or complete layout.
 - Never claim MLS-style group crypto is RFC 9420; the repository explicitly says it is not RFC 9420.
 - Do not claim all messages are fully end-to-end encrypted unless that claim is verified for every flow and approved.
@@ -93,4 +96,4 @@ Before calling a UI task complete:
 - Include before/after screenshots in the PR for UI changes.
 - Update `docs/ui-ux-design-system.md` or `docs/ui-ux-tooling.md` when the contract or tool decision changes.
 
-Never refresh a golden screenshot just to make a test pass. Inspect and justify the visual change first.
+Never refresh a golden screenshot just to make a test pass. Inspect and justify the visual change first. A root `DESIGN.md` is only an entry point; the canonical rules remain in `docs/ui-ux-design-system.md` and `docs/ui-ux-tooling.md`.
