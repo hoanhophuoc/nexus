@@ -53,3 +53,12 @@ development-only values.
 Every change that alters a table, endpoint, variable, gate or measured number updates the
 matching document under `docs/` in the same commit. Documents describe the current system only;
 history belongs to git.
+
+## UI/UX design contract (mandatory)
+
+Every task that creates, changes, reviews, styles, animates, localizes or tests desktop UI must read and follow `.agents/skills/nexus-ui-ux/SKILL.md` **before editing**. The canonical product-specific rules are `docs/ui-ux-design-system.md` and `docs/ui-ux-tooling.md`; inspect those files rather than relying on previous agent context or generic web-design instructions.
+
+- Nexus desktop UI is native JavaFX 27.0.1 with FXML and JavaFX CSS, on JDK 27. Do not apply web-only frameworks, browser checks or web interaction conventions to the desktop clients.
+- Preserve and extend the existing `desktop-shared` theme/design-system facilities. Do not introduce a second theme manager or duplicate semantic token system.
+- Every meaningful visual change must be verified in both LIGHT and DARK themes, in English and Vietnamese where copy is affected, using the existing JavaFX FX tests, rendered-control contrast checks and reviewed golden screenshots.
+- Do not add UI dependencies without following the compatibility, license, GA-release, proof-of-concept and packaging gates in `docs/ui-ux-tooling.md`.
