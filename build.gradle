@@ -56,10 +56,44 @@ def existingCoverageExecutionData = { ->
     files(provider { coverageExecutionData().findAll { it.exists() } })
 }
 
+// Both consumers read exec data from a previous build once the suites are up-to-date, and the fx
+// suites are not dependencies of the report, so a figure can silently describe an older tree.
+// This refuses data that is missing or older than the sources it claims to cover.
+def coverageDataCheck = tasks.register('coverageDataCheck') {
+    group = 'verification'
+    description = 'Fails when the JaCoCo data the coverage tasks read is missing or predates the sources.'
+    dependsOn ':server:test', ':server:integrationTest', ':desktop-shared:test'
+    mustRunAfter ':desktop-user:test', ':desktop-admin:test',
+            ':desktop-user:fxTest', ':desktop-admin:fxTest'
+    notCompatibleWithConfigurationCache('compares exec and source timestamps at execution time')
+    doLast {
+        def relative = { File file -> rootDir.toPath().relativize(file.toPath()).toString() }
+        def moduleOf = { File file -> relative(file).split('/')[0] }
+        def newestSource = [:]
+        def sourcesChangedAt = { String module ->
+            newestSource.computeIfAbsent(module) {
+                project(":${module}").fileTree('src').files.collect { it.lastModified() }.max() ?: 0L
+            }
+        }
+        def execFiles = coverageExecutionData()
+        def missing = execFiles.findAll { !it.exists() }
+        def stale = execFiles.findAll { exec ->
+            exec.exists() && exec.lastModified() < sourcesChangedAt(moduleOf(exec))
+        }
+        if (!missing.isEmpty() || !stale.isEmpty()) {
+            def details = (missing.collect { "no data in ${relative(it)}" } +
+                    stale.collect { "${relative(it)} is older than the ${moduleOf(it)} sources" })
+                    .join('; ')
+            throw new GradleException("Coverage data cannot be trusted (${details}). Measure this " +
+                    'tree with "xvfb-run -a ./gradlew fullTest coverageReport --rerun-tasks".')
+        }
+    }
+}
+
 tasks.register('coverageReport', JacocoReport) {
     group = 'verification'
     description = 'Coverage report for the server and the desktop modules.'
-    dependsOn ':server:test', ':server:integrationTest', ':desktop-shared:test'
+    dependsOn coverageDataCheck, ':server:test', ':server:integrationTest', ':desktop-shared:test'
     // The desktop modules' exec data comes from their own suites, which are not dependencies of this
     // report; naming them keeps "./gradlew fullTest coverageReport" valid instead of failing with an
     // implicit-dependency error.
@@ -76,30 +110,20 @@ tasks.register('coverageReport', JacocoReport) {
 }
 
 // Anti-regression gate over the product modules. The floors are the baseline measured on
-// 2026-11-14 across all four product modules and both desktop suites (bundle 80.02% line /
-// 55.8% branch, from the aggregate coverageReport the BUNDLE rule reads), rounded down so a
+// 2026-11-14 across all four product modules and both desktop suites (bundle 79.98% line /
+// 55.95% branch, from the aggregate coverageReport the BUNDLE rule reads), rounded down so a
 // small refactor cannot fail the build on a fraction of a point. Both bundle floors keep about a
 // point and a half of headroom, like the package floors below.
 // Raise them as the remaining workflows gain tests.
 def coverageVerification = tasks.register('coverageVerification', JacocoCoverageVerification) {
     group = 'verification'
     description = 'Fails when the product modules drop below their recorded coverage baseline.'
-    dependsOn ':server:test', ':server:integrationTest', ':desktop-shared:test'
+    dependsOn coverageDataCheck, ':server:test', ':server:integrationTest', ':desktop-shared:test'
     // The desktop suites produce the exec data this gate reads; when both are in the task graph
     // (fullTest) they have to finish first.
     mustRunAfter ':desktop-user:fxTest', ':desktop-admin:fxTest'
     executionData existingCoverageExecutionData()
     classDirectories.setFrom files(coverageClassDirectories)
-    doFirst {
-        def missing = uiCoverageModules.collect {
-            project(it).layout.buildDirectory.file('jacoco/fxTest.exec').get().asFile
-        }.findAll { !it.exists() }
-        if (!missing.isEmpty()) {
-            throw new GradleException('The desktop modules are measured by their JavaFX suites, which ' +
-                    'have not run: run "./gradlew fullTest" under a display (xvfb-run -a on a server) ' +
-                    'first. Missing exec data: ' + missing.join(', '))
-        }
-    }
     violationRules {
         rule {
             element = 'BUNDLE'
