@@ -12,11 +12,13 @@ import org.springframework.web.socket.WebSocketSession;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -49,6 +51,23 @@ class AuthenticatedWebSocketHandlerTest {
         handler.afterConnectionClosed(session, CloseStatus.NORMAL);
 
         verify(presence).offline(userId, "connection-1");
+    }
+
+    @Test
+    void heartbeatsOnlyTheConnectionsThatAreStillOpen() {
+        handler.refreshPresence();
+
+        verify(presence).refresh(Map.of(userId, List.of("connection-1")));
+    }
+
+    @Test
+    void keepsLiveSocketsWhenTheHeartbeatCannotReachRedis() {
+        doThrow(new IllegalStateException("redis is down")).when(presence).refresh(any());
+
+        // Must not reach the scheduler: one failed heartbeat cannot close live connections.
+        handler.refreshPresence();
+
+        verify(presence).refresh(any());
     }
 
     @Test
