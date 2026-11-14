@@ -41,8 +41,10 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -69,6 +71,8 @@ class OutboxPublisherIntegrationTest {
 
     private static final String PROBE = "subscriber-probe";
     private static final Duration RECEIVE_TIMEOUT = Duration.ofSeconds(10);
+    /** Long enough to subscribe over loopback, short enough that a stalled one fails the build. */
+    private static final Duration LISTENER_BUDGET = Duration.ofSeconds(15);
     private static final UUID SENDER = id(1);
     private static final UUID MEMBER = id(2);
     private static final UUID LATE_JOINER = id(3);
@@ -628,15 +632,30 @@ class OutboxPublisherIntegrationTest {
                         mapper, meters, transactions);
                 redisOnly.stop();
 
-                // A stopped container surfaces as a connection failure or a command timeout depending
-                // on where Lettuce is when it goes away; both are failures the publisher retries.
-                assertThatThrownBy(beforeRestart::publishPending)
-                        .as("a stopped container is an outage, not a mock")
-                        .isInstanceOf(DataAccessException.class);
-                assertThat(attempts(event)).isEqualTo(1);
-                assertThat(secondsUntilDue(event)).as("the failed attempt still backs the row off")
-                        .isBetween(1, 3);
-                assertThat(abandonedAt(event)).isNull();
+                // Four real failures, each waiting out the backoff it wrote, before the container
+                // comes back. The 22.5-37.5 s window the docs quote is what this actually outlives.
+                int[] waits = {2, 4, 8, 16};
+                int outageSurvived = 0;
+                for (int failure = 0; failure < waits.length; failure++) {
+                    if (failure > 0) awaitDue(event);
+                    // A stopped container surfaces as a connection failure or a command timeout
+                    // depending on where Lettuce is when it goes away; both are failures.
+                    assertThatThrownBy(beforeRestart::publishPending)
+                            .as("failure %d against a stopped container", failure + 1)
+                            .isInstanceOf(DataAccessException.class);
+                    assertThat(attempts(event)).isEqualTo(failure + 1);
+                    int waited = secondsUntilDue(event);
+                    outageSurvived += waited;
+                    assertThat(waited)
+                            .as("failure %d still backs the row off by about %d seconds",
+                                    failure + 1, waits[failure])
+                            .isBetween((int) Math.floor(waits[failure] * 0.75) - 1,
+                                    (int) Math.ceil(waits[failure] * 1.25) + 1);
+                    assertThat(abandonedAt(event)).as("the row still has an attempt left").isNull();
+                }
+                assertThat(outageSurvived)
+                        .as("the four waits are the recorded outage window, measured against a real stop")
+                        .isBetween(22, 38);
 
                 redisOnly.start();
                 // The sockets the old template held died with the container, so it is rebuilt against
@@ -652,11 +671,62 @@ class OutboxPublisherIntegrationTest {
 
         assertThat(publishedAt(event)).as("the row survives a real restart and is delivered")
                 .isNotNull();
-        assertThat(attempts(event)).as("and carries its one failed attempt").isEqualTo(1);
+        assertThat(attempts(event)).as("and carries its four failed attempts").isEqualTo(4);
         assertThat(abandonedAt(event)).as("without being abandoned").isNull();
         assertThat(meters.find("nexus.outbox.abandoned").counters().stream()
                 .mapToDouble(counter -> counter.count()).sum())
                 .as("so nothing was given up on").isZero();
+    }
+
+    @Test
+    void abandonsTheRowAtItsRetryCapWhenTheBatchRollsBackAtTheMark() throws Exception {
+        UUID conversation = id(151);
+        UUID good = id(240);
+        UUID bad = id(241);
+        UUID goodEvent = id(450);
+        UUID badEvent = id(451);
+        group(conversation, SENDER, MEMBER);
+        message(good, conversation, SENDER);
+        // Redis refuses this payload, so the batch is retried row by row and only this row fails.
+        jdbc.update("""
+                INSERT INTO nexus.message
+                    (id, conversation_id, sender_id, conversation_sequence, idempotency_key, content)
+                VALUES (?, ?, ?, 2, 'rejected', 'rejected-by-redis')
+                """, bad, conversation, SENDER);
+        messageEvent(goodEvent, conversation, good, "message.created");
+        messageEvent(badEvent, conversation, bad, "message.created");
+        // One attempt short of the cap: this failure is the one that decides to give up on the row.
+        jdbc.update("UPDATE nexus.message_outbox SET attempts = ? WHERE event_id = ?",
+                OutboxPublisher.MAX_ATTEMPTS - 1, badEvent);
+
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        OutboxPublisher capped = new OutboxPublisher(jdbc, named,
+                rejecting(redis, "rejected-by-redis"), mapper, meters, transactions);
+
+        creatingFailingMark();
+        try {
+            assertThatThrownBy(capped::publishPending)
+                    .as("the row at its cap was counted, then the mark rolled the batch back")
+                    .isInstanceOf(DataAccessException.class);
+        } finally {
+            droppingFailingMark();
+        }
+
+        // The decision was taken on an attempt that the rollback erased, so it had to be taken again
+        // after it: abandoned exactly once, with the counter agreeing with the row.
+        assertThat(abandonedAt(badEvent)).isNotNull();
+        assertThat(abandonReason(badEvent)).isEqualTo("retries");
+        assertThat(attempts(badEvent)).isEqualTo(OutboxPublisher.MAX_ATTEMPTS);
+        assertThat(publishedAt(badEvent)).isNull();
+        assertThat(lastError(badEvent)).contains("mark failed");
+        assertThat(meters.find("nexus.outbox.abandoned").tag("reason", "retries").counter().count())
+                .as("the rolled-back decision is not counted on top of the real one").isEqualTo(1.0);
+        assertThat(meters.find("nexus.outbox.abandoned").tag("reason", "encode").counters().stream()
+                .mapToDouble(counter -> counter.count()).sum())
+                .as("nothing here was unencodable").isZero();
+        assertThat(publishedAt(goodEvent)).as("the mark it rolled back with stays unwritten").isNull();
+        assertThat(attempts(goodEvent)).as("the row that did publish keeps its one attempt").isEqualTo(1);
+        assertThat(abandonedAt(goodEvent)).isNull();
     }
 
     @Test
@@ -971,12 +1041,14 @@ class OutboxPublisherIntegrationTest {
         return poisoned;
     }
 
-    /** Fails the mark step while it changes no attempts, i.e. never for the retry counter. */
+    /** Fails the mark step only: counting an attempt and abandoning a row still write. */
     private void creatingFailingMark() {
         jdbc.execute("""
                 CREATE OR REPLACE FUNCTION nexus.fail_outbox_mark() RETURNS trigger AS $$
                 BEGIN
-                    IF NEW.attempts = OLD.attempts THEN RAISE EXCEPTION 'mark failed'; END IF;
+                    IF NEW.published_at IS DISTINCT FROM OLD.published_at THEN
+                        RAISE EXCEPTION 'mark failed';
+                    END IF;
                     RETURN NEW;
                 END; $$ LANGUAGE plpgsql
                 """);
@@ -1016,13 +1088,51 @@ class OutboxPublisherIntegrationTest {
         container.addMessageListener((message, pattern) ->
                         published.add(new String(message.getBody(), StandardCharsets.UTF_8)),
                 new ChannelTopic(OutboxPublisher.CHANNEL));
-        container.afterPropertiesSet();
-        container.start();
+        // A container that cannot reach Redis does not fail to start: it loops in potentiallyRecover
+        // and sleeps, which used to hang the suite for as long as Gradle would wait. Starting and
+        // stopping it on a thread of their own turns that into a failure with the reason named.
+        bounded("subscribing to the outbox channel", () -> {
+            container.afterPropertiesSet();
+            container.start();
+        }, true);
         try {
             awaitSubscriber(published);
             scenario.run(published);
         } finally {
-            container.destroy();
+            try {
+                bounded("unsubscribing from the outbox channel", container::destroy, false);
+            } catch (AssertionError | RuntimeException ignored) {
+                // A container stuck in recovery cannot be shut down; its thread is a daemon.
+            }
+        }
+    }
+
+    private interface Lifecycle {
+        void run() throws Exception;
+    }
+
+    /** Runs a listener-container lifecycle step with a deadline instead of waiting in its retry loop. */
+    private static void bounded(String what, Lifecycle step, boolean ignored) {
+        ExecutorService runner = Executors.newSingleThreadExecutor(task -> {
+            Thread thread = new Thread(task, what);
+            thread.setDaemon(true);
+            return thread;
+        });
+        try {
+            runner.submit(() -> {
+                step.run();
+                return null;
+            }).get(LISTENER_BUDGET.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (TimeoutException stalled) {
+            throw new AssertionError("The test could not finish " + what + " within "
+                    + LISTENER_BUDGET.toSeconds() + "s: Redis is unreachable", stalled);
+        } catch (ExecutionException failed) {
+            throw new AssertionError("The test could not " + what, failed.getCause());
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("Interrupted while " + what, interrupted);
+        } finally {
+            runner.shutdownNow();
         }
     }
 
@@ -1187,11 +1297,15 @@ class OutboxPublisherIntegrationTest {
     }
 
     private void message(UUID message, UUID conversation, UUID sender) {
+        message(message, conversation, sender, "hello");
+    }
+
+    private void message(UUID message, UUID conversation, UUID sender, String content) {
         jdbc.update("""
                 INSERT INTO nexus.message
                     (id, conversation_id, sender_id, conversation_sequence, idempotency_key, content)
-                VALUES (?, ?, ?, 1, ?, 'hello')
-                """, message, conversation, sender, "k" + message.getLeastSignificantBits());
+                VALUES (?, ?, ?, 1, ?, ?)
+                """, message, conversation, sender, "k" + message.getLeastSignificantBits(), content);
     }
 
     private void mlsMessage(UUID mlsMessage, UUID conversation, UUID sender, long epoch, String kind) {
