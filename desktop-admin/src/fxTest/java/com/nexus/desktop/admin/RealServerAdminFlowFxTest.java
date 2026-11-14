@@ -39,6 +39,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static com.nexus.desktop.shared.testing.FxThread.onFx;
 
 /**
  * Opt-in admin smoke test against a real server. It creates its own users, a friendship,
@@ -452,42 +453,6 @@ class RealServerAdminFlowFxTest {
             Thread.currentThread().interrupt();
             throw new AssertionError("Interrupted while waiting for the live server.", exception);
         }
-    }
-
-    private static <T> T onFx(Callable<T> action) {
-        startToolkit();
-        CompletableFuture<T> result = new CompletableFuture<>();
-        Platform.runLater(() -> {
-            try {
-                result.complete(action.call());
-            } catch (Throwable failure) {
-                result.completeExceptionally(failure);
-            }
-        });
-        try {
-            return result.get(30, TimeUnit.SECONDS);
-        } catch (Exception exception) {
-            throw new AssertionError("JavaFX action failed", exception);
-        }
-    }
-
-    private static synchronized void startToolkit() {
-        if (Platform.isFxApplicationThread()) return;
-        CountDownLatch ready = new CountDownLatch(1);
-        try {
-            Platform.startup(ready::countDown);
-        } catch (IllegalStateException alreadyStarted) {
-            ready.countDown();
-        }
-        try {
-            if (!ready.await(30, TimeUnit.SECONDS)) {
-                throw new IllegalStateException("JavaFX toolkit did not start within 30 seconds.");
-            }
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Interrupted while starting JavaFX.", exception);
-        }
-        Platform.setImplicitExit(false);
     }
 
     private static String env(String name, String fallback) {

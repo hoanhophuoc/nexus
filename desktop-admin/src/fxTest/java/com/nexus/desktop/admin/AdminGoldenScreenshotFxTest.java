@@ -30,6 +30,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static com.nexus.desktop.shared.testing.FxThread.onFx;
 
 /**
  * Golden screenshots for the two new admin workspaces. Goldens are generated with
@@ -55,13 +56,19 @@ class AdminGoldenScreenshotFxTest {
             AtomicReference<AdminAppContext> contextReference = new AtomicReference<>();
             AtomicReference<ThemeManager> themeReference = new AtomicReference<>();
             AtomicReference<Parent> rootReference = new AtomicReference<>();
+            // The sign-in is three HTTP round trips: done on the test thread, so the FX task below
+            // only builds the scene it is being measured on.
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            I18n english = new I18n(BASE, Locale.ENGLISH);
+            AdminAppContext context = onFx(() -> {
+                Stage ownStage = new Stage();
+                stageReference.set(ownStage);
+                return new AdminAppContext(ownStage, server.origin().toString(), theme, english);
+            });
+            context.activate(context.signIn("admin", "correct horse battery staple".toCharArray()));
             onFx(() -> {
-                Stage stage = new Stage();
-                ThemeManager theme = new ThemeManager();
-                theme.setTheme(Theme.LIGHT);
-                I18n english = new I18n(BASE, Locale.ENGLISH);
-                AdminAppContext context = new AdminAppContext(stage, server.origin().toString(), theme, english);
-                context.activate(context.signIn("admin", "correct horse battery staple".toCharArray()));
+                Stage stage = stageReference.get();
                 Parent root = AdminViewLoader.load(AdminViewLoader.ACCOUNTS,
                         new AccountsController(context), english);
                 Scene scene = new Scene(root, WIDTH, HEIGHT);
@@ -103,7 +110,6 @@ class AdminGoldenScreenshotFxTest {
                 AtomicReference<Parent> reportsRoot = new AtomicReference<>();
                 onFx(() -> {
                     themeReference.get().setTheme(Theme.LIGHT);
-                    I18n english = new I18n(BASE, Locale.ENGLISH);
                     Parent reports = AdminViewLoader.load(AdminViewLoader.REPORTS,
                             new ReportsController(contextReference.get()), english);
                     Scene scene = new Scene(reports, WIDTH, HEIGHT);
@@ -254,39 +260,4 @@ class AdminGoldenScreenshotFxTest {
         throw new AssertionError("Timed out waiting for the admin scene.");
     }
 
-    private static <T> T onFx(Callable<T> action) {
-        startToolkit();
-        CompletableFuture<T> result = new CompletableFuture<>();
-        Platform.runLater(() -> {
-            try {
-                result.complete(action.call());
-            } catch (Throwable failure) {
-                result.completeExceptionally(failure);
-            }
-        });
-        try {
-            return result.get(30, TimeUnit.SECONDS);
-        } catch (Exception exception) {
-            throw new AssertionError("JavaFX action failed", exception);
-        }
-    }
-
-    private static synchronized void startToolkit() {
-        if (Platform.isFxApplicationThread()) return;
-        CountDownLatch ready = new CountDownLatch(1);
-        try {
-            Platform.startup(ready::countDown);
-        } catch (IllegalStateException alreadyStarted) {
-            ready.countDown();
-        }
-        try {
-            if (!ready.await(30, TimeUnit.SECONDS)) {
-                throw new IllegalStateException("JavaFX toolkit did not start within 30 seconds.");
-            }
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Interrupted while starting JavaFX.", exception);
-        }
-        Platform.setImplicitExit(false);
-    }
 }

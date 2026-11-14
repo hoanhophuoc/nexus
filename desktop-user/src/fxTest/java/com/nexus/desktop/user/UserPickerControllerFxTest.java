@@ -21,6 +21,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static com.nexus.desktop.shared.testing.FxThread.onFx;
 
 /**
  * The picker is the least covered screen in the user client: no flow test ever opened it, so its
@@ -34,8 +35,8 @@ class UserPickerControllerFxTest {
 
     @Test
     void configuresASingleChoicePickerAndSelectsTheFirstPerson() throws Exception {
+        I18n i18n = new I18n(BASE, Locale.ENGLISH);
         assertThat(onFx(() -> {
-            I18n i18n = new I18n(BASE, Locale.ENGLISH);
             UserPickerController controller = controller(i18n);
             controller.configure("Start a chat", "Pick one person", false, "Name", List.of(
                     item("Hoa", true), item("Binh", false)), false);
@@ -52,8 +53,8 @@ class UserPickerControllerFxTest {
 
     @Test
     void configuresAMultipleChoicePickerAndKeepsTheNamePrompt() throws Exception {
+        I18n i18n = new I18n(BASE, Locale.ENGLISH);
         assertThat(onFx(() -> {
-            I18n i18n = new I18n(BASE, Locale.ENGLISH);
             UserPickerController controller = controller(i18n);
             controller.configure("New group", "Pick people", true, "Group name", List.of(
                     item("Hoa", true), item("Binh", false), item("Chi", false)), true);
@@ -73,8 +74,8 @@ class UserPickerControllerFxTest {
 
     @Test
     void trimsTheTypedNameAndTreatsAnUnsetFieldAsEmpty() throws Exception {
+        I18n i18n = new I18n(BASE, Locale.ENGLISH);
         assertThat(onFx(() -> {
-            I18n i18n = new I18n(BASE, Locale.ENGLISH);
             UserPickerController controller = controller(i18n);
             controller.configure("New group", "Pick people", true, "Group name", List.of(), true);
             TextField nameField = (TextField) field(controller, "nameField");
@@ -90,8 +91,8 @@ class UserPickerControllerFxTest {
 
     @Test
     void rendersAPersonRowAndFallsBackToTheEmptyState() throws Exception {
+        I18n i18n = new I18n(BASE, Locale.ENGLISH);
         assertThat(onFx(() -> {
-            I18n i18n = new I18n(BASE, Locale.ENGLISH);
             UserPickerController controller = controller(i18n);
             controller.configure("Start a chat", "Pick one person", false, "Name",
                     List.of(item("Hoa", true), item("Binh", false)), false);
@@ -162,22 +163,4 @@ class UserPickerControllerFxTest {
         method.invoke(controller);
     }
 
-    private static <T> T onFx(Callable<T> action) throws Exception {
-        try {
-            Platform.startup(() -> Platform.setImplicitExit(false));
-        } catch (IllegalStateException alreadyRunning) {
-            // the toolkit is shared with the other JavaFX tests
-        }
-        CompletableFuture<T> result = new CompletableFuture<>();
-        Platform.runLater(() -> {
-            // closing the stage of one test must not shut the shared toolkit down
-            Platform.setImplicitExit(false);
-            try {
-                result.complete(action.call());
-            } catch (Throwable failure) {
-                result.completeExceptionally(failure);
-            }
-        });
-        return result.get(30, TimeUnit.SECONDS);
-    }
 }

@@ -15,9 +15,9 @@ import java.time.Duration;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import static com.nexus.desktop.user.FxThread.onFx;
-import static com.nexus.desktop.user.FxThread.waitForFx;
 import static org.assertj.core.api.Assertions.assertThat;
+import static com.nexus.desktop.shared.testing.FxThread.onFx;
+import static com.nexus.desktop.shared.testing.FxThread.waitForFx;
 
 /**
  * The sign-in screen only had its happy path. A request that never reaches the service arrives as an

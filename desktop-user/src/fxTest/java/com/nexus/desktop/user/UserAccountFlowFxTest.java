@@ -38,6 +38,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static com.nexus.desktop.shared.testing.FxThread.onFx;
+import static com.nexus.desktop.shared.testing.FxThread.waitForFx;
 
 /** Interaction coverage for the account, social, report and group-management screens. */
 class UserAccountFlowFxTest {
@@ -588,23 +590,6 @@ class UserAccountFlowFxTest {
         }
     }
 
-    private static <T> T onFx(Callable<T> action) {
-        startToolkit();
-        CompletableFuture<T> result = new CompletableFuture<>();
-        Platform.runLater(() -> {
-            try {
-                result.complete(action.call());
-            } catch (Throwable failure) {
-                result.completeExceptionally(failure);
-            }
-        });
-        try {
-            return result.get(30, TimeUnit.SECONDS);
-        } catch (Exception exception) {
-            throw new AssertionError("JavaFX action failed", exception);
-        }
-    }
-
     private static void withHome(Path home, Callable<Void> action) throws Exception {
         String previous = System.getProperty("user.home");
         System.setProperty("user.home", home.toString());
@@ -614,25 +599,6 @@ class UserAccountFlowFxTest {
             if (previous == null) System.clearProperty("user.home");
             else System.setProperty("user.home", previous);
         }
-    }
-
-    private static synchronized void startToolkit() {
-        if (Platform.isFxApplicationThread()) return;
-        CountDownLatch ready = new CountDownLatch(1);
-        try {
-            Platform.startup(ready::countDown);
-        } catch (IllegalStateException alreadyStarted) {
-            ready.countDown();
-        }
-        try {
-            if (!ready.await(30, TimeUnit.SECONDS)) {
-                throw new IllegalStateException("JavaFX toolkit did not start.");
-            }
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Interrupted while starting JavaFX.", exception);
-        }
-        Platform.setImplicitExit(false);
     }
 
     private record Harness(Stage stage, UserAppContext context, ThemeManager theme, I18n i18n) {

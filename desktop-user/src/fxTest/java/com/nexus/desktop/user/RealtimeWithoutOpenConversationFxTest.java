@@ -15,6 +15,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static com.nexus.desktop.shared.testing.FxThread.onFx;
+import static com.nexus.desktop.shared.testing.FxThread.waitForFx;
 
 /**
  * A realtime event can arrive while nothing is open: the first conversation list has not loaded yet,
@@ -33,7 +35,7 @@ class RealtimeWithoutOpenConversationFxTest {
             server.hideDirectConversation();
             AtomicReference<Stage> stageReference = new AtomicReference<>();
             AtomicReference<UserDesktopApplication> applicationReference = new AtomicReference<>();
-            FxThread.onFx(() -> {
+            onFx(() -> {
                 UserDesktopApplication application =
                         new UserDesktopApplication(server.origin().toString(), true, realtime.uri());
                 applicationReference.set(application);
@@ -45,17 +47,17 @@ class RealtimeWithoutOpenConversationFxTest {
             Stage stage = stageReference.get();
             UserDesktopApplication application = applicationReference.get();
             try {
-                FxThread.onFx(() -> {
+                onFx(() -> {
                     Scene scene = stage.getScene();
                     field(scene, "Username").setText("alice");
                     field(scene, "Password").setText("correct horse battery staple");
                     button(scene, "Sign in").fire();
                     return true;
                 });
-                FxThread.waitForFx(() -> button(stage, "Send") != null, Duration.ofSeconds(10));
+                waitForFx(() -> button(stage, "Send") != null, Duration.ofSeconds(10));
                 // The realtime listener repaints on connect, which is a repaint with nothing open.
                 realtime.awaitClient(TimeUnit.SECONDS, 10);
-                FxThread.waitForFx(() -> conversationCount(stage) == 0, Duration.ofSeconds(10));
+                waitForFx(() -> conversationCount(stage) == 0, Duration.ofSeconds(10));
 
                 realtime.sendText("{\"type\":\"MessageCreated\",\"conversationId\":\""
                         + FakeChatServer.FRIEND_ID + "\",\"message\":{\"id\":\"" + UUID.randomUUID()
@@ -64,14 +66,14 @@ class RealtimeWithoutOpenConversationFxTest {
                         + "\"2026-11-14T10:00:00Z\"}}");
 
                 // The shell is still on its empty state and still answers: no repaint from nowhere.
-                FxThread.waitForFx(() -> stage.getScene() != null, Duration.ofSeconds(10));
-                assertThat(FxThread.onFx(() -> conversationCount(stage)))
+                waitForFx(() -> stage.getScene() != null, Duration.ofSeconds(10));
+                assertThat(onFx(() -> conversationCount(stage)))
                         .as("an event for a conversation nobody has open opens nothing")
                         .isZero();
-                assertThat(FxThread.onFx(() -> button(stage, "Send") != null))
+                assertThat(onFx(() -> button(stage, "Send") != null))
                         .as("the shell is still responsive").isTrue();
             } finally {
-                FxThread.onFx(() -> {
+                onFx(() -> {
                     stage.close();
                     application.stop();
                     return true;

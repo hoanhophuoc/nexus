@@ -19,7 +19,7 @@ coverage report, the gate and `./gradlew sonar` (`build-test` therefore waits fo
 Without that data the module reports were empty, SonarQube counted both UI modules as 0% covered,
 and the project sat at 38%. With it they measure 70.36% and 84.86% of lines, which takes the reported
 project coverage from 38% to 67%. Across the four product modules and both desktop suites the
-aggregate report — the one the bundle floor is checked against — measures 80.13% of lines and 56.27%
+aggregate report — the one the bundle floor is checked against — measures 80.13% of lines and 56.30%
 of branches, about two points above both bundle floors. Summing the four per-module reports
 instead gives 76.46% and 54.16%, because a module's report only credits its own suites:
 `com.nexus.desktop.shared/ui` reads as 11 covered lines of 191 in the shared report but 175 of 191 in
@@ -36,6 +36,12 @@ suite's own results means the run was narrowed (`--tests '...'`) or skipped it, 
 the suite and the missing classes. Measure a tree with
 `xvfb-run -a ./gradlew fullTest coverageReport --rerun-tasks`.
 
+A package average still hides a weak class, so three floors are per class rather than per package:
+`OutboxPublisher` (98.30% line / 94.03% branch when the floor was set), `ShellController`
+(42.63% / 31.06%) and `AdminAppContext` (74.19% / 60.00%) — the classes every delivery path and both
+shells run through. `ShellController`'s floor is low because the class is; it records where the JavaFX
+shell stands and fails if it slips, it does not claim the class is well tested.
+
 The line figure is reproducible because no suite relies on a timer to reach a line. The presence
 heartbeat used to be covered only when a Spring context happened to outlive its 30-second first run,
 which moved the server figure by two lines between runs; `AuthenticatedWebSocketHandlerTest` now
@@ -43,6 +49,14 @@ drives `refreshPresence()` directly, for open sessions and for an unreachable Re
 `RealtimeWithoutOpenConversationFxTest` signs in against a server with no conversations so the shell
 really has nothing open when a realtime event arrives. Two `--rerun-tasks` runs now report the same
 covered and missed lines and branches.
+
+Every JavaFX suite runs through `fx-test-support`'s `FxThread`, which gives a task a 10 second budget
+instead of the 30 each test used to carry, and on expiry throws the JavaFX thread's stack so the test
+names the frame it is stuck in. Ten seconds is well above the four seconds it takes a cold first task
+to load FXML and CSS, and far below the point where a stall is indistinguishable from a slow machine.
+Network calls in a task is the failure this catches: `AdminAppContext.signIn` is three HTTP round
+trips, and it, the resource bundles and the golden files are loaded on the test thread so an FX task
+only builds and lays out what it then asserts on.
 
 `java:S2077` ("Make sure using a dynamically formatted SQL query is safe here") is still ignored for
 `server/administration`, through `sonar.issue.ignore.multicriteria` in `build.gradle`.

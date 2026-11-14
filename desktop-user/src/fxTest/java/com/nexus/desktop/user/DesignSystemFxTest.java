@@ -41,6 +41,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static com.nexus.desktop.shared.testing.FxThread.onFx;
 
 class DesignSystemFxTest {
     private static final String BASE = "com.nexus.desktop.user.i18n.messages";
@@ -305,11 +306,11 @@ class DesignSystemFxTest {
 
     @Test
     void loginViewLoadsFromFxmlWithVietnameseCopyAndStableAccessibility() {
+        I18n vietnamese = new I18n(BASE, Locale.forLanguageTag("vi"));
         assertThat(onFx(() -> {
             Stage stage = new Stage();
             ThemeManager theme = new ThemeManager();
             theme.setTheme(Theme.LIGHT);
-            I18n vietnamese = new I18n(BASE, Locale.forLanguageTag("vi"));
             UserAppContext context = new UserAppContext(stage, "http://127.0.0.1:1",
                     false, null, theme, vietnamese);
             try {
@@ -373,39 +374,4 @@ class DesignSystemFxTest {
                 .orElseThrow(() -> new AssertionError("Missing button: " + text));
     }
 
-    private static <T> T onFx(Callable<T> action) {
-        startToolkit();
-        CompletableFuture<T> result = new CompletableFuture<>();
-        Platform.runLater(() -> {
-            try {
-                result.complete(action.call());
-            } catch (Throwable failure) {
-                result.completeExceptionally(failure);
-            }
-        });
-        try {
-            return result.get(30, TimeUnit.SECONDS);
-        } catch (Exception exception) {
-            throw new AssertionError("JavaFX action failed", exception);
-        }
-    }
-
-    private static synchronized void startToolkit() {
-        if (Platform.isFxApplicationThread()) return;
-        CountDownLatch ready = new CountDownLatch(1);
-        try {
-            Platform.startup(ready::countDown);
-        } catch (IllegalStateException alreadyStarted) {
-            ready.countDown();
-        }
-        try {
-            if (!ready.await(30, TimeUnit.SECONDS)) {
-                throw new IllegalStateException("JavaFX toolkit did not start within 30 seconds.");
-            }
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Interrupted while starting JavaFX.", exception);
-        }
-        Platform.setImplicitExit(false);
-    }
 }

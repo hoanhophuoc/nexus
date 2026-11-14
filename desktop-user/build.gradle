@@ -36,6 +36,7 @@ configurations {
 
 dependencies {
     implementation project(':desktop-shared')
+    fxTestImplementation project(':fx-test-support')
     testImplementation 'org.junit.jupiter:junit-jupiter:6.1.3'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher:6.1.3'
     testImplementation 'org.assertj:assertj-core:3.27.7'

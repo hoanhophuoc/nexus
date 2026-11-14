@@ -1,0 +1,26 @@
+// Test-only support shared by the JavaFX suites. It is a module rather than a source set because the
+// JavaFX plugin puts the toolkit on the module path of main compilation only, so the desktop modules
+// cannot publish a fixture the way java-test-fixtures would.
+plugins {
+    id 'java-library'
+    id 'org.openjfx.javafxplugin' version '0.1.0'
+}
+
+group = 'com.nexus'
+version = rootProject.version
+
+java {
+    toolchain { languageVersion = JavaLanguageVersion.of(27) }
+}
+
+repositories { mavenCentral() }
+
+javafx {
+    version = '27.0.1'
+    modules = ['javafx.controls']
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 27
+}

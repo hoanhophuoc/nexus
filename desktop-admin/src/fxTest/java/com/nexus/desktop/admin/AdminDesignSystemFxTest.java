@@ -28,6 +28,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static com.nexus.desktop.shared.testing.FxThread.onFx;
 
 class AdminDesignSystemFxTest {
     private static final String BASE = "com.nexus.desktop.admin.i18n.messages";
@@ -91,7 +92,6 @@ class AdminDesignSystemFxTest {
             }
         })).isTrue();
     }
-
 
     @Test
     void accountAndReportScreensKeepLabelsFocusAndBundleContractInBothLocales() throws Exception {
@@ -165,6 +165,7 @@ class AdminDesignSystemFxTest {
 
             // A second, shorter FX task: each screen gets its own window, so one slow load cannot
             // consume the budget of the whole test on a loaded machine.
+            I18n english = new I18n(BASE, Locale.ENGLISH);
             assertThat(onFx(() -> {
                 Stage stage = stageReference.get();
                 ThemeManager theme = themeReference.get();
@@ -172,7 +173,6 @@ class AdminDesignSystemFxTest {
                 AdminAppContext context = signInContext;
                 try {
                     ResourceBundle vi = vietnamese.bundle();
-                    I18n english = new I18n(BASE, Locale.ENGLISH);
                     Parent reports = AdminViewLoader.load(AdminViewLoader.REPORTS,
                             new ReportsController(context), english);
                     Scene reportsScene = new Scene(reports, 1280, 720);
@@ -251,39 +251,4 @@ class AdminDesignSystemFxTest {
                 .findFirst().orElseThrow(() -> new AssertionError("Missing button: " + text));
     }
 
-    private static <T> T onFx(Callable<T> action) {
-        startToolkit();
-        CompletableFuture<T> result = new CompletableFuture<>();
-        Platform.runLater(() -> {
-            try {
-                result.complete(action.call());
-            } catch (Throwable failure) {
-                result.completeExceptionally(failure);
-            }
-        });
-        try {
-            return result.get(30, TimeUnit.SECONDS);
-        } catch (Exception exception) {
-            throw new AssertionError("JavaFX action failed", exception);
-        }
-    }
-
-    private static synchronized void startToolkit() {
-        if (Platform.isFxApplicationThread()) return;
-        CountDownLatch ready = new CountDownLatch(1);
-        try {
-            Platform.startup(ready::countDown);
-        } catch (IllegalStateException alreadyStarted) {
-            ready.countDown();
-        }
-        try {
-            if (!ready.await(30, TimeUnit.SECONDS)) {
-                throw new IllegalStateException("JavaFX toolkit did not start within 30 seconds.");
-            }
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Interrupted while starting JavaFX.", exception);
-        }
-        Platform.setImplicitExit(false);
-    }
 }
