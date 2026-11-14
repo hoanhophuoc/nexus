@@ -65,7 +65,7 @@ def coverageDataCheck = tasks.register('coverageDataCheck') {
     dependsOn ':server:test', ':server:integrationTest', ':desktop-shared:test'
     mustRunAfter ':desktop-user:test', ':desktop-admin:test',
             ':desktop-user:fxTest', ':desktop-admin:fxTest'
-    notCompatibleWithConfigurationCache('compares exec and source timestamps at execution time')
+    notCompatibleWithConfigurationCache('compares exec timestamps and test reports at execution time')
     doLast {
         def relative = { File file -> rootDir.toPath().relativize(file.toPath()).toString() }
         def moduleOf = { File file -> relative(file).split('/')[0] }
@@ -76,22 +76,49 @@ def coverageDataCheck = tasks.register('coverageDataCheck') {
             }
         }
         def execFiles = coverageExecutionData()
-        // A filtered run writes fresh but partial data, which the timestamps above cannot see.
-        def filtered = [':server:test', ':server:integrationTest', ':desktop-shared:test',
-                        ':desktop-user:test', ':desktop-admin:test',
-                        ':desktop-user:fxTest', ':desktop-admin:fxTest'].findAll { path ->
-            def task = tasks.findByPath(path)
-            task instanceof Test && (!task.filter.includePatterns.isEmpty()
-                    || !task.filter.commandLineIncludePatterns.isEmpty())
+        // Timestamps cannot see a partial run, so every suite is held to the test classes it
+        // compiled: "--tests '...'" leaves the rest of its classes with no report, and a suite that
+        // skipped one at runtime has no report for it either.
+        def suites = [
+                ':server:test'             : ['server', 'test'],
+                ':server:integrationTest'  : ['server', 'integrationTest'],
+                ':desktop-shared:test'     : ['desktop-shared', 'test'],
+                ':desktop-user:test'       : ['desktop-user', 'test'],
+                ':desktop-user:fxTest'     : ['desktop-user', 'fxTest'],
+                ':desktop-admin:test'      : ['desktop-admin', 'test'],
+                ':desktop-admin:fxTest'    : ['desktop-admin', 'fxTest']]
+        def unrunTests = [:]
+        suites.each { suite, moduleAndSourceSet ->
+            def sourceSet = moduleAndSourceSet[1]
+            File classes = file("${moduleAndSourceSet[0]}/build/classes/java/${sourceSet}")
+            File reports = file("${moduleAndSourceSet[0]}/build/test-results/${sourceSet}")
+            def compiled = classes.exists()
+                    ? fileTree(dir: classes, include: '**/*Test.class').files
+                            .findAll { !it.name.contains('$') }
+                            .collect {
+                                def path = classes.toPath().relativize(it.toPath()).toString()
+                                path.substring(0, path.length() - '.class'.length())
+                                        .replace(File.separatorChar, '.' as char)
+                            } as Set
+                    : [] as Set
+            def reported = reports.exists()
+                    ? fileTree(dir: reports, include: 'TEST-*.xml').files
+                            .collect { it.name.substring('TEST-'.length(), it.name.length() - '.xml'.length()) } as Set
+                    : [] as Set
+            def unrun = (compiled - reported).sort()
+            if (!unrun.isEmpty()) unrunTests[suite] = unrun
         }
         def missing = execFiles.findAll { !it.exists() }
         def stale = execFiles.findAll { exec ->
             exec.exists() && exec.lastModified() < sourcesChangedAt(moduleOf(exec))
         }
-        if (!missing.isEmpty() || !stale.isEmpty() || !filtered.isEmpty()) {
+        if (!missing.isEmpty() || !stale.isEmpty() || !unrunTests.isEmpty()) {
             def details = (missing.collect { "no data in ${relative(it)}" } +
                     stale.collect { "${relative(it)} is older than the ${moduleOf(it)} sources" } +
-                    filtered.collect { "${it} only ran a filtered subset" }).join('; ')
+                    unrunTests.collect { suite, unrun ->
+                        "${suite} has no report for ${unrun.size()} of its test classes " +
+                                "(${unrun.take(3).join(', ')}${unrun.size() > 3 ? ', ...' : ''})"
+                    }).join('; ')
             throw new GradleException("Coverage data cannot be trusted (${details}). Measure this " +
                     'tree with "xvfb-run -a ./gradlew fullTest coverageReport --rerun-tasks".')
         }
@@ -118,8 +145,8 @@ tasks.register('coverageReport', JacocoReport) {
 }
 
 // Anti-regression gate over the product modules. The floors are the baseline measured on
-// 2026-11-14 across all four product modules and both desktop suites (bundle 79.98% line /
-// 55.98% branch, from the aggregate coverageReport the BUNDLE rule reads), rounded down so a
+// 2026-11-14 across all four product modules and both desktop suites (bundle 80.13% line /
+// 56.27% branch, from the aggregate coverageReport the BUNDLE rule reads), rounded down so a
 // small refactor cannot fail the build on a fraction of a point. Both bundle floors keep about a
 // point and a half of headroom, like the package floors below.
 // Raise them as the remaining workflows gain tests.
