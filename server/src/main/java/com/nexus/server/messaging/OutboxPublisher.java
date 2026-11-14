@@ -98,6 +98,8 @@ public class OutboxPublisher {
             SET attempts = attempts + 1,
                 next_attempt_at = clock_timestamp()
                     + power(2, attempts + 1) * interval '1 second'
+                        -- spread replicas out: a quarter either way, so they do not retry in lockstep
+                        * (0.75 + random() * 0.5)
             WHERE event_id IN (:ids)
             RETURNING event_id, attempts
             """;

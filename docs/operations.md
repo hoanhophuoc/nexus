@@ -118,9 +118,12 @@ given up on, connection ceiling. A batch that publishes returns `max_attempts` t
 clears itself once Redis recovers; a poll that finds nothing pending does not, which keeps the alert
 raised while a capped row is still waiting to be requeued.
 
-A failed publish pushes the row's `next_attempt_at` out by 2, 4, 8 and then 16 seconds, so a row is
-retried about half a minute after its first failure instead of on every 100 ms poll, and a restart of
-Redis shorter than that loses nothing. A row that reaches five failed publishes is never polled again;
+A failed publish pushes the row's `next_attempt_at` out by 2, 4, 8 and then 16 seconds, each stretched
+or shortened by up to a quarter, so a row is retried about half a minute after its first failure
+instead of on every 100 ms poll. Measured from the four waits the schedule actually writes, a row
+survives an outage of **22.5 to 37.5 seconds** — 30 seconds nominal — before its fifth failure gets
+it abandoned; nothing shorter is lost. The jitter matters when more than one publisher runs: without
+it every replica backs off identically and they all retry in the same millisecond. A row that reaches five failed publishes is never polled again;
 each batch that abandons rows logs the first three event ids plus a count, and the row records
 `abandoned_at`, `abandon_reason` (`encode` or `retries`) and `last_error` so the decision to requeue
 it does not need the logs. A payload Redis itself rejects — too large, a value it will not accept —

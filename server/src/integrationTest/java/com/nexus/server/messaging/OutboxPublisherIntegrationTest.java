@@ -565,18 +565,27 @@ class OutboxPublisherIntegrationTest {
                 mapper, meters, transactions);
 
         // Every wait is real time waited out and read back from the column the poll uses; nothing
-        // here moves next_attempt_at, so a schedule that does not double fails the test.
+        // here moves next_attempt_at, so a schedule that does not double fails the test. Each wait is
+        // jittered by up to a quarter, and the bands of consecutive steps still do not overlap.
         int[] waits = {2, 4, 8, 16};
+        int outageSurvived = 0;
         for (int failure = 0; failure < waits.length; failure++) {
             awaitDue(event);
             assertThatThrownBy(failing::publishPending)
                     .isInstanceOf(RedisConnectionFailureException.class);
             assertThat(attempts(event)).isEqualTo(failure + 1);
-            assertThat(secondsUntilDue(event))
-                    .as("failure %d waits %d seconds", failure + 1, waits[failure])
-                    .isBetween(waits[failure] - 1, waits[failure] + 1);
+            int waited = secondsUntilDue(event);
+            outageSurvived += waited;
+            int lowest = (int) Math.floor(waits[failure] * 0.75) - 1;
+            int highest = (int) Math.ceil(waits[failure] * 1.25) + 1;
+            assertThat(waited)
+                    .as("failure %d waits about %d seconds", failure + 1, waits[failure])
+                    .isBetween(lowest, highest);
             assertThat(abandonedAt(event)).as("a row is not abandoned while attempts remain").isNull();
         }
+        assertThat(outageSurvived)
+                .as("the four waits are the outage a row survives before its last attempt")
+                .isBetween(22, 38);
 
         awaitDue(event);
         assertThatThrownBy(failing::publishPending)
@@ -595,6 +604,41 @@ class OutboxPublisherIntegrationTest {
                     .as("an abandoned row is not published by a later healthy poll").isNull();
         });
         assertThat(publishedAt(event)).isNull();
+    }
+
+    @Test
+    void keepsTheRowThroughAnOutageAsLongAsTheBackoffLasts() throws Exception {
+        UUID conversation = id(119);
+        UUID message = id(223);
+        UUID event = id(424);
+        group(conversation, SENDER, MEMBER);
+        message(message, conversation, SENDER);
+        messageEvent(event, conversation, message, "message.created");
+
+        AtomicBoolean redisDown = new AtomicBoolean(true);
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        OutboxPublisher failing = new OutboxPublisher(jdbc, named, failingWhile(redis, redisDown),
+                mapper, meters, transactions);
+
+        // Fail four times, waiting out the real backoff each time: about 14 seconds of outage.
+        for (int failure = 1; failure <= 4; failure++) {
+            awaitDue(event);
+            assertThatThrownBy(failing::publishPending)
+                    .isInstanceOf(RedisConnectionFailureException.class);
+        }
+        redisDown.set(false);
+        withSubscriber(published -> {
+            awaitDue(event);
+            failing.publishPending();
+            awaitEvent(published, event);
+        });
+
+        assertThat(publishedAt(event)).as("the row survives a shortened outage on its last retry")
+                .isNotNull();
+        assertThat(abandonedAt(event)).as("and was never abandoned").isNull();
+        assertThat(meters.find("nexus.outbox.abandoned").counters().stream()
+                .mapToDouble(counter -> counter.count()).sum())
+                .as("so nothing was given up on").isZero();
     }
 
     @Test
