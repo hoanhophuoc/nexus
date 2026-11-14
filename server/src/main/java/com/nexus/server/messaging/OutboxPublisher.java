@@ -104,6 +104,19 @@ public class OutboxPublisher {
             RETURNING event_id, attempts
             """;
 
+    /**
+     * Rows that reached the cap without an abandonment: the count committed, then the write that would
+     * have recorded the decision did not. Recovery reads the column rather than trusting the log.
+     */
+    private static final String RECONCILE_ABANDONED_SQL = """
+            UPDATE nexus.message_outbox
+            SET abandoned_at = clock_timestamp(),
+                abandon_reason = COALESCE(abandon_reason, 'retries'),
+                last_error = COALESCE(last_error, 'abandoned at the attempt cap with no recorded decision')
+            WHERE published_at IS NULL AND abandoned_at IS NULL AND attempts >= %d
+            RETURNING event_id
+            """.formatted(MAX_ATTEMPTS);
+
     private static final String ABANDON_SQL = """
             UPDATE nexus.message_outbox
             SET attempts = %d, abandoned_at = clock_timestamp(),
@@ -165,6 +178,7 @@ public class OutboxPublisher {
 
     @Scheduled(fixedDelayString = "${chat.messaging.outbox-poll-ms:100}")
     public void publishPending() {
+        reconcileAbandonments();
         List<UUID> attempted = new ArrayList<>();
         // A row that cannot be encoded is unencodable whether or not the batch commits.
         List<Abandon> poisoned = new ArrayList<>();
@@ -393,6 +407,20 @@ public class OutboxPublisher {
         if (!abandoned.isEmpty()) {
             abandons.add(new Abandon(abandoned, "retries", error));
         }
+    }
+
+    /**
+     * A row at the cap is invisible to both pending polls ({@code attempts < MAX}) and to the admin
+     * list of abandoned rows, so an attempt count whose abandonment never landed would sit there for
+     * good. Each poll recovers those rows from the columns before it looks for work.
+     */
+    private void reconcileAbandonments() {
+        List<UUID> recovered = named.query(RECONCILE_ABANDONED_SQL, new MapSqlParameterSource(),
+                (rs, row) -> rs.getObject("event_id", UUID.class));
+        if (recovered.isEmpty()) return;
+        abandonedByReason.get("retries").increment(recovered.size());
+        log.warn("Outbox recovered {} abandonment(s) that were counted but never recorded: {}",
+                recovered.size(), describe(recovered));
     }
 
     private void abandonAll(List<Abandon> abandons) {

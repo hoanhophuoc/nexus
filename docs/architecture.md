@@ -86,7 +86,11 @@ Rules that the schema enforces rather than the code:
    applied after it commits: written inside, a rollback would have undone the row while the counter
    and the log line stayed. A rollback therefore discards the retry-cap decisions it collected (their
    attempt counts went with it and are counted again afterwards) but keeps the unencodable ones, which
-   no rollback can make encodable. Each wait is jittered by up to a quarter,
+   no rollback can make encodable. Every poll also adopts the rows a crash left behind: a count can
+   commit and the process die before the abandonment is written, and such a row is invisible to both
+   pending polls (`attempts < 5`) and to the admin list, so the poll first abandons any unpublished
+   row at the cap that has no `abandoned_at`, keeping the `last_error` it already had. The pass is
+   idempotent: nothing matches on the next tick. Each wait is jittered by up to a quarter,
    so concurrent publishers do not retry in lockstep, which puts the outage a row survives at 22.5 to
    37.5 seconds. A failed publish is not retried on the next tick: the
    retry counter also moves `next_attempt_at` out by 2, 4, 8 and then 16 seconds, and both polls only

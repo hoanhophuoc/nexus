@@ -124,7 +124,9 @@ instead of on every 100 ms poll. Measured from the four waits the schedule actua
 survives an outage of **22.5 to 37.5 seconds** — 30 seconds nominal — before its fifth failure gets
 it abandoned; nothing shorter is lost. The jitter matters when more than one publisher runs: without
 it every replica backs off identically and they all retry in the same millisecond. A row that reaches five failed publishes is never polled again;
-each batch that abandons rows logs the first three event ids plus a count, and the row records
+each batch that abandons rows logs the first three event ids plus a count, and every poll first adopts
+any unpublished row sitting at five attempts with no `abandoned_at` — a crash between the count and the
+abandonment would otherwise leave a row that nothing polls and nothing lists — and the row records
 `abandoned_at`, `abandon_reason` (`encode` or `retries`) and `last_error` so the decision to requeue
 it does not need the logs. A payload Redis itself rejects — too large, a value it will not accept —
 costs only its own row: when the batch publish fails, the rows are retried one at a time and the ones

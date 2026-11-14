@@ -730,6 +730,39 @@ class OutboxPublisherIntegrationTest {
     }
 
     @Test
+    void recoversARowThatReachedTheCapWithoutAnAbandonment() throws Exception {
+        UUID conversation = id(152);
+        UUID message = id(242);
+        UUID event = id(452);
+        group(conversation, SENDER, MEMBER);
+        message(message, conversation, SENDER);
+        messageEvent(event, conversation, message, "message.created");
+        // What a crash between the count and the abandon leaves: the row is at the cap, is not
+        // abandoned, and no poll will ever select it because the pending queries ask for attempts < cap.
+        jdbc.update("UPDATE nexus.message_outbox SET attempts = ?, last_error = 'redis is down' "
+                + "WHERE event_id = ?", OutboxPublisher.MAX_ATTEMPTS, event);
+
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        OutboxPublisher recovering = new OutboxPublisher(jdbc, named, redis, mapper, meters, transactions);
+
+        withSubscriber(published -> {
+            recovering.publishPending();
+
+            assertThat(published.poll(500, TimeUnit.MILLISECONDS))
+                    .as("a row at the cap is not delivered by the poll that recovers it").isNull();
+            assertThat(abandonedAt(event)).as("the poll records the decision the crash lost").isNotNull();
+            assertThat(abandonReason(event)).isEqualTo("retries");
+            assertThat(lastError(event)).as("and keeps the failure that caused it").isEqualTo("redis is down");
+            assertThat(attempts(event)).isEqualTo(OutboxPublisher.MAX_ATTEMPTS);
+            assertThat(publishedAt(event)).isNull();
+
+            recovering.publishPending();
+            assertThat(meters.find("nexus.outbox.abandoned").tag("reason", "retries").counter().count())
+                    .as("recovery is idempotent: the next poll finds nothing left to recover").isEqualTo(1.0);
+        });
+    }
+
+    @Test
     void abandonsTheUnencodableRowEvenWhenTheMarkRollsBackTheBatch() throws Exception {
         UUID conversation = id(120);
         UUID good = id(224);
