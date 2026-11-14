@@ -48,6 +48,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -373,8 +374,7 @@ class OutboxPublisherIntegrationTest {
         withSubscriber(published -> {
             publisher.publishPending();
 
-            assertThat(awaitEvent(published, fresh))
-                    .as("a row under the cap is still published").isNotNull();
+            awaitEvent(published, fresh); // a row under the cap is still published
             assertThat(published.poll(1, TimeUnit.SECONDS))
                     .as("an abandoned row is never retried again").isNull();
             assertThat(publishedAt(messageEvent)).isNull();
@@ -394,20 +394,19 @@ class OutboxPublisherIntegrationTest {
         jdbc.update("""
                 INSERT INTO nexus.message
                     (id, conversation_id, sender_id, conversation_sequence, idempotency_key, content)
-                VALUES (?, ?, ?, 2, 'poison', 'POISON')
+                VALUES (?, ?, ?, 2, 'poison', 'hello')
                 """, bad, conversation, SENDER);
         messageEvent(goodEvent, conversation, good, "message.created");
         messageEvent(badEvent, conversation, bad, "message.created");
 
         SimpleMeterRegistry meters = new SimpleMeterRegistry();
-        OutboxPublisher isolated = new OutboxPublisher(jdbc, named, redis, failingOn("POISON"),
+        OutboxPublisher isolated = new OutboxPublisher(jdbc, named, redis, failingOn(badEvent),
                 meters, transactions);
 
         withSubscriber(published -> {
             isolated.publishPending();
 
-            assertThat(awaitEvent(published, goodEvent))
-                    .as("one unencodable row does not fail the batch").isNotNull();
+            awaitEvent(published, goodEvent);
             assertThat(published.poll(1, TimeUnit.SECONDS))
                     .as("the row that cannot be encoded is not sent").isNull();
             assertThat(attempts(badEvent)).as("it is abandoned instead of retried")
@@ -421,6 +420,46 @@ class OutboxPublisherIntegrationTest {
             assertThat(published.poll(1, TimeUnit.SECONDS))
                     .as("the next poll leaves it alone").isNull();
         });
+    }
+
+    @Test
+    void keepsThePublishFailureWhenTheRetryCountCannotBeWritten() throws Exception {
+        UUID conversation = id(115);
+        UUID message = id(218);
+        UUID event = id(419);
+        group(conversation, SENDER, MEMBER);
+        message(message, conversation, SENDER);
+        messageEvent(event, conversation, message, "message.created");
+
+        // Fails the retry-counter write only, not the publish or the mark.
+        jdbc.execute("""
+                CREATE OR REPLACE FUNCTION nexus.fail_attempts() RETURNS trigger AS $$
+                BEGIN
+                    IF NEW.attempts <> OLD.attempts THEN RAISE EXCEPTION 'count failed'; END IF;
+                    RETURN NEW;
+                END; $$ LANGUAGE plpgsql
+                """);
+        jdbc.execute("""
+                CREATE TRIGGER outbox_count_fails BEFORE UPDATE ON nexus.message_outbox
+                FOR EACH ROW EXECUTE FUNCTION nexus.fail_attempts()
+                """);
+        try {
+            OutboxPublisher failing = new OutboxPublisher(jdbc, named,
+                    failingWhile(redis, new AtomicBoolean(true)), mapper, new SimpleMeterRegistry(),
+                    transactions);
+
+            Throwable thrown = catchThrowable(failing::publishPending);
+
+            assertThat(thrown).as("the publish failure is what the scheduler sees")
+                    .isInstanceOf(RedisConnectionFailureException.class);
+            assertThat(thrown.getSuppressed())
+                    .as("the counter failure is attached instead of hiding the original")
+                    .hasSize(1);
+            assertThat(attempts(event)).as("the row was left for the next poll").isZero();
+        } finally {
+            jdbc.execute("DROP TRIGGER IF EXISTS outbox_count_fails ON nexus.message_outbox");
+            jdbc.execute("DROP FUNCTION IF EXISTS nexus.fail_attempts()");
+        }
     }
 
     @Test
@@ -471,8 +510,7 @@ class OutboxPublisherIntegrationTest {
         withSubscriber(published -> {
             publisher.publishPending();
 
-            assertThat(awaitEvent(published, event))
-                    .as("the row is published once the competing lock is gone").isNotNull();
+            awaitEvent(published, event); // published once the competing lock is gone
         });
     }
 
@@ -649,11 +687,11 @@ class OutboxPublisherIntegrationTest {
      * Fails the way an unreachable Redis does until {@code down} is cleared, so one publisher can be
      * driven through an outage and the recovery after it, with one set of meters watching both.
      */
-    /** Mapper that cannot encode the payload carrying {@code content}, like a payload Jackson rejects. */
-    private ObjectMapper failingOn(String content) {
+    /** Mapper that cannot encode one event, the way Jackson rejects a payload it cannot serialise. */
+    private ObjectMapper failingOn(UUID event) {
         ObjectMapper poisoned = mock(ObjectMapper.class);
         when(poisoned.writeValueAsString(any())).thenAnswer(call -> {
-            if (call.getArgument(0).toString().contains(content)) throw new Unencodable(content);
+            if (call.getArgument(0).toString().contains(event.toString())) throw new Unencodable(event);
             return mapper.writeValueAsString(call.getArgument(0));
         });
         return poisoned;
@@ -867,8 +905,8 @@ class OutboxPublisherIntegrationTest {
     }
 
     private static final class Unencodable extends JacksonException {
-        Unencodable(String content) {
-            super("Unable to encode " + content);
+        Unencodable(UUID event) {
+            super("Unable to encode " + event);
         }
     }
 }

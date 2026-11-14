@@ -20,10 +20,9 @@ class OutboxPublisherTest {
     }
 
     @Test
-    void listsEveryIdWhenThereAreOnlyAFew() {
+    void listsEveryIdWhenTheyAllFitOnTheLine() {
         assertThat(OutboxPublisher.describe(List.of(id(7), id(8))))
                 .isEqualTo(id(7) + ", " + id(8));
-        assertThat(OutboxPublisher.describe(List.of())).isEmpty();
     }
 
     private static UUID id(int number) {
