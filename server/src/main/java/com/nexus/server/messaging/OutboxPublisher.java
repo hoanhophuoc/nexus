@@ -45,10 +45,9 @@ public class OutboxPublisher {
      */
     static final int MAX_ATTEMPTS = 5;
     /**
-     * A failed row waits 2, 4, 8 and 16 seconds before its next attempt, so a Redis restart is ridden
-     * out instead of exhausting the attempts in half a second; the cap keeps a longer outage bounded.
+     * A failed row waits longer each time before its next attempt, so a Redis restart is ridden out
+     * instead of burning every attempt in half a second. The cap bounds how far the doubling goes.
      */
-    static final int BACKOFF_CAP_SECONDS = 60;
     /** Both pending polls are package-private so the plan test explains the statements the fan-out runs. */
     static final String PENDING_MESSAGES_SQL = """
             SELECT o.event_id, o.conversation_id, o.message_id, o.recipient_user_id, o.event_type,
@@ -97,10 +96,10 @@ public class OutboxPublisher {
             UPDATE nexus.message_outbox
             SET attempts = attempts + 1,
                 next_attempt_at = clock_timestamp()
-                    + LEAST(%d, power(2, attempts + 1)) * interval '1 second'
+                    + power(2, attempts + 1) * interval '1 second'
             WHERE event_id IN (:ids)
             RETURNING event_id, attempts
-            """.formatted(BACKOFF_CAP_SECONDS);
+            """;
 
     private static final String ABANDON_SQL = """
             UPDATE nexus.message_outbox SET attempts = %d
