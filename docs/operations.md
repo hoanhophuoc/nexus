@@ -105,17 +105,17 @@ Application meters:
 | `nexus.outbox.batch_rows` | gauge | Rows in the last batch |
 | `nexus.outbox.oldest_age_seconds` | gauge | Age of the oldest pending event — the delivery-latency alarm |
 | `nexus.outbox.publish_failures` | counter | Batches whose Redis publish failed |
-| `nexus.outbox.max_attempts` | gauge | Highest `attempts` a row reached in the last failed batch, and 0 once a batch publishes — a row stuck retrying |
+| `nexus.outbox.max_attempts` | gauge | Highest `attempts` a row reached in the last failed batch — a row stuck retrying |
 | `nexus.outbox.abandoned` | counter | Events given up on: unencodable, or five failed publishes |
 | `nexus.ws.delivered` | counter | Frames delivered to clients |
 | `nexus.ws.sessions` | gauge | Open WebSocket sessions |
 
 Alert on `nexus.outbox.oldest_age_seconds` growing, on `nexus.outbox.max_attempts` staying above a
-few attempts, on any increase of `nexus.outbox.abandoned`, and on `nexus.ws.sessions` approaching
-`NEXUS_MAX_CONNECTIONS`; those cover the failure modes that matter (delivery stalled, publishes
-failing, events given up on, or the connection ceiling reached). A successful batch resets
-`max_attempts` to 0, so the alert resolves by itself when Redis comes back; `abandoned` only ever
-grows, which is why it is an increase-based alert.
+few attempts, on any increase of `nexus.outbox.abandoned` (it only ever grows), and on
+`nexus.ws.sessions` approaching `NEXUS_MAX_CONNECTIONS`: delivery stalled, publishes failing, events
+given up on, connection ceiling. A batch that publishes returns `max_attempts` to 0, so the alert
+clears itself once Redis recovers; a poll that finds nothing pending does not, which keeps the alert
+raised while a capped row is still waiting to be requeued.
 
 A row that reaches five failed publishes is never polled again, and each batch that abandons rows
 logs the first three event ids plus a count — the rest are in the table. Once Redis is healthy,

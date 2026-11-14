@@ -349,6 +349,9 @@ class OutboxPublisherIntegrationTest {
             assertThat(attempts(messageEvent))
                     .as("the sixth poll does not even select, let alone count, the capped rows")
                     .isEqualTo(OutboxPublisher.MAX_ATTEMPTS);
+            assertThat(meters.find("nexus.outbox.max_attempts").gauge().value())
+                    .as("an empty poll keeps the last failure value, so a stuck row keeps its alert")
+                    .isEqualTo(OutboxPublisher.MAX_ATTEMPTS);
         } finally {
             unreachable.destroy();
         }
