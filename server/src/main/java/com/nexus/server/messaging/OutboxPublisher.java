@@ -1,6 +1,8 @@
 package com.nexus.server.messaging;
 
 import io.micrometer.core.instrument.Counter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -36,26 +38,32 @@ import java.util.Objects;
 public class OutboxPublisher {
     static final String CHANNEL = "nexus:message-events";
     private static final byte[] CHANNEL_BYTES = CHANNEL.getBytes(StandardCharsets.UTF_8);
+    private static final Logger log = LoggerFactory.getLogger(OutboxPublisher.class);
+    /**
+     * How many publishes a row gets before it is abandoned: interpolated into both pending polls and
+     * the abandon statement, so the number has one definition.
+     */
+    static final int MAX_ATTEMPTS = 5;
     /** Both pending polls are package-private so the plan test explains the statements the fan-out runs. */
     static final String PENDING_MESSAGES_SQL = """
             SELECT o.event_id, o.conversation_id, o.message_id, o.recipient_user_id, o.event_type,
                    m.sender_id, m.content, m.created_at, m.deleted_for_everyone_at
             FROM nexus.message_outbox o
             JOIN nexus.message m ON m.id = o.message_id
-            WHERE o.published_at IS NULL
+            WHERE o.published_at IS NULL AND o.attempts < %d
             ORDER BY o.created_at, o.event_id
             LIMIT 100 FOR UPDATE OF o SKIP LOCKED
-            """;
+            """.formatted(MAX_ATTEMPTS);
 
     static final String PENDING_MLS_SQL = """
             SELECT o.event_id, o.conversation_id, o.mls_message_id, o.event_type,
                    m.sender_id, m.epoch, m.kind, m.ciphertext, m.created_at
             FROM nexus.message_outbox o
             JOIN nexus.mls_message m ON m.id = o.mls_message_id
-            WHERE o.published_at IS NULL
+            WHERE o.published_at IS NULL AND o.attempts < %d
             ORDER BY o.created_at, o.event_id
             LIMIT 100 FOR UPDATE OF o SKIP LOCKED
-            """;
+            """.formatted(MAX_ATTEMPTS);
 
     private static final String ACTIVE_MEMBERS_SQL = """
             SELECT conversation_id, user_id FROM nexus.conversation_member
@@ -77,8 +85,13 @@ public class OutboxPublisher {
     private static final String COUNT_ATTEMPT_SQL = """
             UPDATE nexus.message_outbox SET attempts = attempts + 1
             WHERE event_id IN (:ids)
-            RETURNING attempts
+            RETURNING event_id, attempts
             """;
+
+    private static final String ABANDON_SQL = """
+            UPDATE nexus.message_outbox SET attempts = %d
+            WHERE event_id IN (:ids)
+            """.formatted(MAX_ATTEMPTS);
 
     private final JdbcTemplate jdbc;
     private final NamedParameterJdbcTemplate named;
@@ -88,6 +101,7 @@ public class OutboxPublisher {
     private final Timer publishTimer;
     private final Counter publishedEvents;
     private final Counter publishFailures;
+    private final Counter abandonedEvents;
     private final AtomicLong batchRows = new AtomicLong();
     private final AtomicLong oldestAgeSeconds = new AtomicLong();
     private final AtomicLong maxAttempts = new AtomicLong();
@@ -115,8 +129,13 @@ public class OutboxPublisher {
         this.publishFailures = Counter.builder("nexus.outbox.publish_failures")
                 .description("Outbox batches whose Redis publish failed")
                 .register(meters);
+        this.abandonedEvents = Counter.builder("nexus.outbox.abandoned")
+                .description("Outbox events given up on: they could not be encoded, or failed "
+                        + MAX_ATTEMPTS + " publishes")
+                .register(meters);
         Gauge.builder("nexus.outbox.max_attempts", maxAttempts, AtomicLong::get)
-                .description("Highest failed-publish count on a row in the last failed batch")
+                .description("Highest failed-publish count on a row in the last failed batch; "
+                        + "0 once a batch publishes")
                 .register(meters);
     }
 
@@ -157,25 +176,43 @@ public class OutboxPublisher {
         List<UUID> mlsEventIds = new ArrayList<>(mlsRows.size());
         Instant now = Instant.now();
         long oldest = 0;
+        List<UUID> unencodable = new ArrayList<>();
         for (OutboxRow row : rows) {
+            oldest = Math.max(oldest, ageSeconds(row.createdAt(), now));
             List<UUID> targets = row.recipientId() == null
                     ? members.getOrDefault(row.conversationId(), List.of())
                     : List.of(row.recipientId());
-            payloads.add(encode(envelope(row, targets)).getBytes(StandardCharsets.UTF_8));
+            try {
+                payloads.add(encode(envelope(row, targets)).getBytes(StandardCharsets.UTF_8));
+            } catch (IllegalStateException poison) {
+                unencodable.add(row.eventId());
+                continue;
+            }
             messageEventIds.add(row.eventId());
-            oldest = Math.max(oldest, ageSeconds(row.createdAt(), now));
         }
         for (MlsOutboxRow row : mlsRows) {
+            oldest = Math.max(oldest, ageSeconds(row.createdAt(), now));
             // only members whose join epoch covers this ciphertext receive the event
             List<UUID> targets = mlsMembers.getOrDefault(row.conversationId(), List.of()).stream()
                     .filter(member -> member.joinedEpoch() <= row.epoch())
                     .map(MemberEpoch::userId)
                     .toList();
-            payloads.add(encode(mlsEnvelope(row, targets)).getBytes(StandardCharsets.UTF_8));
+            try {
+                payloads.add(encode(mlsEnvelope(row, targets)).getBytes(StandardCharsets.UTF_8));
+            } catch (IllegalStateException poison) {
+                unencodable.add(row.eventId());
+                continue;
+            }
             mlsEventIds.add(row.eventId());
-            oldest = Math.max(oldest, ageSeconds(row.createdAt(), now));
         }
         oldestAgeSeconds.set(oldest);
+
+        // One unencodable row must not take its batch down with it: abandon it, publish the rest.
+        if (!unencodable.isEmpty()) {
+            named.update(ABANDON_SQL, new MapSqlParameterSource("ids", unencodable));
+            reportAbandoned(unencodable, "because they cannot be encoded");
+        }
+        if (payloads.isEmpty()) return;
         List<UUID> eventIds = new ArrayList<>(messageEventIds);
         eventIds.addAll(mlsEventIds);
         attempted.addAll(eventIds);
@@ -189,6 +226,8 @@ public class OutboxPublisher {
             return null;
         });
         markPublished(eventIds);
+        // The failure gauge has to clear itself, or an alert on it never resolves after an outage.
+        maxAttempts.set(0);
         publishedEvents.increment(payloads.size());
         publishTimer.record(Duration.ofNanos(System.nanoTime() - started));
     }
@@ -242,18 +281,39 @@ public class OutboxPublisher {
     }
 
     /**
-     * Counts one failed publish per row and publishes the highest count seen, which is what an
-     * operator alerts on. There is no cap: the failures counted here come from Redis being down,
-     * which hits a whole batch, so dropping rows after N tries would discard messages, not protect
-     * anything (see docs/architecture.md).
+     * Counts one failed publish per row, publishes the highest count seen, and reports the rows that
+     * have now reached {@link #MAX_ATTEMPTS}: they stay in the table, unpublished, for an operator to
+     * inspect, but neither pending poll selects them any more.
      */
     private void countAttempts(List<UUID> eventIds) {
         if (eventIds.isEmpty()) return;
-        List<Integer> attempts = transactions.execute(status -> named.query(COUNT_ATTEMPT_SQL,
-                new MapSqlParameterSource("ids", eventIds), (rs, row) -> rs.getInt("attempts")));
-        if (attempts != null && !attempts.isEmpty()) {
-            maxAttempts.set(attempts.stream().mapToLong(Integer::longValue).max().orElse(0));
+        List<Attempt> counted = transactions.execute(status -> named.query(COUNT_ATTEMPT_SQL,
+                new MapSqlParameterSource("ids", eventIds),
+                (rs, row) -> new Attempt(rs.getObject("event_id", UUID.class), rs.getInt("attempts"))));
+        if (counted.isEmpty()) return;
+        maxAttempts.set(counted.stream().mapToLong(Attempt::attempts).max().orElse(0));
+
+        List<UUID> abandoned = counted.stream()
+                .filter(attempt -> attempt.attempts() >= MAX_ATTEMPTS)
+                .map(Attempt::eventId)
+                .toList();
+        if (!abandoned.isEmpty()) {
+            reportAbandoned(abandoned, "after " + MAX_ATTEMPTS + " failed publishes");
         }
+    }
+
+    private void reportAbandoned(List<UUID> eventIds, String reason) {
+        abandonedEvents.increment(eventIds.size());
+        log.warn("Outbox abandoned {} event(s) {}: {}", eventIds.size(), reason, describe(eventIds));
+    }
+
+    /** A batch is up to 100 rows: name a few ids and count the rest, so one log line stays readable. */
+    static String describe(List<UUID> eventIds) {
+        int shown = Math.min(3, eventIds.size());
+        String first = String.join(", ", eventIds.subList(0, shown).stream()
+                .map(UUID::toString).toList());
+        int rest = eventIds.size() - shown;
+        return rest == 0 ? first : first + " and " + rest + " more";
     }
 
     private static long ageSeconds(Instant createdAt, Instant now) {
@@ -319,6 +379,8 @@ public class OutboxPublisher {
     }
 
     private record MemberEpoch(UUID userId, int joinedEpoch) { }
+
+    private record Attempt(UUID eventId, int attempts) { }
 
     private record OutboxRow(UUID eventId, UUID conversationId, UUID messageId, UUID recipientId,
                              String eventType, UUID senderId, String content, Instant createdAt,

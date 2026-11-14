@@ -59,19 +59,26 @@ Rules that the schema enforces rather than the code:
    checks membership and a per-user rate limit in Redis, then in one transaction appends the
    message with the next `conversation_sequence` and an idempotency key, and inserts an outbox
    event.
-2. The outbox publisher polls pending events every 100 ms through a partial index, fans them out
-   to connected sessions, and marks them published. A batch whose Redis publish fails is rolled
+2. The outbox publisher polls pending events every 100 ms through a partial index (`FOR UPDATE OF o
+   SKIP LOCKED`, so a second publisher skips the rows a first one holds instead of waiting for
+   them), fans them out to connected sessions, and marks them published. A batch whose Redis publish fails is rolled
    back and its rows' `attempts` counter is incremented in a separate transaction, so the failed
    events stay pending for the next poll; that batch also increments `nexus.outbox.publish_failures`
-   and sets `nexus.outbox.max_attempts` from the counts it just wrote. Delivery is at-least-once;
-   clients deduplicate on message id and sequence.
+   and sets `nexus.outbox.max_attempts` from the counts it just wrote. Delivery is at-least-once —
+   a failed mark after a successful publish makes the next poll send the same event again, which
+   `OutboxPublisherIntegrationTest` demonstrates — and clients deduplicate on message id and sequence.
 
-   Nothing backs off and nothing gives up on a row. The failure this counter records is Redis being
-   unavailable, which fails a whole batch rather than one event, so a per-row cap would drop messages
-   instead of relieving pressure — at-least-once is worth more than a bounded queue for events that
-   are already durable. `nexus.outbox.max_attempts` and `nexus.outbox.oldest_age_seconds` are the
-   signals; a cap or a dead-letter table would need a `next_attempt_at` column and a policy for what
-   to do with the dropped events.
+   A row is polled until it has failed `MAX_ATTEMPTS` (5) publishes: both pending polls filter on
+   `attempts < 5`, so an event that keeps failing stops costing a Redis round trip every 100 ms. The
+   batch that pushes a row over the line logs it at WARN — the first three event ids and a count — and
+   increments `nexus.outbox.abandoned`; the row stays in `message_outbox` unpublished as the record
+   of what was not delivered, and `nexus.outbox.max_attempts` carries that high-water mark until a
+   batch publishes again, when it returns to 0 so the alert clears. A row that cannot be encoded is
+   abandoned the same way without failing the rest of its batch, because no number of retries can
+   publish it. There is no backoff, because the failure counted here is Redis being unavailable and
+   that hits a whole batch rather than one row, and no dead-letter table, because the unpublished row
+   already is one — `docs/operations.md` has the query that lists those rows and the way to requeue
+   them once Redis is healthy again.
 3. The receiving client appends the message to its encrypted local cache and acknowledges it
    over the WebSocket. Acknowledgements are what make the "delivered" state appear for the
    sender.

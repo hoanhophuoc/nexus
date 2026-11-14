@@ -7,6 +7,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.listener.ChannelTopic;
 import org.springframework.data.redis.listener.RedisMessageListenerContainer;
@@ -15,10 +16,13 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.springframework.dao.DataAccessException;
+import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -35,11 +39,17 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * The fan-out had no test at all: it was assumed correct because the rows are simple. These drive
@@ -254,6 +264,65 @@ class OutboxPublisherIntegrationTest {
         mls(mlsEvent, conversation, mlsMessage, "mls.message");
 
         SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        AtomicBoolean redisDown = new AtomicBoolean(true);
+        OutboxPublisher failing = new OutboxPublisher(jdbc, named, failingWhile(redis, redisDown),
+                mapper, meters, transactions);
+
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            assertThatThrownBy(failing::publishPending)
+                    .as("failure " + attempt + " reaches the scheduler instead of being swallowed")
+                    .isInstanceOf(RedisConnectionFailureException.class);
+        }
+        assertThat(attempts(messageEvent)).as("the message row counts each failed publish")
+                .isEqualTo(2);
+        assertThat(attempts(mlsEvent)).as("the MLS row counts with it").isEqualTo(2);
+        assertThat(meters.find("nexus.outbox.publish_failures").counter().count())
+                .as("each failed batch is visible as a metric").isEqualTo(2.0);
+        assertThat(meters.find("nexus.outbox.max_attempts").gauge().value())
+                .as("so is the highest attempt count a row has reached").isEqualTo(2.0);
+
+        for (int attempt = 3; attempt <= 4; attempt++) {
+            assertThatThrownBy(failing::publishPending)
+                    .isInstanceOf(RedisConnectionFailureException.class);
+        }
+
+        assertThat(attempts(messageEvent)).as("four failures leave four attempts on the row")
+                .isEqualTo(4);
+        assertThat(attempts(mlsEvent)).isEqualTo(4);
+        assertThat(meters.find("nexus.outbox.max_attempts").gauge().value()).isEqualTo(4.0);
+        assertThat(publishedAt(messageEvent)).as("an unpublished row is what the next poll retries")
+                .isNull();
+        assertThat(publishedAt(mlsEvent)).isNull();
+
+        redisDown.set(false);
+
+        withSubscriber(published -> {
+            failing.publishPending();
+
+            assertThat(awaitEvents(published, messageEvent, mlsEvent))
+                    .as("the retry delivers the whole batch").hasSize(2);
+            assertThat(attempts(messageEvent)).as("a successful publish adds no attempt")
+                    .isEqualTo(4);
+            assertThat(attempts(mlsEvent)).isEqualTo(4);
+            assertThat(meters.find("nexus.outbox.max_attempts").gauge().value())
+                    .as("the gauge clears, so an alert on it resolves once Redis is back").isZero();
+        });
+    }
+
+    @Test
+    void stopsPollingARowThatReachedTheCap() throws Exception {
+        UUID conversation = id(109);
+        UUID message = id(209);
+        UUID mlsMessage = id(309);
+        UUID messageEvent = id(411);
+        UUID mlsEvent = id(412);
+        group(conversation, SENDER, MEMBER);
+        message(message, conversation, SENDER);
+        mlsMessage(mlsMessage, conversation, SENDER, 1, "application");
+        messageEvent(messageEvent, conversation, message, "message.created");
+        mls(mlsEvent, conversation, mlsMessage, "mls.message");
+
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
         LettuceConnectionFactory unreachable =
                 new LettuceConnectionFactory(new RedisStandaloneConfiguration("127.0.0.1", 1));
         unreachable.afterPropertiesSet();
@@ -263,44 +332,173 @@ class OutboxPublisherIntegrationTest {
             OutboxPublisher failing = new OutboxPublisher(jdbc, named, noRedis, mapper, meters,
                     transactions);
 
-            for (int attempt = 1; attempt <= 2; attempt++) {
+            for (int attempt = 1; attempt <= OutboxPublisher.MAX_ATTEMPTS; attempt++) {
                 assertThatThrownBy(failing::publishPending)
-                        .as("failure " + attempt + " reaches the scheduler instead of being swallowed")
+                        .as("failure " + attempt + " is reported")
                         .isInstanceOf(RedisConnectionFailureException.class);
             }
-            assertThat(attempts(messageEvent)).as("the message row counts each failed publish")
-                    .isEqualTo(2);
-            assertThat(attempts(mlsEvent)).as("the MLS row counts with it").isEqualTo(2);
-            assertThat(meters.find("nexus.outbox.publish_failures").counter().count())
-                    .as("each failed batch is visible as a metric").isEqualTo(2.0);
-            assertThat(meters.find("nexus.outbox.max_attempts").gauge().value())
-                    .as("so is the highest attempt count a row has reached").isEqualTo(2.0);
+            assertThat(attempts(messageEvent)).as("the message row stops at the cap")
+                    .isEqualTo(OutboxPublisher.MAX_ATTEMPTS);
+            assertThat(attempts(mlsEvent)).as("so does the MLS row")
+                    .isEqualTo(OutboxPublisher.MAX_ATTEMPTS);
+            assertThat(meters.find("nexus.outbox.abandoned").counter().count())
+                    .as("both abandoned rows are counted for an operator").isEqualTo(2.0);
 
-            for (int attempt = 3; attempt <= 5; attempt++) {
-                assertThatThrownBy(failing::publishPending)
-                        .isInstanceOf(RedisConnectionFailureException.class);
-            }
+            // Capped rows are no longer selected, so a dead Redis stops being an error every 100 ms.
+            assertThatCode(failing::publishPending).doesNotThrowAnyException();
+            assertThat(attempts(messageEvent))
+                    .as("the sixth poll does not even select, let alone count, the capped rows")
+                    .isEqualTo(OutboxPublisher.MAX_ATTEMPTS);
         } finally {
             unreachable.destroy();
         }
 
-        assertThat(attempts(messageEvent)).as("five failures leave five attempts on the row")
-                .isEqualTo(5);
-        assertThat(attempts(mlsEvent)).isEqualTo(5);
-        assertThat(meters.find("nexus.outbox.max_attempts").gauge().value()).isEqualTo(5.0);
-        assertThat(publishedAt(messageEvent)).as("an unpublished row is what the next poll retries")
-                .isNull();
-        assertThat(publishedAt(mlsEvent)).isNull();
+        // The cap is per row: an event queued afterwards is published even while these two sit capped.
+        UUID fresh = id(417);
+        UUID freshMessage = id(215);
+        jdbc.update("""
+                INSERT INTO nexus.message
+                    (id, conversation_id, sender_id, conversation_sequence, idempotency_key, content)
+                VALUES (?, ?, ?, 2, 'fresh', 'hello')
+                """, freshMessage, conversation, SENDER);
+        messageEvent(fresh, conversation, freshMessage, "message.created");
 
         withSubscriber(published -> {
             publisher.publishPending();
 
-            assertThat(awaitEvents(published, messageEvent, mlsEvent))
-                    .as("the retry delivers the whole batch").hasSize(2);
-            assertThat(attempts(messageEvent)).as("a successful publish adds no attempt")
-                    .isEqualTo(5);
-            assertThat(attempts(mlsEvent)).isEqualTo(5);
+            assertThat(awaitEvent(published, fresh))
+                    .as("a row under the cap is still published").isNotNull();
+            assertThat(published.poll(1, TimeUnit.SECONDS))
+                    .as("an abandoned row is never retried again").isNull();
+            assertThat(publishedAt(messageEvent)).isNull();
+            assertThat(publishedAt(mlsEvent)).isNull();
         });
+    }
+
+    @Test
+    void abandonsOnlyTheRowItCannotEncode() throws Exception {
+        UUID conversation = id(111);
+        UUID good = id(211);
+        UUID bad = id(212);
+        UUID goodEvent = id(413);
+        UUID badEvent = id(414);
+        group(conversation, SENDER, MEMBER);
+        message(good, conversation, SENDER);
+        jdbc.update("""
+                INSERT INTO nexus.message
+                    (id, conversation_id, sender_id, conversation_sequence, idempotency_key, content)
+                VALUES (?, ?, ?, 2, 'poison', 'POISON')
+                """, bad, conversation, SENDER);
+        messageEvent(goodEvent, conversation, good, "message.created");
+        messageEvent(badEvent, conversation, bad, "message.created");
+
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        OutboxPublisher isolated = new OutboxPublisher(jdbc, named, redis, failingOn("POISON"),
+                meters, transactions);
+
+        withSubscriber(published -> {
+            isolated.publishPending();
+
+            assertThat(awaitEvent(published, goodEvent))
+                    .as("one unencodable row does not fail the batch").isNotNull();
+            assertThat(published.poll(1, TimeUnit.SECONDS))
+                    .as("the row that cannot be encoded is not sent").isNull();
+            assertThat(attempts(badEvent)).as("it is abandoned instead of retried")
+                    .isEqualTo(OutboxPublisher.MAX_ATTEMPTS);
+            assertThat(publishedAt(badEvent)).isNull();
+            assertThat(publishedAt(goodEvent)).isNotNull();
+            assertThat(meters.find("nexus.outbox.abandoned").counter().count())
+                    .as("and reported for an operator").isEqualTo(1.0);
+
+            isolated.publishPending();
+            assertThat(published.poll(1, TimeUnit.SECONDS))
+                    .as("the next poll leaves it alone").isNull();
+        });
+    }
+
+    @Test
+    void skipsRowsAnotherTransactionHoldsLockedInsteadOfWaitingForThem() throws Exception {
+        UUID conversation = id(112);
+        UUID message = id(213);
+        UUID event = id(415);
+        group(conversation, SENDER, MEMBER);
+        message(message, conversation, SENDER);
+        messageEvent(event, conversation, message, "message.created");
+
+        CountDownLatch locked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        ExecutorService locker = Executors.newSingleThreadExecutor();
+        Future<?> holds = locker.submit(() -> new TransactionTemplate(transactions).execute(status -> {
+            jdbc.queryForList("""
+                    SELECT event_id FROM nexus.message_outbox WHERE published_at IS NULL FOR UPDATE
+                    """, UUID.class);
+            locked.countDown();
+            try {
+                release.await(30, TimeUnit.SECONDS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
+            return null;
+        }));
+        assertThat(locked.await(10, TimeUnit.SECONDS))
+                .as("another transaction holds the pending row").isTrue();
+        try {
+            withSubscriber(published -> {
+                ExecutorService poller = Executors.newSingleThreadExecutor();
+                try {
+                    Future<?> poll = poller.submit(publisher::publishPending);
+                    // Without SKIP LOCKED the poll waits on the lock and never returns in time.
+                    poll.get(3, TimeUnit.SECONDS);
+                    assertThat(published.poll(500, TimeUnit.MILLISECONDS))
+                            .as("the locked row is skipped, not published").isNull();
+                } finally {
+                    poller.shutdownNow();
+                }
+            });
+        } finally {
+            release.countDown();
+            holds.get(10, TimeUnit.SECONDS);
+            locker.shutdownNow();
+        }
+
+        withSubscriber(published -> {
+            publisher.publishPending();
+
+            assertThat(awaitEvent(published, event))
+                    .as("the row is published once the competing lock is gone").isNotNull();
+        });
+    }
+
+    @Test
+    void resendsTheEventWhenTheMarkAfterThePublishFails() throws Exception {
+        UUID conversation = id(113);
+        UUID message = id(216);
+        UUID event = id(416);
+        group(conversation, SENDER, MEMBER);
+        message(message, conversation, SENDER);
+        messageEvent(event, conversation, message, "message.created");
+
+        creatingFailingMark();
+        try {
+            withSubscriber(published -> {
+                assertThatThrownBy(publisher::publishPending)
+                        .as("the publish went out but the row could not be marked")
+                        .isInstanceOf(DataAccessException.class);
+                awaitEvent(published, event);
+                assertThat(publishedAt(event)).as("the row stays pending for the retry").isNull();
+                assertThat(attempts(event)).isEqualTo(1);
+
+                droppingFailingMark();
+                publisher.publishPending();
+
+                assertThat(awaitEvent(published, event))
+                        .as("at-least-once: the retry re-sends the event the subscriber already saw")
+                        .isNotNull();
+                assertThat(publishedAt(event)).isNotNull();
+            });
+        } finally {
+            droppingFailingMark();
+        }
     }
 
     @Test
@@ -370,6 +568,50 @@ class OutboxPublisherIntegrationTest {
 
     private interface Scenario {
         void run(BlockingQueue<String> published) throws Exception;
+    }
+
+    /**
+     * Fails the way an unreachable Redis does until {@code down} is cleared, so one publisher can be
+     * driven through an outage and the recovery after it, with one set of meters watching both.
+     */
+    /** Mapper that cannot encode the payload carrying {@code content}, like a payload Jackson rejects. */
+    private ObjectMapper failingOn(String content) {
+        ObjectMapper poisoned = mock(ObjectMapper.class);
+        when(poisoned.writeValueAsString(any())).thenAnswer(call -> {
+            if (call.getArgument(0).toString().contains(content)) throw new Unencodable(content);
+            return mapper.writeValueAsString(call.getArgument(0));
+        });
+        return poisoned;
+    }
+
+    /** Fails the mark step while it changes no attempts, i.e. never for the retry counter. */
+    private void creatingFailingMark() {
+        jdbc.execute("""
+                CREATE OR REPLACE FUNCTION nexus.fail_outbox_mark() RETURNS trigger AS $$
+                BEGIN
+                    IF NEW.attempts = OLD.attempts THEN RAISE EXCEPTION 'mark failed'; END IF;
+                    RETURN NEW;
+                END; $$ LANGUAGE plpgsql
+                """);
+        jdbc.execute("""
+                CREATE TRIGGER outbox_mark_fails BEFORE UPDATE ON nexus.message_outbox
+                FOR EACH ROW EXECUTE FUNCTION nexus.fail_outbox_mark()
+                """);
+    }
+
+    private void droppingFailingMark() {
+        jdbc.execute("DROP TRIGGER IF EXISTS outbox_mark_fails ON nexus.message_outbox");
+        jdbc.execute("DROP FUNCTION IF EXISTS nexus.fail_outbox_mark()");
+    }
+
+    private static StringRedisTemplate failingWhile(StringRedisTemplate redis, AtomicBoolean down) {
+        return new StringRedisTemplate(redis.getConnectionFactory()) {
+            @Override
+            public <T> T execute(RedisCallback<T> action) {
+                if (down.get()) throw new RedisConnectionFailureException("redis is down");
+                return super.execute(action);
+            }
+        };
     }
 
     private void withSubscriber(Scenario scenario) throws Exception {
@@ -522,5 +764,11 @@ class OutboxPublisherIntegrationTest {
 
     private static UUID id(int number) {
         return new UUID(0L, number);
+    }
+
+    private static final class Unencodable extends JacksonException {
+        Unencodable(String content) {
+            super("Unable to encode " + content);
+        }
     }
 }
