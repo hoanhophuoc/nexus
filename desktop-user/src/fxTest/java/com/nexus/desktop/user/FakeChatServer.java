@@ -146,9 +146,19 @@ final class FakeChatServer implements AutoCloseable {
     }
 
     String addDirectMessage(String content) {
-        String message = messageJson(UUID.randomUUID(), FRIEND_ID, content);
+        return addDirectMessageFrom(FRIEND_ID, content);
+    }
+
+    /** A message from anyone, so a test can seed one the signed-in user sent. */
+    String addDirectMessageFrom(UUID senderId, String content) {
+        String message = messageJson(UUID.randomUUID(), senderId, content);
         directMessages.add(message);
         return message;
+    }
+
+    /** Makes the group conversation exist without driving the create-group dialog. */
+    void groupExists() {
+        groupCreated = true;
     }
 
     void hideDirectConversation() {
