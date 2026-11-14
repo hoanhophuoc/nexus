@@ -52,7 +52,9 @@ covered and missed lines and branches.
 
 Every JavaFX suite runs through `fx-test-support`'s `FxThread`, which gives a task a 10 second budget
 instead of the 30 each test used to carry, and on expiry throws the JavaFX thread's stack so the test
-names the frame it is stuck in. Ten seconds is well above the four seconds it takes a cold first task
+names the frame it is stuck in. `waitForFx` polls with the time it has left, so a blocked thread makes
+it fail at the caller's deadline — carrying that stack as the cause — rather than sitting out the task
+budget. Ten seconds is well above the four seconds it takes a cold first task
 to load FXML and CSS, and far below the point where a stall is indistinguishable from a slow machine.
 Network calls in a task is the failure this catches: `AdminAppContext.signIn` is three HTTP round
 trips, and it, the resource bundles and the golden files are loaded on the test thread so an FX task

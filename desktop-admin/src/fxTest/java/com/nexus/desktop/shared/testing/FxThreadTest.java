@@ -3,6 +3,7 @@ package com.nexus.desktop.shared.testing;
 import javafx.application.Platform;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -11,8 +12,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * The helper exists to explain a blocked JavaFX thread, and that explanation is the part nothing else
- * reaches: every other suite gets work back inside the budget. This blocks the thread from another
- * thread on purpose and checks the failure names the frame it is stuck in.
+ * reaches: every other suite gets work back inside the budget. These block the thread from another
+ * thread on purpose and check the failure names the frame it is stuck in, including through
+ * {@code waitForFx}, which must report at its own deadline rather than sit out the task budget.
  */
 class FxThreadTest {
 
@@ -36,6 +38,34 @@ class FxThreadTest {
         } finally {
             release.countDown();
         }
+
+        assertThat(FxThread.onFx(() -> "after the block"))
+                .as("the thread is usable once it is released").isEqualTo("after the block");
+    }
+
+    @Test
+    void waitForFxTimesOutInsteadOfHangingWhenTheThreadIsBlocked() throws Exception {
+        FxThread.onFx(() -> null);
+
+        CountDownLatch blocked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        Thread blocker = new Thread(() -> Platform.runLater(() -> holdTheFxThread(blocked, release)));
+        blocker.start();
+        assertThat(blocked.await(10, TimeUnit.SECONDS)).as("the FX thread is now busy").isTrue();
+
+        long started = System.nanoTime();
+        try {
+            assertThatThrownBy(() -> FxThread.waitForFx(() -> false, Duration.ofMillis(200)))
+                    .as("the caller's deadline wins over the helper's task budget")
+                    .isInstanceOf(AssertionError.class)
+                    .hasMessageContaining("Timed out waiting for the JavaFX UI to update.")
+                    .hasRootCauseInstanceOf(java.util.concurrent.TimeoutException.class);
+        } finally {
+            release.countDown();
+        }
+        assertThat(Duration.ofNanos(System.nanoTime() - started))
+                .as("it reports its own timeout instead of waiting out the 10 second task budget")
+                .isLessThan(Duration.ofSeconds(3));
 
         assertThat(FxThread.onFx(() -> "after the block"))
                 .as("the thread is usable once it is released").isEqualTo("after the block");

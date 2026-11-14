@@ -25,6 +25,10 @@ public final class FxThread {
     }
 
     public static <T> T onFx(Callable<T> action) {
+        return call(action, BUDGET);
+    }
+
+    private static <T> T call(Callable<T> action, Duration budget) {
         start();
         CompletableFuture<T> result = new CompletableFuture<>();
         Platform.runLater(() -> {
@@ -34,14 +38,24 @@ public final class FxThread {
                 result.completeExceptionally(failure);
             }
         });
-        return await(result);
+        return await(result, budget);
     }
 
-    /** Polls on the FX thread until {@code condition} holds; later JavaFX work needs the wait. */
+    /**
+     * Polls on the FX thread until {@code condition} holds; later JavaFX work needs the wait. Each
+     * poll is bounded by the time left, so a blocked thread fails at the caller's deadline instead of
+     * spending the whole task budget on its own, and the dump it carries stays attached as the cause.
+     */
     public static void waitForFx(BooleanSupplier condition, Duration timeout) {
         long deadline = System.nanoTime() + timeout.toNanos();
-        while (System.nanoTime() < deadline) {
-            if (Boolean.TRUE.equals(onFx(condition::getAsBoolean))) return;
+        while (true) {
+            long remaining = deadline - System.nanoTime();
+            if (remaining <= 0) break;
+            try {
+                if (Boolean.TRUE.equals(call(condition::getAsBoolean, Duration.ofNanos(remaining)))) return;
+            } catch (FxThreadBlocked blocked) {
+                throw new AssertionError("Timed out waiting for the JavaFX UI to update.", blocked);
+            }
             try {
                 Thread.sleep(50);
             } catch (InterruptedException exception) {
@@ -52,13 +66,20 @@ public final class FxThread {
         throw new AssertionError("Timed out waiting for the JavaFX UI to update.");
     }
 
-    private static <T> T await(CompletableFuture<T> result) {
-        long deadline = System.nanoTime() + BUDGET.toNanos();
+    /** A blocked thread, as its own type so {@code waitForFx} can report it as its own timeout. */
+    private static final class FxThreadBlocked extends AssertionError {
+        FxThreadBlocked(String message, TimeoutException cause) {
+            super(message, cause);
+        }
+    }
+
+    private static <T> T await(CompletableFuture<T> result, Duration budget) {
+        long deadline = System.nanoTime() + budget.toNanos();
         while (true) {
             try {
                 return result.get(25, TimeUnit.MILLISECONDS);
             } catch (TimeoutException busy) {
-                if (System.nanoTime() >= deadline) throw blocked(busy);
+                if (System.nanoTime() >= deadline) throw blocked(busy, budget);
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
                 throw new AssertionError("Interrupted while waiting for the JavaFX thread.", interrupted);
@@ -72,15 +93,16 @@ public final class FxThread {
     }
 
     /** Names the culprit: the frames the FX thread is sitting in when the budget ran out. */
-    private static AssertionError blocked(TimeoutException busy) {
+    private static AssertionError blocked(TimeoutException busy, Duration budget) {
+        String waited = budget.toMillis() >= 1000 ? budget.toSeconds() + "s" : budget.toMillis() + "ms";
         StringBuilder report = new StringBuilder("The JavaFX thread did not run this task within ")
-                .append(BUDGET.toSeconds())
-                .append("s, so it is blocked, not slow. No network or file I/O belongs in an FX task.\n")
+                .append(waited)
+                .append(", so it is blocked, not slow. No network or file I/O belongs in an FX task.\n")
                 .append("JavaFX thread stack:");
         for (StackTraceElement frame : fxThread().getStackTrace()) {
             report.append("\n  at ").append(frame);
         }
-        return new AssertionError(report.toString(), busy);
+        return new FxThreadBlocked(report.toString(), busy);
     }
 
     private static Thread fxThread() {
