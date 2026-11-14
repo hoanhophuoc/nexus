@@ -14,6 +14,8 @@ import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.boot.DefaultApplicationArguments;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -607,7 +609,7 @@ class OutboxPublisherIntegrationTest {
     }
 
     @Test
-    void keepsTheRowThroughAnOutageAsLongAsTheBackoffLasts() throws Exception {
+    void survivesARealRedisRestart() throws Exception {
         UUID conversation = id(119);
         UUID message = id(223);
         UUID event = id(424);
@@ -615,31 +617,163 @@ class OutboxPublisherIntegrationTest {
         message(message, conversation, SENDER);
         messageEvent(event, conversation, message, "message.created");
 
-        AtomicBoolean redisDown = new AtomicBoolean(true);
         SimpleMeterRegistry meters = new SimpleMeterRegistry();
-        OutboxPublisher failing = new OutboxPublisher(jdbc, named, failingWhile(redis, redisDown),
-                mapper, meters, transactions);
+        // A Redis of its own, so stopping it cannot leave the shared one unreachable for every other
+        // test in the class (a subscriber that cannot reconnect retries forever, it does not fail).
+        try (GenericContainer<?> redisOnly = new GenericContainer<>("redis:8.10-alpine")
+                .withExposedPorts(6379)) {
+            redisOnly.start();
+            try {
+                OutboxPublisher beforeRestart = new OutboxPublisher(jdbc, named, templateFor(redisOnly),
+                        mapper, meters, transactions);
+                redisOnly.stop();
 
-        // Fail four times, waiting out the real backoff each time: about 14 seconds of outage.
-        for (int failure = 1; failure <= 4; failure++) {
-            awaitDue(event);
-            assertThatThrownBy(failing::publishPending)
-                    .isInstanceOf(RedisConnectionFailureException.class);
+                // A stopped container surfaces as a connection failure or a command timeout depending
+                // on where Lettuce is when it goes away; both are failures the publisher retries.
+                assertThatThrownBy(beforeRestart::publishPending)
+                        .as("a stopped container is an outage, not a mock")
+                        .isInstanceOf(DataAccessException.class);
+                assertThat(attempts(event)).isEqualTo(1);
+                assertThat(secondsUntilDue(event)).as("the failed attempt still backs the row off")
+                        .isBetween(1, 3);
+                assertThat(abandonedAt(event)).isNull();
+
+                redisOnly.start();
+                // The sockets the old template held died with the container, so it is rebuilt against
+                // whatever port the restarted container now answers on.
+                OutboxPublisher afterRestart = new OutboxPublisher(jdbc, named, templateFor(redisOnly),
+                        mapper, meters, transactions);
+                awaitDue(event);
+                afterRestart.publishPending();
+            } finally {
+                redisOnly.stop();
+            }
         }
-        redisDown.set(false);
-        withSubscriber(published -> {
-            awaitDue(event);
-            failing.publishPending();
-            awaitEvent(published, event);
-        });
 
-        assertThat(publishedAt(event)).as("the row survives a shortened outage on its last retry")
+        assertThat(publishedAt(event)).as("the row survives a real restart and is delivered")
                 .isNotNull();
-        assertThat(abandonedAt(event)).as("and was never abandoned").isNull();
+        assertThat(attempts(event)).as("and carries its one failed attempt").isEqualTo(1);
+        assertThat(abandonedAt(event)).as("without being abandoned").isNull();
         assertThat(meters.find("nexus.outbox.abandoned").counters().stream()
                 .mapToDouble(counter -> counter.count()).sum())
                 .as("so nothing was given up on").isZero();
     }
+
+    @Test
+    void abandonsTheUnencodableRowEvenWhenTheMarkRollsBackTheBatch() throws Exception {
+        UUID conversation = id(120);
+        UUID good = id(224);
+        UUID bad = id(225);
+        UUID goodEvent = id(425);
+        UUID badEvent = id(426);
+        group(conversation, SENDER, MEMBER);
+        message(good, conversation, SENDER);
+        jdbc.update("""
+                INSERT INTO nexus.message
+                    (id, conversation_id, sender_id, conversation_sequence, idempotency_key, content)
+                VALUES (?, ?, ?, 2, 'poison', 'hello')
+                """, bad, conversation, SENDER);
+        messageEvent(goodEvent, conversation, good, "message.created");
+        messageEvent(badEvent, conversation, bad, "message.created");
+
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        OutboxPublisher poisoned = new OutboxPublisher(jdbc, named, redis, failingOn(badEvent),
+                meters, transactions);
+
+        creatingFailingMark();
+        try {
+            assertThatThrownBy(poisoned::publishPending)
+                    .as("the publish went out but the batch could not be marked")
+                    .isInstanceOf(DataAccessException.class);
+
+            // The batch rolled back, so the abandonment has to have been applied after it: the row,
+            // its reason and the counter agree instead of the log claiming what the table never did.
+            assertThat(abandonedAt(badEvent)).isNotNull();
+            assertThat(abandonReason(badEvent)).isEqualTo("encode");
+            assertThat(attempts(badEvent)).isEqualTo(OutboxPublisher.MAX_ATTEMPTS);
+            assertThat(publishedAt(badEvent)).isNull();
+            assertThat(meters.find("nexus.outbox.abandoned").tag("reason", "encode").counter().count())
+                    .isEqualTo(1.0);
+            assertThat(publishedAt(goodEvent)).as("the rolled-back mark leaves the rest pending")
+                    .isNull();
+        } finally {
+            droppingFailingMark();
+        }
+    }
+
+    @Test
+    void requeuesEveryAbandonedRowAtOnce() throws Exception {
+        UUID conversation = id(121);
+        UUID first = id(226);
+        UUID second = id(227);
+        UUID firstEvent = id(427);
+        UUID secondEvent = id(428);
+        group(conversation, SENDER, MEMBER);
+        message(first, conversation, SENDER);
+        jdbc.update("""
+                INSERT INTO nexus.message
+                    (id, conversation_id, sender_id, conversation_sequence, idempotency_key, content)
+                VALUES (?, ?, ?, 2, 'second', 'hello')
+                """, second, conversation, SENDER);
+        messageEvent(firstEvent, conversation, first, "message.created");
+        messageEvent(secondEvent, conversation, second, "message.created");
+        named.update("""
+                UPDATE nexus.message_outbox
+                SET attempts = %d, abandoned_at = clock_timestamp(), abandon_reason = 'retries',
+                    last_error = 'redis is down'
+                WHERE event_id IN (:ids)
+                """.formatted(OutboxPublisher.MAX_ATTEMPTS),
+                new MapSqlParameterSource("ids", List.of(firstEvent, secondEvent)));
+
+        OutboxAdminService admin = new OutboxAdminService(jdbc, named);
+        assertThat(admin.requeueAll())
+                .as("every abandoned row in the table is put back, including these two")
+                .isGreaterThanOrEqualTo(2);
+        for (UUID event : List.of(firstEvent, secondEvent)) {
+            assertThat(abandonedAt(event)).isNull();
+            assertThat(attempts(event)).isZero();
+        }
+
+        withSubscriber(published -> {
+            publisher.publishPending();
+            assertThat(awaitEvents(published, firstEvent, secondEvent)).hasSize(2);
+        });
+        assertThat(publishedAt(firstEvent)).isNotNull();
+        assertThat(publishedAt(secondEvent)).isNotNull();
+    }
+
+    @Test
+    void theAdminCommandRunsThroughARealContextAndShutsItDown() {
+        UUID conversation = id(122);
+        UUID message = id(228);
+        UUID event = id(429);
+        group(conversation, SENDER, MEMBER);
+        message(message, conversation, SENDER);
+        messageEvent(event, conversation, message, "message.created");
+        jdbc.update("""
+                UPDATE nexus.message_outbox
+                SET attempts = %d, abandoned_at = clock_timestamp(), abandon_reason = 'retries',
+                    last_error = 'redis is down'
+                WHERE event_id = ?
+                """.formatted(OutboxPublisher.MAX_ATTEMPTS), event);
+
+        new ApplicationContextRunner()
+                .withPropertyValues("chat.messaging.outbox-admin=list")
+                .withBean(OutboxAdminService.class, () -> new OutboxAdminService(jdbc, named))
+                .withBean(OutboxAdminCommand.class)
+                .run(context -> {
+                    assertThat(context).hasSingleBean(OutboxAdminCommand.class);
+                    // Nothing below would be reached if the property had not arrived: a blank command
+                    // returns without touching the context, and the last assertion would see it alive.
+                    context.getBean(OutboxAdminCommand.class)
+                            .run(new DefaultApplicationArguments(new String[0]));
+
+                    assertThat(context.isActive())
+                            .as("the command exits the application instead of leaving a publisher")
+                            .isFalse();
+                });
+    }
+
 
     @Test
     void publishesTheRestOfTheBatchWhenRedisRejectsOnePayload() throws Exception {
@@ -865,6 +999,14 @@ class OutboxPublisherIntegrationTest {
                 return super.execute(action);
             }
         };
+    }
+
+    /** A template for a container that is started, stopped and started again by the test itself. */
+    private static StringRedisTemplate templateFor(GenericContainer<?> container) {
+        LettuceConnectionFactory factory = new LettuceConnectionFactory(container.getHost(),
+                container.getMappedPort(6379));
+        factory.afterPropertiesSet();
+        return new StringRedisTemplate(factory);
     }
 
     private void withSubscriber(Scenario scenario) throws Exception {
