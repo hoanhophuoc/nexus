@@ -166,27 +166,34 @@ public class OutboxPublisher {
     @Scheduled(fixedDelayString = "${chat.messaging.outbox-poll-ms:100}")
     public void publishPending() {
         List<UUID> attempted = new ArrayList<>();
-        List<Abandon> abandons = new ArrayList<>();
+        // A row that cannot be encoded is unencodable whether or not the batch commits.
+        List<Abandon> poisoned = new ArrayList<>();
+        // A row at its cap is only abandoned if the attempt counts it came from commit with them.
+        List<Abandon> capped = new ArrayList<>();
         try {
-            transactions.executeWithoutResult(status -> publishBatch(attempted, abandons));
+            transactions.executeWithoutResult(status -> publishBatch(attempted, poisoned, capped));
         } catch (RuntimeException failure) {
             publishFailures.increment();
             // The batch's transaction rolled back and took its row locks with it, so the retry
-            // counter has to be written afterwards; inside the batch it would roll back too.
+            // counter has to be written afterwards; inside the batch it would roll back too. The
+            // decisions counted inside it describe attempts that no longer exist, so they go too.
+            capped.clear();
             try {
-                countAttempts(attempted, errorText("the publish failed:", failure), abandons);
+                countAttempts(attempted, errorText("the publish failed:", failure), capped);
             } catch (RuntimeException countFailure) {
                 failure.addSuppressed(countFailure);
             }
-            abandonAll(abandons);
+            abandonAll(poisoned);
+            abandonAll(capped);
             throw failure;
         }
-        // Only now is the row state this decision describes committed: an abandonment written inside
+        // Only now is the row state these decisions describe committed: an abandonment written inside
         // the batch would be rolled back while its counter and log line were not.
-        abandonAll(abandons);
+        abandonAll(poisoned);
+        abandonAll(capped);
     }
 
-    private void publishBatch(List<UUID> attempted, List<Abandon> abandons) {
+    private void publishBatch(List<UUID> attempted, List<Abandon> poisoned, List<Abandon> capped) {
         long started = System.nanoTime();
         List<OutboxRow> rows = jdbc.query(PENDING_MESSAGES_SQL, OutboxPublisher::map);
         List<MlsOutboxRow> mlsRows = publishMlsPending();
@@ -233,14 +240,14 @@ public class OutboxPublisher {
 
         // One unencodable row must not take its batch down with it: abandon it, publish the rest.
         if (!unencodable.isEmpty()) {
-            abandons.add(new Abandon(unencodable, "encode", "the row cannot be encoded"));
+            poisoned.add(new Abandon(unencodable, "encode", "the row cannot be encoded"));
         }
         if (deliveries.isEmpty()) return;
         List<UUID> eventIds = new ArrayList<>(deliveries.size());
         for (Delivery delivery : deliveries) eventIds.add(delivery.eventId());
         attempted.addAll(eventIds);
 
-        int published = publish(deliveries, abandons);
+        int published = publish(deliveries, capped);
         if (published > 0) publishedEvents.increment(published);
         publishTimer.record(Duration.ofNanos(System.nanoTime() - started));
     }
@@ -252,13 +259,13 @@ public class OutboxPublisher {
      * Redis is unreachable, so it is rethrown and the caller rolls the batch back and counts every
      * row's attempt.
      */
-    private int publish(List<Delivery> deliveries, List<Abandon> abandons) {
+    private int publish(List<Delivery> deliveries, List<Abandon> capped) {
         try {
             send(deliveries);
         } catch (RedisConnectionFailureException outage) {
             throw outage;
         } catch (RuntimeException batchFailure) {
-            return publishOneByOne(deliveries, batchFailure, abandons);
+            return publishOneByOne(deliveries, batchFailure, capped);
         }
         // Outside the catch on purpose: a failed mark is not a failed publish, and sending the batch
         // row by row would only deliver every event a second time.
@@ -269,7 +276,7 @@ public class OutboxPublisher {
     }
 
     private int publishOneByOne(List<Delivery> deliveries, RuntimeException batchFailure,
-                                List<Abandon> abandons) {
+                                List<Abandon> capped) {
         List<Delivery> delivered = new ArrayList<>(deliveries.size());
         List<UUID> failed = new ArrayList<>();
         for (Delivery delivery : deliveries) {
@@ -282,9 +289,11 @@ public class OutboxPublisher {
                 failed.add(delivery.eventId());
             }
         }
-        markPublished(eventIds(delivered));
+        // Counted before the marks so a mark failure rolls the counts back with everything else,
+        // instead of abandoning a row on attempts a rollback then erases.
         if (failed.size() == deliveries.size()) throw batchFailure;
-        countAttempts(failed, errorText("the row could not be published:", batchFailure), abandons);
+        countAttempts(failed, errorText("the row could not be published:", batchFailure), capped);
+        markPublished(eventIds(delivered));
         log.warn("Outbox published {} of {} row(s); {} will retry", delivered.size(),
                 deliveries.size(), failed.size());
         return delivered.size();
