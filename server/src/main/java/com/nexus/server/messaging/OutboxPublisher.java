@@ -77,6 +77,7 @@ public class OutboxPublisher {
     private static final String COUNT_ATTEMPT_SQL = """
             UPDATE nexus.message_outbox SET attempts = attempts + 1
             WHERE event_id IN (:ids)
+            RETURNING attempts
             """;
 
     private final JdbcTemplate jdbc;
@@ -86,8 +87,10 @@ public class OutboxPublisher {
     private final TransactionTemplate transactions;
     private final Timer publishTimer;
     private final Counter publishedEvents;
+    private final Counter publishFailures;
     private final AtomicLong batchRows = new AtomicLong();
     private final AtomicLong oldestAgeSeconds = new AtomicLong();
+    private final AtomicLong maxAttempts = new AtomicLong();
 
     public OutboxPublisher(JdbcTemplate jdbc, NamedParameterJdbcTemplate named,
                            StringRedisTemplate redis, ObjectMapper mapper, MeterRegistry meters,
@@ -109,6 +112,12 @@ public class OutboxPublisher {
         Gauge.builder("nexus.outbox.oldest_age_seconds", oldestAgeSeconds, AtomicLong::get)
                 .description("Age of the oldest row in the last published batch")
                 .register(meters);
+        this.publishFailures = Counter.builder("nexus.outbox.publish_failures")
+                .description("Outbox batches whose Redis publish failed")
+                .register(meters);
+        Gauge.builder("nexus.outbox.max_attempts", maxAttempts, AtomicLong::get)
+                .description("Highest failed-publish count on a row in the last failed batch")
+                .register(meters);
     }
 
     @Scheduled(fixedDelayString = "${chat.messaging.outbox-poll-ms:100}")
@@ -117,6 +126,7 @@ public class OutboxPublisher {
         try {
             transactions.executeWithoutResult(status -> publishBatch(attempted));
         } catch (RuntimeException failure) {
+            publishFailures.increment();
             // The batch's transaction rolled back and took its row locks with it, so the retry
             // counter has to be written afterwards; inside the batch it would roll back too.
             try {
@@ -231,10 +241,19 @@ public class OutboxPublisher {
         named.update(MARK_PUBLISHED_SQL, new MapSqlParameterSource("ids", eventIds));
     }
 
+    /**
+     * Counts one failed publish per row and publishes the highest count seen, which is what an
+     * operator alerts on. There is no cap: the failures counted here come from Redis being down,
+     * which hits a whole batch, so dropping rows after N tries would discard messages, not protect
+     * anything (see docs/architecture.md).
+     */
     private void countAttempts(List<UUID> eventIds) {
         if (eventIds.isEmpty()) return;
-        transactions.executeWithoutResult(status ->
-                named.update(COUNT_ATTEMPT_SQL, new MapSqlParameterSource("ids", eventIds)));
+        List<Integer> attempts = transactions.execute(status -> named.query(COUNT_ATTEMPT_SQL,
+                new MapSqlParameterSource("ids", eventIds), (rs, row) -> rs.getInt("attempts")));
+        if (attempts != null && !attempts.isEmpty()) {
+            maxAttempts.set(attempts.stream().mapToLong(Integer::longValue).max().orElse(0));
+        }
     }
 
     private static long ageSeconds(Instant createdAt, Instant now) {

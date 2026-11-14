@@ -104,12 +104,15 @@ Application meters:
 | `nexus.outbox.published` | counter | Events published |
 | `nexus.outbox.batch_rows` | gauge | Rows in the last batch |
 | `nexus.outbox.oldest_age_seconds` | gauge | Age of the oldest pending event — the delivery-latency alarm |
+| `nexus.outbox.publish_failures` | counter | Batches whose Redis publish failed |
+| `nexus.outbox.max_attempts` | gauge | Highest `attempts` a row reached in the last failed batch — a row stuck retrying |
 | `nexus.ws.delivered` | counter | Frames delivered to clients |
 | `nexus.ws.sessions` | gauge | Open WebSocket sessions |
 
-Alert on `nexus.outbox.oldest_age_seconds` growing and on `nexus.ws.sessions` approaching
-`NEXUS_MAX_CONNECTIONS`; those two cover the failure modes that matter (delivery stalled, or
-connection ceiling reached).
+Alert on `nexus.outbox.oldest_age_seconds` growing, on `nexus.outbox.max_attempts` climbing past a
+few attempts, and on `nexus.ws.sessions` approaching `NEXUS_MAX_CONNECTIONS`; those cover the failure
+modes that matter (delivery stalled, one event retrying for minutes, or the connection ceiling
+reached).
 
 ## Backups and recovery
 

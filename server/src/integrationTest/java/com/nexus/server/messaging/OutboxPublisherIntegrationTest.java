@@ -32,6 +32,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
@@ -238,43 +241,130 @@ class OutboxPublisherIntegrationTest {
     }
 
     @Test
-    void keepsTheRowPendingAndCountsEveryFailedAttempt() throws Exception {
+    void keepsBothRowsPendingAndCountsEveryFailedAttempt() throws Exception {
         UUID conversation = id(106);
         UUID message = id(206);
-        UUID event = id(406);
+        UUID mlsMessage = id(306);
+        UUID messageEvent = id(409);
+        UUID mlsEvent = id(410);
         group(conversation, SENDER, MEMBER);
         message(message, conversation, SENDER);
-        messageEvent(event, conversation, message, "message.created");
+        mlsMessage(mlsMessage, conversation, SENDER, 1, "application");
+        messageEvent(messageEvent, conversation, message, "message.created");
+        mls(mlsEvent, conversation, mlsMessage, "mls.message");
 
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
         LettuceConnectionFactory unreachable =
                 new LettuceConnectionFactory(new RedisStandaloneConfiguration("127.0.0.1", 1));
         unreachable.afterPropertiesSet();
         try {
             StringRedisTemplate noRedis = new StringRedisTemplate(unreachable);
             noRedis.afterPropertiesSet();
-            OutboxPublisher failing = new OutboxPublisher(jdbc, named, noRedis, mapper,
-                    new SimpleMeterRegistry(), transactions);
+            OutboxPublisher failing = new OutboxPublisher(jdbc, named, noRedis, mapper, meters,
+                    transactions);
 
             for (int attempt = 1; attempt <= 2; attempt++) {
                 assertThatThrownBy(failing::publishPending)
                         .as("failure " + attempt + " reaches the scheduler instead of being swallowed")
                         .isInstanceOf(RedisConnectionFailureException.class);
             }
+            assertThat(attempts(messageEvent)).as("the message row counts each failed publish")
+                    .isEqualTo(2);
+            assertThat(attempts(mlsEvent)).as("the MLS row counts with it").isEqualTo(2);
+            assertThat(meters.find("nexus.outbox.publish_failures").counter().count())
+                    .as("each failed batch is visible as a metric").isEqualTo(2.0);
+            assertThat(meters.find("nexus.outbox.max_attempts").gauge().value())
+                    .as("so is the highest attempt count a row has reached").isEqualTo(2.0);
+
+            for (int attempt = 3; attempt <= 5; attempt++) {
+                assertThatThrownBy(failing::publishPending)
+                        .isInstanceOf(RedisConnectionFailureException.class);
+            }
         } finally {
             unreachable.destroy();
         }
 
-        assertThat(attempts(event)).as("each failed publish is counted on the row")
-                .isEqualTo(2);
-        assertThat(publishedAt(event)).as("an unpublished row is what the next poll retries").isNull();
+        assertThat(attempts(messageEvent)).as("five failures leave five attempts on the row")
+                .isEqualTo(5);
+        assertThat(attempts(mlsEvent)).isEqualTo(5);
+        assertThat(meters.find("nexus.outbox.max_attempts").gauge().value()).isEqualTo(5.0);
+        assertThat(publishedAt(messageEvent)).as("an unpublished row is what the next poll retries")
+                .isNull();
+        assertThat(publishedAt(mlsEvent)).isNull();
 
         withSubscriber(published -> {
             publisher.publishPending();
 
-            assertThat(targets(awaitEvent(published, event)))
-                    .as("the retry delivers the same batch")
-                    .containsExactlyInAnyOrder(SENDER, MEMBER);
-            assertThat(attempts(event)).as("a successful publish adds no attempt").isEqualTo(2);
+            assertThat(awaitEvents(published, messageEvent, mlsEvent))
+                    .as("the retry delivers the whole batch").hasSize(2);
+            assertThat(attempts(messageEvent)).as("a successful publish adds no attempt")
+                    .isEqualTo(5);
+            assertThat(attempts(mlsEvent)).isEqualTo(5);
+        });
+    }
+
+    @Test
+    void givesEachRowToOnlyOneOfTwoConcurrentPublishers() throws Exception {
+        UUID conversation = id(108);
+        int rows = 120;
+        group(conversation, SENDER, MEMBER);
+        jdbc.update("""
+                INSERT INTO nexus.message
+                    (id, conversation_id, sender_id, conversation_sequence, idempotency_key, content)
+                SELECT gen_random_uuid(), ?, ?, s, 'k' || s, 'hello'
+                FROM generate_series(1, ?) AS s
+                """, conversation, SENDER, rows);
+        jdbc.update("""
+                INSERT INTO nexus.message_outbox (event_id, conversation_id, message_id, event_type)
+                SELECT gen_random_uuid(), ?, m.id, 'message.created'
+                FROM nexus.message m WHERE m.conversation_id = ?
+                """, conversation, conversation);
+        Set<UUID> seeded = new LinkedHashSet<>(jdbc.queryForList(
+                "SELECT event_id FROM nexus.message_outbox WHERE conversation_id = ?",
+                UUID.class, conversation));
+
+        withSubscriber(published -> {
+            CountDownLatch start = new CountDownLatch(1);
+            ExecutorService polls = Executors.newFixedThreadPool(2);
+            try {
+                for (int poll = 0; poll < 2; poll++) {
+                    polls.execute(() -> {
+                        try {
+                            start.await();
+                            publisher.publishPending();
+                        } catch (InterruptedException interrupted) {
+                            Thread.currentThread().interrupt();
+                        }
+                    });
+                }
+                start.countDown();
+                polls.shutdown();
+                assertThat(polls.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
+            } finally {
+                polls.shutdownNow();
+            }
+
+            // A poll may legitimately skip the rows the other one holds; drain the rest.
+            for (int drain = 0; drain < 3; drain++) {
+                publisher.publishPending();
+            }
+
+            Map<UUID, Integer> deliveries = new LinkedHashMap<>();
+            long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+            while (System.nanoTime() < deadline) {
+                String payload = published.poll(1, TimeUnit.SECONDS);
+                if (payload == null) {
+                    if (deliveries.size() == seeded.size()) break;
+                    continue;
+                }
+                UUID event = UUID.fromString(
+                        mapper.readTree(payload).get("payload").get("eventId").asString());
+                deliveries.merge(event, 1, Integer::sum);
+            }
+
+            assertThat(deliveries.keySet()).as("every pending row is published")
+                    .isEqualTo(seeded);
+            assertThat(deliveries.values()).as("no row is published twice").containsOnly(1);
         });
     }
 

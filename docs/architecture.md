@@ -62,8 +62,16 @@ Rules that the schema enforces rather than the code:
 2. The outbox publisher polls pending events every 100 ms through a partial index, fans them out
    to connected sessions, and marks them published. A batch whose Redis publish fails is rolled
    back and its rows' `attempts` counter is incremented in a separate transaction, so the failed
-   events stay pending for the next poll. Delivery is at-least-once; clients deduplicate on message
-   id and sequence.
+   events stay pending for the next poll; that batch also increments `nexus.outbox.publish_failures`
+   and sets `nexus.outbox.max_attempts` from the counts it just wrote. Delivery is at-least-once;
+   clients deduplicate on message id and sequence.
+
+   Nothing backs off and nothing gives up on a row. The failure this counter records is Redis being
+   unavailable, which fails a whole batch rather than one event, so a per-row cap would drop messages
+   instead of relieving pressure — at-least-once is worth more than a bounded queue for events that
+   are already durable. `nexus.outbox.max_attempts` and `nexus.outbox.oldest_age_seconds` are the
+   signals; a cap or a dead-letter table would need a `next_attempt_at` column and a policy for what
+   to do with the dropped events.
 3. The receiving client appends the message to its encrypted local cache and acknowledges it
    over the WebSocket. Acknowledgements are what make the "delivered" state appear for the
    sender.
