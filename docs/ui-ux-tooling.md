@@ -55,7 +55,7 @@ README baseline observed at review: release 3.0.0; Java 25+ and JavaFX 27+ are s
 
 **Decision: preferred foundation and strongest runtime candidate, but not an unconditional dependency.** The v3.0.0 API confirms themes including `PrimerLight`/`PrimerDark` and a built-in `ThemeManager`; the controls package includes `Card`, `ModalPane`, `Notification`, `Popover`, `SegmentedControl`, `Sidebar`, `Tile` and `ToggleSwitch` (among other controls). The exact JavaFX 27.0.1 integration still needs a focused Nexus proof of concept.
 
-Use `PrimerLight`/`PrimerDark` as the first neutral baseline to evaluate—not as an irreversible aesthetic decision. Compare it with Cupertino and Nord in the Sampler, then test the best candidate with Nexus tokens and real screens. AtlantaFX uses looked-up CSS colors with a `-color-*` convention, which fits the existing Nexus token vocabulary better than introducing a second `-nx-*` namespace. See the [AtlantaFX 3.0.0 themes](https://mkpaz.github.io/atlantafx/atlantafx.base/atlantafx/base/theme/package-summary.html), [controls API](https://mkpaz.github.io/atlantafx/atlantafx.base/atlantafx/base/controls/package-summary.html), [theming guide](https://mkpaz.github.io/atlantafx/theming/) and [v3.0.0 changelog](https://github.com/mkpaz/atlantafx/blob/master/CHANGELOG.md).
+Use `PrimerLight`/`PrimerDark` as the first neutral baseline to evaluate—not as an irreversible aesthetic decision. Compare it with Cupertino and Nord in the Sampler, then test the best candidate with Nexus tokens and real screens. AtlantaFX uses looked-up CSS colors with a `-color-*` convention, which is a natural integration point for Nexus's existing `-color-*` vocabulary. The actual variable names are not identical, however: do not assume Nexus `-color-bg` maps automatically to any AtlantaFX background token. Keep Nexus tokens canonical and define/test an explicit mapping or aliases only where needed; do not introduce a second `-nx-*` namespace for the same concepts. See the [AtlantaFX 3.0.0 themes](https://mkpaz.github.io/atlantafx/atlantafx.base/atlantafx/base/theme/package-summary.html), [controls API](https://mkpaz.github.io/atlantafx/atlantafx.base/atlantafx/base/controls/package-summary.html), [theming guide](https://mkpaz.github.io/atlantafx/theming/) and [v3.0.0 changelog](https://github.com/mkpaz/atlantafx/blob/master/CHANGELOG.md).
 
 **Integration rules**
 - Start with the base theme artifact only; do not automatically import every AtlantaFX control, decoration, validation module or example.
@@ -329,7 +329,7 @@ The root Gradle build runs a GA-only dependency gate. Do not weaken it to accomm
 | `ikonli-lucide-pack` | Not listed in the official Ikonli 12.4.0 pack catalogue; use the documented Feather pack unless a published Lucide artifact is independently verified |
 | FormsFX | More abstraction than needed unless complex admin forms justify it |
 | ControlsFX | Add only for a demonstrated control gap after checking built-in and AtlantaFX controls |
-| PixelDuke FXComponents | The observed JavaFX 22 documentation does not establish JavaFX 27 compatibility |
+| PixelDuke FXComponents | The JavaFX 27.0.1 compatibility of the exact component/release has not been established in this review |
 
 ## 6. Keeping the tool decisions current
 
