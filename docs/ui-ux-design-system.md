@@ -8,6 +8,10 @@
 
 This document is the canonical product-specific visual and interaction contract for Nexus. It is deliberately native-desktop-first. It is not a web design system translated into JavaFX. When this document and a generic design skill disagree, this document and verified JavaFX 27 behavior take precedence.
 
+### Working art direction: Tactile Privacy & Precision Craft
+
+Use **Tactile Privacy & Precision Craft** as a working creative brief, not as a rigid theme preset or a security claim. It combines human, calm, content-first communication in `desktop-user` with precise, high-signal operational workflows in `desktop-admin`. Learn from the interaction quality and restraint of products such as Linear, Raycast and Signal, but do not clone their layouts, assets, iconography or brand identities. The design should feel considered and tactile through spacing, typography, feedback and subtle movement—not through glass effects, excessive shadows or visual noise. Revisit this direction when prototypes and user feedback provide better evidence.
+
 Related documents:
 - [UI/UX tooling decisions](ui-ux-tooling.md)
 - [Repository architecture](architecture.md)
@@ -58,7 +62,7 @@ At the time of writing, the repository already has:
 - App-specific stylesheets and FXML views.
 - JavaFX FX tests, rendered-control contrast tests and visual golden screenshot tests in both desktop applications.
 
-Do not replace these facilities wholesale. Inspect and extend them. In particular, maintain a single application-level theme preference and one authoritative Nexus token layer. If AtlantaFX is adopted after a compatibility spike, integrate its base stylesheet with the existing `ThemeManager`; do not introduce a second competing theme manager or two independently mutable palettes.
+Do not replace these facilities wholesale. Inspect and extend them. Maintain one application-level theme preference and one authoritative Nexus token layer. AtlantaFX 3.0.0 also ships its own `atlantafx.base.theme.ThemeManager`. During the proof of concept, explicitly decide whether Nexus `ThemeManager` remains the public owner of persisted preference, system-scheme resolution and scene lifecycle while delegating theme application to AtlantaFX, or whether AtlantaFX's manager is adopted and Nexus preference handling is integrated into it. There must be exactly one effective source of truth—never two managers that can independently change the active theme. Evaluate AtlantaFX's theme as the user-agent stylesheet and Nexus `theme.css` as the application stylesheet; verify the cascade, popups and dialogs in the actual app.
 
 ## 3. Visual language
 
@@ -85,11 +89,15 @@ Rules:
 - Verify actual rendered foreground/background pairs for labels, prompts, disabled controls, selected/hovered rows, dropdowns, popovers, date pickers, tooltips and dialogs in both themes.
 - Target WCAG AA contrast: 4.5:1 for normal text and 3:1 for large text and relevant non-text visual indicators. The actual rendered skin must pass; token-only arithmetic is insufficient.
 - Disabled state must remain legible. Avoid reducing opacity to a degree that makes important information unreadable.
+- Preserve the existing `-color-*` semantic token vocabulary unless the project approves a deliberate migration. Do not introduce a parallel `-nx-*` token system just to rename the same concepts. Add aliases only when a proven integration need requires them.
+- A proposed palette is not accepted merely because it looks modern. As a concrete example, the draft pairs `#64748B` on `#0B0E14` (4.06:1), white on `#3B82F6` (3.68:1), and white on `#10B981` (2.54:1) do not reach 4.5:1 for normal text. Recalculate actual foreground/background pairs and verify the rendered controls before adopting a palette.
 
 ### 3.3 Typography
 
-- Continue using the bundled Nexus font assets unless an intentional, documented typography change is approved.
+- Continue using the bundled Nexus font assets unless an intentional, documented typography change is approved. The current golden test asserts the registered JavaFX family name `Chat System Sans`; do not assume the resource basename `nexusSans` is the CSS family name.
 - Verify the actual internal font family name and fallback behavior; a resource filename is not proof of its font family.
+- Use the platform monospace family for cryptographic fingerprints, key IDs and audit hashes only where fixed-width alignment improves comparison. Do not add JetBrains Mono or another font package without checking its license, embedding terms and jpackage behavior. Timestamps and normal metadata should remain in the primary UI font unless a specific data-display need proves otherwise.
+- Do not copy browser CSS typography syntax such as `letter-spacing: -0.02em` into JavaFX CSS. JavaFX has its own CSS property set; `-fx-line-spacing` is documented for `Text` and `TextFlow`, not as a universal property for every `Label` or control. Verify every proposed style property against the JavaFX 27 CSS reference.
 - Define a small type scale with clear roles: screen title, section title, body, supporting text, metadata, labels and numeric/data values.
 - The baseline 13px currently in `theme.css` is a project implementation detail, not a requirement to use 13px everywhere. Choose size by reading distance, density and platform rendering; avoid tiny body text.
 - Use line wrapping deliberately for names, message content, helper text, errors and Vietnamese translations. Do not truncate critical content without a way to inspect it.
@@ -150,7 +158,8 @@ Use a consistent spacing scale derived from 4px increments. Preferred steps are 
 ### 4.4 Real-time chat experience
 
 - The message timeline and conversation list are the primary visual hierarchy. Do not let decorative dashboard-style cards compete with them.
-- Use virtualized JavaFX controls for potentially large conversation/message collections; do not create an unbounded scene graph of nodes for message history.
+- Use virtualized JavaFX controls for potentially large conversation/message collections; do not create an unbounded scene graph of nodes for message history. The current shell uses a `ScrollPane` with a `VBox` message container, so benchmark this path with realistic history sizes before choosing a migration.
+- Prefer public JavaFX APIs such as `ListView` with a carefully designed `cellFactory` when they satisfy variable message heights, grouping, selection, accessibility and scroll anchoring. Do not import internal implementation classes such as `com.sun.javafx.scene.control.skin.VirtualFlow`; internal APIs are not a stable extension point.
 - Preserve scroll position when older messages load. Auto-scroll only when the user is already at the bottom or explicitly requests it.
 - Make pending, sent, failed, retrying and incoming states distinguishable without confusing them with encryption or delivery guarantees.
 - Keep composer focus, keyboard send behavior, multiline entry, attachments and error recovery predictable.
@@ -183,6 +192,10 @@ Guidelines:
 - Never use motion as the only indication of a state change.
 - Cancel or complete transitions safely when the view is disposed, navigated away from or receives newer data.
 - Test motion while messages arrive quickly, while a user scrolls and while a window is resized.
+- If multiple screens need the same motion behavior, centralize it in a small `MotionPresets` helper in `desktop-shared`; do not create an animation framework for one transition. Suggested starting ranges are 110–160ms for micro-feedback and 180–260ms for meaningful panel/view transitions. `Interpolator.SPLINE(0.22, 1.0, 0.36, 1.0)` may be evaluated as an ease-out curve, but timings and easing are hypotheses to review on the real app—not universal rules.
+- Provide a central `nexus.ui.animations.enabled=false` switch for deterministic FX tests and a reduced-motion preference for users. When disabled, complete the state change synchronously rather than leaving a transition half-finished. Make transitions cancellable and restore node state on completion, cancellation and disposal.
+- Do not promise 60fps from a preset. Measure frame pacing and input responsiveness on the supported OS/hardware matrix.
+- Do not automatically set `Node.cache=true` and `CacheHint.SPEED` for every animation. JavaFX documents that `SPEED` favors cached-bitmap rendering and may reduce visual quality. Use it only for an expensive node after a measured improvement; restore its previous cache hint in every completion/cancellation path. See the [JavaFX 27 CacheHint API](https://openjfx.io/javadoc/27/javafx.graphics/javafx/scene/CacheHint.html).
 
 ## 6. Accessibility and localization
 
@@ -225,7 +238,9 @@ Nexus contains security-sensitive user experiences. Design must reflect the actu
 
 ## 9. Component contract
 
-Build shared components around actual repeated product needs. Candidate component families:
+Build shared components around actual repeated product needs. A screen does not need every conceivable state: define only the states that can genuinely occur for that screen/component, but never omit a reachable loading, empty, error, offline, permission, busy or success state. Do not force a CTA into an empty state when there is no meaningful next action; explanatory empty content is acceptable. Skeletons are optional and should be used only when they improve perceived continuity without creating unnecessary animation or visual noise.
+
+Candidate component families:
 
 | Family | Expected variants/states |
 | --- | --- |
