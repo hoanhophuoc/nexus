@@ -1094,13 +1094,13 @@ class OutboxPublisherIntegrationTest {
         bounded("subscribing to the outbox channel", () -> {
             container.afterPropertiesSet();
             container.start();
-        }, true);
+        });
         try {
             awaitSubscriber(published);
             scenario.run(published);
         } finally {
             try {
-                bounded("unsubscribing from the outbox channel", container::destroy, false);
+                bounded("unsubscribing from the outbox channel", container::destroy);
             } catch (AssertionError | RuntimeException ignored) {
                 // A container stuck in recovery cannot be shut down; its thread is a daemon.
             }
@@ -1112,7 +1112,7 @@ class OutboxPublisherIntegrationTest {
     }
 
     /** Runs a listener-container lifecycle step with a deadline instead of waiting in its retry loop. */
-    private static void bounded(String what, Lifecycle step, boolean ignored) {
+    private static void bounded(String what, Lifecycle step) {
         ExecutorService runner = Executors.newSingleThreadExecutor(task -> {
             Thread thread = new Thread(task, what);
             thread.setDaemon(true);

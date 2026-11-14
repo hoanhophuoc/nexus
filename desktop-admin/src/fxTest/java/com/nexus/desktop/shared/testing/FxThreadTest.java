@@ -20,14 +20,7 @@ class FxThreadTest {
 
     @Test
     void namesTheFrameTheJavaFxThreadIsStuckIn() throws Exception {
-        FxThread.onFx(() -> null); // starts the toolkit and proves it is usable before the test blocks it
-
-        CountDownLatch blocked = new CountDownLatch(1);
-        CountDownLatch release = new CountDownLatch(1);
-        Thread blocker = new Thread(() -> Platform.runLater(() -> holdTheFxThread(blocked, release)));
-        blocker.start();
-        assertThat(blocked.await(10, TimeUnit.SECONDS)).as("the FX thread is now busy").isTrue();
-
+        CountDownLatch release = blockTheFxThread();
         try {
             assertThatThrownBy(() -> FxThread.onFx(() -> "never runs"))
                     .isInstanceOf(AssertionError.class)
@@ -45,14 +38,7 @@ class FxThreadTest {
 
     @Test
     void waitForFxTimesOutInsteadOfHangingWhenTheThreadIsBlocked() throws Exception {
-        FxThread.onFx(() -> null);
-
-        CountDownLatch blocked = new CountDownLatch(1);
-        CountDownLatch release = new CountDownLatch(1);
-        Thread blocker = new Thread(() -> Platform.runLater(() -> holdTheFxThread(blocked, release)));
-        blocker.start();
-        assertThat(blocked.await(10, TimeUnit.SECONDS)).as("the FX thread is now busy").isTrue();
-
+        CountDownLatch release = blockTheFxThread();
         long started = System.nanoTime();
         try {
             assertThatThrownBy(() -> FxThread.waitForFx(() -> false, Duration.ofMillis(200)))
@@ -69,6 +55,16 @@ class FxThreadTest {
 
         assertThat(FxThread.onFx(() -> "after the block"))
                 .as("the thread is usable once it is released").isEqualTo("after the block");
+    }
+
+    /** Makes the FX thread busy and returns the latch that frees it, ready for the test's finally. */
+    private static CountDownLatch blockTheFxThread() throws InterruptedException {
+        FxThread.onFx(() -> null); // the toolkit has to be up before it can be blocked
+        CountDownLatch blocked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        new Thread(() -> Platform.runLater(() -> holdTheFxThread(blocked, release))).start();
+        assertThat(blocked.await(10, TimeUnit.SECONDS)).as("the FX thread is now busy").isTrue();
+        return release;
     }
 
     /** Blocks the FX thread until the test releases it, and leaves its own name in the stack dump. */

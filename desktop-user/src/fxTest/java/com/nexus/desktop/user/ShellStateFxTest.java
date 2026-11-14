@@ -65,8 +65,6 @@ class ShellStateFxTest {
                 });
                 waitForFx(() -> button(stage, "Send") != null, Duration.ofSeconds(10));
                 realtime.awaitClient(TimeUnit.SECONDS, 10);
-                waitForFx(() -> conversationNamed(stage, FakeChatServer.GROUP_NAME)
-                        && conversationNamed(stage, FakeChatServer.FRIEND_NAME), Duration.ofSeconds(10));
                 // The shell selects the first conversation once its own refresh lands; the table starts
                 // from that settled state instead of racing the opening one.
                 waitForFx(() -> titleIs(stage, FakeChatServer.FRIEND_NAME), Duration.ofSeconds(10));
@@ -87,7 +85,8 @@ class ShellStateFxTest {
                                         && !titleIs(stage, FakeChatServer.GROUP_NAME)),
                         new Step("delete the message the user sent",
                                 () -> assertThat(deleteMessageShowing(stage, "mine to delete")).isTrue(),
-                                () -> !server.deletedScopes().isEmpty()),
+                                () -> !server.deletedScopes().isEmpty()
+                                        && !labelContaining(stage, "mine to delete")),
                         new Step("a realtime event for the group that is no longer open",
                                 () -> sendGroupMessage(realtime),
                                 () -> !labelContaining(stage, "late group message")));
@@ -101,7 +100,7 @@ class ShellStateFxTest {
                         waitForFx(step.settled(), Duration.ofSeconds(10));
                     } catch (AssertionError unmet) {
                         throw new AssertionError(step.state() + ": " + unmet.getMessage()
-                                + " (title now " + onFx(() -> titleOf(stage)) + ")", unmet);
+                                + " (" + onFx(() -> diagnostics(stage)) + ")", unmet);
                     }
                 }
 
@@ -158,16 +157,27 @@ class ShellStateFxTest {
         return false;
     }
 
-    /** True when the message row around {@code menu} contains a label with {@code text}. */
+    /** True when the message row around {@code menu} shows {@code text}, and no other row does. */
     private static boolean rowShows(Node menu, String text) {
         Node row = menu.getParent();
-        for (int depth = 0; depth < 4 && row != null; depth++, row = row.getParent()) {
-            boolean found = row.lookupAll(".label").stream()
-                    .filter(Label.class::isInstance).map(Label.class::cast)
-                    .anyMatch(label -> label.getText() != null && label.getText().contains(text));
-            if (found) return true;
-        }
-        return false;
+        while (row != null && !row.getStyleClass().contains("message-row")) row = row.getParent();
+        return row != null && row.lookupAll(".label").stream()
+                .filter(Label.class::isInstance).map(Label.class::cast)
+                .anyMatch(label -> label.getText() != null && label.getText().contains(text));
+    }
+
+    /** Enough of the shell to tell a repaint that never happened from one that painted the wrong thing. */
+    private static String diagnostics(Stage stage) {
+        return titleOf(stage) + ", status "
+                + (stage.getScene().lookup("#statusLabel") instanceof Label status ? status.getText() : null)
+                + ", rows " + rowsOf(stage);
+    }
+
+    private static String rowsOf(Stage stage) {
+        Node rows = stage.getScene().lookup("#messageRows");
+        if (rows == null) return "none";
+        return rows.lookupAll(".label").stream().filter(Label.class::isInstance)
+                .map(Label.class::cast).map(Label::getText).toList().toString();
     }
 
     private static boolean titleIs(Stage stage, String title) {
@@ -181,16 +191,6 @@ class ShellStateFxTest {
                 .filter(Label.class::isInstance).map(Label.class::cast)
                 .map(Label::getText).filter(text -> text != null)
                 .findFirst().orElse(null);
-    }
-
-    private static boolean conversationNamed(Stage stage, String name) {
-        Scene scene = stage.getScene();
-        if (scene == null) return false;
-        return scene.getRoot().lookupAll(".list-view").stream()
-                .filter(ListView.class::isInstance).map(node -> (ListView<?>) node)
-                .flatMap(list -> list.getItems().stream())
-                .filter(Conversation.class::isInstance).map(Conversation.class::cast)
-                .anyMatch(conversation -> name.equals(conversation.getName()));
     }
 
     private static boolean selectConversation(Stage stage, String name) {

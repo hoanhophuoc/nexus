@@ -40,8 +40,8 @@ A package average still hides a weak class, so three floors are per class rather
 `OutboxPublisher` (98.39% line / 92.75% branch when the floor was set), `ShellController`
 (45.35% / 34.09%) and `AdminAppContext` (74.19% / 60.00%) — the classes every delivery path and both
 shells run through. `ShellController` moved up with `ShellStateFxTest`, which drives one shell through
-a table of states — open a group, switch to the direct chat and send, delete the message just sent, and
-receive a realtime event for the group that is no longer open. Its floor is still the low one because
+a table of states — open a group, switch to the direct chat and send, delete a message the user sent
+and watch it leave the screen, and receive a realtime event for the group that is no longer open. Its floor is still the low one because
 the class's dialogs are not covered; it records where the JavaFX shell stands and fails if it slips.
 
 The line figure is reproducible because no suite relies on a timer to reach a line. The presence
