@@ -207,7 +207,7 @@ class UserAccountFlowFxTest {
                 try {
                     User target = new User().id(FakeChatServer.FRIEND_ID).username("bob").fullName("Bob");
                     CachedMessage evidence = new CachedMessage(UUID.randomUUID(),
-                            FakeChatServer.CONVERSATION_ID, FakeChatServer.FRIEND_ID.toString(),
+                            FakeChatServer.CONVERSATION_ID, FakeChatServer.FRIEND_ID, "",
                             "the reported message", Instant.now());
                     onFx(() -> {
                         ReportController controller = new ReportController(harness.context(), target,

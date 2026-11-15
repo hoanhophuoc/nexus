@@ -99,6 +99,16 @@ class GroupChatMlsRealtimeFxTest {
                 realtime.sendText("{\"type\":\"MlsMessage\",\"conversationId\":\""
                         + FakeChatServer.GROUP_ID + "\"}");
                 waitForFx(() -> labelContaining(stage, "live group message"), Duration.ofSeconds(10));
+                // End to end: the member name resolved from the group roster is what the row shows, for
+                // both sides of the conversation, and no row prints a sender id as if it were a name.
+                List<String> meta = metaTexts(stage);
+                assertThat(meta).as("incoming group message attribution")
+                        .anySatisfy(text -> assertThat(text).startsWith(FakeChatServer.FRIEND_NAME + " · "));
+                assertThat(meta).as("own group message attribution")
+                        .anySatisfy(text -> assertThat(text).startsWith("You · "));
+                assertThat(meta).as("no row prints a sender id")
+                        .noneMatch(text -> text.contains(FakeChatServer.FRIEND_ID.toString())
+                                || text.contains(FakeChatServer.USER_ID.toString()));
             } finally {
                 onFx(() -> {
                     stage.close();
@@ -186,6 +196,15 @@ class GroupChatMlsRealtimeFxTest {
             }
         }
         return false;
+    }
+
+    private static List<String> metaTexts(Stage stage) {
+        return onFx(() -> stage.getScene().getRoot().lookupAll(".message-meta").stream()
+                .filter(Label.class::isInstance)
+                .map(Label.class::cast)
+                .map(Label::getText)
+                .filter(text -> text != null)
+                .toList());
     }
 
     private static boolean labelContaining(Stage stage, String text) {

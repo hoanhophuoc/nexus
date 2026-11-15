@@ -118,8 +118,9 @@ public final class MessageHistorySyncService {
                     JsonNode message = event.get("message");
                     cache.upsert(new CachedMessage(UUID.fromString(message.get("id").asText()),
                             UUID.fromString(message.get("conversationId").asText()),
-                            UUID.fromString(message.get("senderId").asText()).toString(),
-                            message.get("content").asText(), Instant.parse(message.get("createdAt").asText()),
+                            UUID.fromString(message.get("senderId").asText()),
+                            // The event carries the id only; the shell resolves a direct chat's name.
+                            "", message.get("content").asText(), Instant.parse(message.get("createdAt").asText()),
                             message.hasNonNull("deletedForEveryoneAt")
                                     ? Instant.parse(message.get("deletedForEveryoneAt").asText()) : null));
                 }
@@ -138,7 +139,7 @@ public final class MessageHistorySyncService {
     }
 
     private static CachedMessage cached(Message message) {
-        return new CachedMessage(message.getId(), message.getConversationId(), message.getSenderId().toString(),
+        return new CachedMessage(message.getId(), message.getConversationId(), message.getSenderId(), "",
                 message.getContent(), message.getCreatedAt().toInstant(), message.getDeletedForEveryoneAt() == null
                 ? null : message.getDeletedForEveryoneAt().toInstant());
     }

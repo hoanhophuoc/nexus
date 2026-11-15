@@ -127,6 +127,35 @@ class MessageHistorySyncServiceTest {
         }
     }
 
+    /**
+     * A direct chat's realtime event carries the sender id and no name: the id must land in identity, and
+     * the display name must stay empty for the shell to resolve rather than an id being stored as a name.
+     */
+    @Test
+    void realtimeMessageKeepsSenderIdentityAndLeavesTheDisplayNameToTheShell() throws Exception {
+        UUID ownerId = UUID.randomUUID();
+        UUID senderId = UUID.randomUUID();
+        UUID conversationId = UUID.randomUUID();
+        UUID messageId = UUID.randomUUID();
+        var keyGenerator = KeyGenerator.getInstance("AES");
+        keyGenerator.init(256);
+        try (var cache = new EncryptedMessageCache(
+                Files.createTempDirectory("message-event-sender").resolve("cache"),
+                ownerId, keyGenerator.generateKey())) {
+            var sync = new MessageHistorySyncService(new DefaultApi(), cache);
+            sync.acceptRealtimeEvent("{\"type\":\"MessageCreated\",\"message\":{\"id\":\"" + messageId
+                    + "\",\"conversationId\":\"" + conversationId + "\",\"senderId\":\"" + senderId
+                    + "\",\"content\":\"from the other side\",\"createdAt\":\"2026-01-01T10:00:00Z\"}}");
+
+            assertThat(cache.messagesInConversation(conversationId)).singleElement().satisfies(message -> {
+                assertThat(message.senderId()).isEqualTo(senderId);
+                assertThat(message.senderName()).isEmpty();
+            });
+            assertThat(cache.search("other side")).singleElement()
+                    .satisfies(hit -> assertThat(hit.senderId()).isEqualTo(senderId));
+        }
+    }
+
     private static Message message(UUID conversationId, UUID senderId, String content, OffsetDateTime createdAt) {
         return new Message().id(UUID.randomUUID()).conversationId(conversationId).senderId(senderId)
                 .content(content).createdAt(createdAt);

@@ -32,7 +32,9 @@ import java.util.UUID;
 /** Stores a single account's synchronized message history as authenticated ciphertext. */
 public final class EncryptedMessageCache implements AutoCloseable {
     private static final int MAGIC = 0x43484331;
-    private static final byte VERSION = 3;
+    // Format 4 stores the sender id and the display name separately; format 3 held one field for both.
+    private static final byte VERSION = 4;
+    private static final byte OLDEST_READABLE_VERSION = 3;
     private static final int NONCE_BYTES = 12;
     private static final int TAG_BITS = 128;
     private static final int MAX_FILE_BYTES = 256 * 1024 * 1024;
@@ -108,8 +110,8 @@ public final class EncryptedMessageCache implements AutoCloseable {
     public synchronized void markDeletedForEveryone(UUID messageId, Instant deletedAt) throws IOException {
         CachedMessage message = messages.get(messageId);
         if (message != null && message.deletedForEveryoneAt() == null) {
-            messages.put(messageId, new CachedMessage(message.id(), message.conversationId(), message.senderName(),
-                    "", message.createdAt(), deletedAt));
+            messages.put(messageId, new CachedMessage(message.id(), message.conversationId(), message.senderId(),
+                    message.senderName(), "", message.createdAt(), deletedAt));
             dirty = true;
             persist();
         }
@@ -134,8 +136,8 @@ public final class EncryptedMessageCache implements AutoCloseable {
                 .filter(message -> message.deletedForEveryoneAt() == null)
                 .filter(message -> message.content().toLowerCase(Locale.ROOT).contains(needle))
                 .sorted(Comparator.comparing(CachedMessage::createdAt).reversed())
-                .map(message -> new MessageSearchResult(message.conversationId(), message.id(), message.senderName(),
-                        message.content(), message.createdAt()))
+                .map(message -> new MessageSearchResult(message.conversationId(), message.id(),
+                        message.senderId(), message.senderName(), message.content(), message.createdAt()))
                 .toList();
     }
 
@@ -181,14 +183,18 @@ public final class EncryptedMessageCache implements AutoCloseable {
             throw new IOException("Encrypted message cache has an invalid size.");
         }
         ByteBuffer input = ByteBuffer.wrap(envelope);
-        if (input.getInt() != MAGIC || input.get() != VERSION) throw new IOException("Unsupported message cache format.");
+        if (input.getInt() != MAGIC) throw new IOException("Unsupported message cache format.");
+        byte version = input.get();
+        if (version < OLDEST_READABLE_VERSION || version > VERSION) {
+            throw new IOException("Unsupported message cache format.");
+        }
         byte[] nonce = new byte[NONCE_BYTES];
         input.get(nonce);
         byte[] ciphertext = new byte[input.remaining()];
         input.get(ciphertext);
         try {
-            byte[] plaintext = cipher(Cipher.DECRYPT_MODE, nonce).doFinal(ciphertext);
-            decode(plaintext);
+            byte[] plaintext = cipher(Cipher.DECRYPT_MODE, nonce, version).doFinal(ciphertext);
+            decode(plaintext, version);
         } catch (GeneralSecurityException exception) {
             throw new IOException("Message cache authentication failed.", exception);
         }
@@ -199,7 +205,7 @@ public final class EncryptedMessageCache implements AutoCloseable {
         byte[] nonce = new byte[NONCE_BYTES];
         RANDOM.nextBytes(nonce);
         try {
-            byte[] ciphertext = cipher(Cipher.ENCRYPT_MODE, nonce).doFinal(encode());
+            byte[] ciphertext = cipher(Cipher.ENCRYPT_MODE, nonce, VERSION).doFinal(encode());
             if (ciphertext.length + 4 + 1 + nonce.length > MAX_FILE_BYTES) {
                 throw new IOException("Encrypted message cache exceeds 256 MiB.");
             }
@@ -227,10 +233,11 @@ public final class EncryptedMessageCache implements AutoCloseable {
         }
     }
 
-    private Cipher cipher(int mode, byte[] nonce) throws GeneralSecurityException {
+    private Cipher cipher(int mode, byte[] nonce, byte version) throws GeneralSecurityException {
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
         cipher.init(mode, key, new GCMParameterSpec(TAG_BITS, nonce));
-        cipher.updateAAD(ByteBuffer.allocate(4 + 1 + 16).putInt(MAGIC).put(VERSION)
+        // The version is authenticated, so a file written as format 3 must be opened with 3 here.
+        cipher.updateAAD(ByteBuffer.allocate(4 + 1 + 16).putInt(MAGIC).put(version)
                 .putLong(ownerId.getMostSignificantBits()).putLong(ownerId.getLeastSignificantBits()).array());
         return cipher;
     }
@@ -244,6 +251,11 @@ public final class EncryptedMessageCache implements AutoCloseable {
                 output.writeLong(message.id().getLeastSignificantBits());
                 output.writeLong(message.conversationId().getMostSignificantBits());
                 output.writeLong(message.conversationId().getLeastSignificantBits());
+                output.writeBoolean(message.senderId() != null);
+                if (message.senderId() != null) {
+                    output.writeLong(message.senderId().getMostSignificantBits());
+                    output.writeLong(message.senderId().getLeastSignificantBits());
+                }
                 output.writeUTF(message.senderName());
                 output.writeUTF(message.content());
                 output.writeLong(message.createdAt().getEpochSecond());
@@ -277,18 +289,37 @@ public final class EncryptedMessageCache implements AutoCloseable {
         return bytes.toByteArray();
     }
 
-    private void decode(byte[] plaintext) throws IOException {
+    private static UUID asId(String value) {
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException notAnId) {
+            return null;
+        }
+    }
+
+    private void decode(byte[] plaintext, byte version) throws IOException {
         try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(plaintext))) {
             int count = input.readInt();
             if (count < 0 || count > 1_000_000) throw new IOException("Message cache record count is invalid.");
             for (int i = 0; i < count; i++) {
                 UUID id = new UUID(input.readLong(), input.readLong());
                 UUID conversationId = new UUID(input.readLong(), input.readLong());
-                String senderName = input.readUTF();
+                UUID senderId;
+                String senderName;
+                if (version >= 4) {
+                    senderId = input.readBoolean() ? new UUID(input.readLong(), input.readLong()) : null;
+                    senderName = input.readUTF();
+                } else {
+                    // Format 3 held one field: the sender id, or a group member name once it was known.
+                    String stored = input.readUTF();
+                    senderId = asId(stored);
+                    senderName = senderId == null ? stored : "";
+                }
                 String content = input.readUTF();
                 Instant createdAt = Instant.ofEpochSecond(input.readLong(), input.readInt());
                 Instant deletedAt = input.readBoolean() ? Instant.ofEpochSecond(input.readLong(), input.readInt()) : null;
-                messages.put(id, new CachedMessage(id, conversationId, senderName, content, createdAt, deletedAt));
+                messages.put(id, new CachedMessage(id, conversationId, senderId, senderName, content,
+                        createdAt, deletedAt));
                 if (input.readBoolean()) hiddenForMe.add(id);
             }
             int pendingCount = input.readInt();

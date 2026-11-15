@@ -225,7 +225,7 @@ class RealServerUserJourneyFxTest {
 
                 User bobUser = new User().id(bobId).username(bobName).fullName("Live Bob");
                 CachedMessage evidence = new CachedMessage(evidenceMessage.getId(), direct.getId(),
-                        bobId.toString(), evidenceText, evidenceMessage.getCreatedAt().toInstant());
+                        bobId, "Live Bob", evidenceText, evidenceMessage.getCreatedAt().toInstant());
                 onFx(() -> {
                     ReportController controller = new ReportController(context, bobUser,
                             List.of(evidence), () -> { });

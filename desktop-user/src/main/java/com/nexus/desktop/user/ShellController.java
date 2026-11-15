@@ -292,7 +292,7 @@ public final class ShellController {
                     lastDay = day;
                 }
                 boolean mine = context.userId() != null
-                        && context.userId().toString().equals(message.senderName());
+                        && context.userId().equals(message.senderId());
                 boolean deleted = message.deletedForEveryoneAt() != null;
                 Node row = messageRow(message, mine, deleted);
                 messageNodes.put(message.id(), row);
@@ -315,8 +315,9 @@ public final class ShellController {
     }
 
     private Node messageRow(CachedMessage message, boolean mine, boolean deleted) {
-        String sender = mine ? i18n.get("shell.messageYou") : message.senderName();
-        Label meta = new Label(sender + " · " + messageTime.format(message.createdAt()));
+        String sender = senderName(message.senderId(), message.senderName(), message.conversationId());
+        String time = messageTime.format(message.createdAt());
+        Label meta = new Label(sender.isBlank() ? time : sender + " · " + time);
         meta.getStyleClass().add("message-meta");
         Label content = new Label(deleted ? i18n.get("shell.messageDeleted") : message.content());
         content.setWrapText(true);
@@ -345,6 +346,34 @@ public final class ShellController {
         row.getStyleClass().add("message-row");
         row.setAlignment(mine ? Pos.CENTER_RIGHT : Pos.CENTER_LEFT);
         return row;
+    }
+
+    /**
+     * One display rule for the timeline and for search hits: your own message is "You", a group message
+     * carries the member name its sync resolved, and a direct chat falls back to the counterpart's name.
+     * An id is never shown as if it were a name; with nothing to show the caller prints the time alone.
+     */
+    private String senderName(UUID senderId, String storedName, UUID conversationId) {
+        if (senderId != null && senderId.equals(context.userId())) return i18n.get("shell.messageYou");
+        if (storedName != null && !storedName.isBlank()) return storedName;
+        String counterpart = directCounterpartName(conversationId);
+        return counterpart == null ? "" : counterpart;
+    }
+
+    private String directCounterpartName(UUID conversationId) {
+        // Every timeline row belongs to the chat that is already open, so it is answered without a scan;
+        // only a search hit can point at another conversation, and only then is the list walked.
+        if (activeConversation != null && activeConversation.getId().equals(conversationId)) {
+            return activeConversation.getType() == Conversation.TypeEnum.DIRECT
+                    ? activeConversation.getName() : null;
+        }
+        for (Conversation conversation : conversationList.getItems()) {
+            if (conversation.getId().equals(conversationId)
+                    && conversation.getType() == Conversation.TypeEnum.DIRECT) {
+                return conversation.getName();
+            }
+        }
+        return null;
     }
 
     private Node pendingRow(PendingMessage pending) {
@@ -669,7 +698,7 @@ public final class ShellController {
                 || activeConversation.getType() != Conversation.TypeEnum.DIRECT
                 ? List.of()
                 : context.cache().messagesInConversation(activeConversation.getId()).stream()
-                        .filter(message -> target.getId().toString().equals(message.senderName()))
+                        .filter(message -> target.getId().equals(message.senderId()))
                         .filter(message -> message.deletedForEveryoneAt() == null)
                         .toList();
         Stage window = new Stage();
@@ -687,16 +716,9 @@ public final class ShellController {
     private UUID otherParticipant(UUID conversationId) {
         if (context.cache() == null || context.userId() == null) return null;
         return context.cache().messagesInConversation(conversationId).stream()
-                .map(CachedMessage::senderName)
-                .filter(sender -> !context.userId().toString().equals(sender))
-                .map(sender -> {
-                    try {
-                        return UUID.fromString(sender);
-                    } catch (IllegalArgumentException exception) {
-                        return null;
-                    }
-                })
+                .map(CachedMessage::senderId)
                 .filter(java.util.Objects::nonNull)
+                .filter(sender -> !context.userId().equals(sender))
                 .findFirst().orElse(null);
     }
 
@@ -704,6 +726,9 @@ public final class ShellController {
         Conversation current = activeConversation;
         if (current == null || context.messaging() == null) return;
         if (current.getType() != Conversation.TypeEnum.DIRECT) {
+            // Second line of defence: a group's message rows have no actions menu, so nothing in the
+            // UI reaches this line. It stays because the rule belongs to the operation, not to the
+            // state of the control that offers it.
             status(i18n.get("shell.deleteDirectOnly"), false);
             return;
         }
@@ -731,6 +756,9 @@ public final class ShellController {
         Conversation current = activeConversation;
         if (current == null || context.messaging() == null) return;
         if (current.getType() != Conversation.TypeEnum.DIRECT) {
+            // A group disables the button that calls this, so the status is unreachable from the UI
+            // and stays as the operation's own guard. ShellStateFxTest holds the visible half: the
+            // button is disabled while a group is open.
             status(i18n.get("shell.clearDirectOnly"), false);
             return;
         }
@@ -929,9 +957,7 @@ public final class ShellController {
                 setText(null);
                 return;
             }
-            String sender = context.userId() != null
-                    && context.userId().toString().equals(item.senderName())
-                    ? i18n.get("shell.messageYou") : item.senderName();
+            String sender = senderName(item.senderId(), item.senderName(), item.conversationId());
             Label title = new Label(sender + ": " + preview(item.preview()));
             title.getStyleClass().add("conversation-name");
             Label meta = new Label(messageTime.format(item.createdAt()));

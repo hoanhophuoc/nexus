@@ -89,7 +89,7 @@ class UserGoldenScreenshotFxTest {
                 User target = new User().id(FakeChatServer.FRIEND_ID).username("bob").fullName("Bob");
                 CachedMessage evidence = new CachedMessage(UUID.fromString(
                         "44444444-4444-4444-8444-444444444444"), FakeChatServer.CONVERSATION_ID,
-                        FakeChatServer.FRIEND_ID.toString(), "the reported message",
+                        FakeChatServer.FRIEND_ID, "", "the reported message",
                         Instant.parse("2026-11-09T10:15:30Z"));
                 Parent report = onFx(() -> mount(stage, theme,
                         ViewLoader.load(ViewLoader.REPORT, new ReportController(context, target,

@@ -213,7 +213,7 @@ public final class MlsGroupSyncService {
         MlsMessage saved = withTemporaryFileResult(message.encode(), body ->
                 api.sendMlsApplicationMessage(groupId, state.epoch(), UUID.randomUUID().toString(), body));
         if (saved == null) throw new IOException("The server did not return the stored group message.");
-        cache.upsert(new CachedMessage(saved.getId(), groupId, identity.userId().toString(), text,
+        cache.upsert(new CachedMessage(saved.getId(), groupId, identity.userId(), "", text,
                 saved.getCreatedAt().toInstant()));
         return message;
     }
@@ -279,8 +279,8 @@ public final class MlsGroupSyncService {
                 byte[] plaintext = MlsGroupCrypto.decrypt(state, identity, groupId, message.getCiphertext());
                 String content = new String(plaintext, StandardCharsets.UTF_8);
                 if (content.isEmpty() || content.length() > MAX_PLAINTEXT) continue;
-                cache.upsert(new CachedMessage(message.getId(), groupId,
-                        names.getOrDefault(envelope.senderId(), envelope.senderId().toString()), content,
+                cache.upsert(new CachedMessage(message.getId(), groupId, envelope.senderId(),
+                        names.getOrDefault(envelope.senderId(), ""), content,
                         message.getCreatedAt().toInstant()));
             } catch (MlsException ignored) {
                 // A stale, removed-member or tampered ciphertext must not block the rest of the log.
