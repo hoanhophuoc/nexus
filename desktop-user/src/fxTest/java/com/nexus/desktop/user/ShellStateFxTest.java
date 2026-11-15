@@ -99,7 +99,11 @@ class ShellStateFxTest {
                                 }),
                                 () -> titleIs(stage, FakeChatServer.FRIEND_NAME)
                                         && mentions(stage, "hello again")
-                                        && mentions(stage, "mine to delete")),
+                                        // Exact, not a substring: the next row needs the row whose
+                                        // text is exactly this, and "mine to delete for everyone"
+                                        // also contains it, so `mentions` could pass while the row
+                                        // this step asks for had not been rendered yet.
+                                        && showsExactly(stage, "mine to delete")),
                         new Step("delete a message for this user only",
                                 () -> assertThat(onFx(() -> fireMessageMenu(stage, "mine to delete", "for me")))
                                         .isTrue(),

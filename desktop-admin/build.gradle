@@ -84,7 +84,7 @@ tasks.register('packageAdmin', Exec) {
                 '--type', packageType,
                 '--name', 'nexusAdmin',
                 '--app-version', packageVersion,
-                '--vendor', 'Chat System',
+                '--vendor', 'Nexus',
                 '--input', inputDir.get().asFile.absolutePath,
                 '--main-jar', tasks.named('jar').get().archiveFileName.get(),
                 '--main-class', 'com.nexus.desktop.admin.AdminDesktopApplication',

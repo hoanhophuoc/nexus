@@ -1,4 +1,4 @@
-/* Chat System design tokens and component catalogue.
+/* Nexus design tokens and component catalogue.
    Every screen uses semantic tokens; no screen-level inline colour. */
 
 .root {
@@ -26,7 +26,7 @@
 
     /* Bundled by ThemeManager so golden screenshots render identically on
        developer machines and CI, independent of host fonts. */
-    -fx-font-family: "Chat System Sans";
+    -fx-font-family: "Nexus Sans";
     -fx-font-size: 13px;
     -fx-background-color: -color-bg;
     -fx-text-fill: -color-text;

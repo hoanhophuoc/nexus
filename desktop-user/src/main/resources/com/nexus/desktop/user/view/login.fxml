@@ -13,7 +13,7 @@
     <VBox maxWidth="400" spacing="14" styleClass="login-card">
         <HBox spacing="12" alignment="CENTER_LEFT">
             <StackPane styleClass="brand-mark">
-                <Label text="C" styleClass="brand-mark-text"/>
+                <Label text="N" styleClass="brand-mark-text"/>
             </StackPane>
             <VBox spacing="2">
                 <Label text="%app.name" styleClass="brand-name"/>

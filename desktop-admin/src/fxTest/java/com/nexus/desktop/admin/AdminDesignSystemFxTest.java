@@ -57,7 +57,7 @@ class AdminDesignSystemFxTest {
                 assertThat(root.getStyleClass()).contains("theme-light");
                 assertThat(scene.getStylesheets()).contains(ThemeManager.stylesheetUrl(),
                         AdminViewLoader.stylesheetUrl());
-                assertThat(labels(root)).contains("Đăng nhập quản trị", "Quản trị Chat System");
+                assertThat(labels(root)).contains("Đăng nhập quản trị", "Quản trị Nexus");
                 assertThat(scene.getRoot().lookupAll(".label").stream()
                         .filter(Label.class::isInstance).map(Label.class::cast)
                         .map(Label::getText).filter(text -> text != null)

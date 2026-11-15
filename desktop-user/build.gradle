@@ -86,7 +86,7 @@ tasks.register('packageClient', Exec) {
                 '--type', packageType,
                 '--name', 'nexusClient',
                 '--app-version', packageVersion,
-                '--vendor', 'Chat System',
+                '--vendor', 'Nexus',
                 '--input', inputDir.get().asFile.absolutePath,
                 '--main-jar', tasks.named('jar').get().archiveFileName.get(),
                 '--main-class', 'com.nexus.desktop.user.UserDesktopApplication',

@@ -93,7 +93,7 @@ class AdminGoldenScreenshotFxTest {
                     Label title = (Label) rootReference.get().lookup(".title");
                     assertThat(title).as("accounts title").isNotNull();
                     assertThat(title.getFont().getFamily()).as("bundled UI font")
-                            .isEqualTo("Chat System Sans");
+                            .isEqualTo("Nexus Sans");
                     return true;
                 });
                 assertGolden(snapshot(stage), "accounts-light.png");
