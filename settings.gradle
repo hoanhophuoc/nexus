@@ -4,4 +4,4 @@ plugins {
 }
 
 rootProject.name = "Nexus"
-include 'client-sdk', 'desktop-shared', 'desktop-user', 'desktop-admin', 'fx-test-support', 'server'
+include 'client-sdk', 'desktop-shared', 'desktop-user', 'desktop-admin', 'fx-test-support', 'server', 'ui-spike'

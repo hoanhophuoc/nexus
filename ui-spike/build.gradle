@@ -1,0 +1,35 @@
+plugins {
+    id 'application'
+    id 'org.openjfx.javafxplugin' version '0.1.0'
+}
+
+group = 'com.nexus'
+version = rootProject.version
+
+java { toolchain { languageVersion = JavaLanguageVersion.of(27) } }
+
+repositories { mavenCentral() }
+
+javafx {
+    version = '27.0.1'
+    modules = ['javafx.controls', 'javafx.fxml']
+}
+
+application {
+    mainClass = 'com.nexus.spike.UiSpike'
+    applicationDefaultJvmArgs = ['--enable-native-access=javafx.graphics']
+}
+
+// Proof of concept only: nothing in desktop-shared/-user/-admin references this module. Its job is
+// to show AtlantaFX 3.0.0 and Ikonli 12.4.0 under JavaFX 27.0.1 next to the Nexus tokens before any
+// production module takes the dependency (docs/ui-ux-tooling.md, proof-of-concept exit criteria).
+dependencies {
+    implementation 'io.github.mkpaz:atlantafx-base:3.0.0'
+    implementation 'org.kordamp.ikonli:ikonli-javafx:12.4.0'
+    implementation 'org.kordamp.ikonli:ikonli-feather-pack:12.4.0'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 27
+}
