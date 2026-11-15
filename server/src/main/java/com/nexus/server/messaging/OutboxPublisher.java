@@ -14,6 +14,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -45,6 +47,8 @@ public class OutboxPublisher {
      * the abandon statement, so the number has one definition.
      */
     static final int MAX_ATTEMPTS = 5;
+    /** How often the abandonment recovery pass may write; the poll runs ten times a second. */
+    static final long DEFAULT_RECONCILE_MS = 10_000;
     /**
      * A failed row waits longer each time before its next attempt, so a Redis restart is ridden out
      * instead of burning every attempt in half a second. The cap bounds how far the doubling goes.
@@ -138,10 +142,27 @@ public class OutboxPublisher {
     private final AtomicLong batchRows = new AtomicLong();
     private final AtomicLong oldestAgeSeconds = new AtomicLong();
     private final AtomicLong maxAttempts = new AtomicLong();
+    /**
+     * The recovery pass writes, so it is not worth a statement every poll: an idle outbox would be
+     * touched ten times a second for nothing. Only the scheduler thread calls it.
+     */
+    private final long reconcileIntervalNanos;
+    private long nextReconcile;
 
+    /** Tests and the admin command build the publisher directly; they get the default interval. */
     public OutboxPublisher(JdbcTemplate jdbc, NamedParameterJdbcTemplate named,
                            StringRedisTemplate redis, ObjectMapper mapper, MeterRegistry meters,
                            PlatformTransactionManager transactions) {
+        this(jdbc, named, redis, mapper, meters, transactions, DEFAULT_RECONCILE_MS);
+    }
+
+    @Autowired
+    public OutboxPublisher(JdbcTemplate jdbc, NamedParameterJdbcTemplate named,
+                           StringRedisTemplate redis, ObjectMapper mapper, MeterRegistry meters,
+                           PlatformTransactionManager transactions,
+                           @Value("${chat.messaging.outbox-reconcile-ms:" + DEFAULT_RECONCILE_MS + "}")
+                           long reconcileMs) {
+        this.reconcileIntervalNanos = Math.max(0, reconcileMs) * 1_000_000L;
         this.jdbc = jdbc;
         this.named = named;
         this.redis = redis;
@@ -415,6 +436,9 @@ public class OutboxPublisher {
      * good. Each poll recovers those rows from the columns before it looks for work.
      */
     private void reconcileAbandonments() {
+        long now = System.nanoTime();
+        if (now < nextReconcile) return;
+        nextReconcile = now + reconcileIntervalNanos;
         List<UUID> recovered = named.query(RECONCILE_ABANDONED_SQL, new MapSqlParameterSource(),
                 (rs, row) -> rs.getObject("event_id", UUID.class));
         if (recovered.isEmpty()) return;

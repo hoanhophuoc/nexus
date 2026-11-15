@@ -730,6 +730,75 @@ class OutboxPublisherIntegrationTest {
     }
 
     @Test
+    void recoversANewAbandonmentOnlyAfterTheReconcileInterval() throws Exception {
+        UUID conversation = id(153);
+        UUID first = id(243);
+        UUID second = id(244);
+        UUID firstEvent = id(453);
+        UUID secondEvent = id(454);
+        group(conversation, SENDER, MEMBER);
+        message(first, conversation, SENDER);
+        messageEvent(firstEvent, conversation, first, "message.created");
+        atCap(firstEvent);
+
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        // Ten seconds between recovery passes: the poll itself still runs every tick.
+        OutboxPublisher publisher = new OutboxPublisher(jdbc, named, redis, mapper, meters,
+                transactions, OutboxPublisher.DEFAULT_RECONCILE_MS);
+
+        publisher.publishPending();
+        assertThat(abandonedAt(firstEvent)).as("the first poll recovers what it finds").isNotNull();
+
+        // Added only now, so no earlier poll could have published it: it is at the cap and pending.
+        jdbc.update("""
+                INSERT INTO nexus.message
+                    (id, conversation_id, sender_id, conversation_sequence, idempotency_key, content)
+                VALUES (?, ?, ?, 2, 'second', 'hello')
+                """, second, conversation, SENDER);
+        messageEvent(secondEvent, conversation, second, "message.created");
+        atCap(secondEvent);
+        publisher.publishPending();
+        assertThat(abandonedAt(secondEvent))
+                .as("a second pass in the same interval is not run, so an idle poll writes nothing").isNull();
+        assertThat(attempts(secondEvent)).isEqualTo(OutboxPublisher.MAX_ATTEMPTS);
+
+        OutboxPublisher always = new OutboxPublisher(jdbc, named, redis, mapper, meters, transactions, 0);
+        always.publishPending();
+        assertThat(abandonedAt(secondEvent)).as("an interval of zero recovers on the next poll").isNotNull();
+        assertThat(meters.find("nexus.outbox.abandoned").tag("reason", "retries").counter().count())
+                .as("both recoveries are counted").isEqualTo(2.0);
+    }
+
+    @Test
+    void namesTheFailureTypeWhenItHasNoMessage() throws Exception {
+        UUID conversation = id(154);
+        UUID message = id(245);
+        UUID event = id(455);
+        group(conversation, SENDER, MEMBER);
+        message(message, conversation, SENDER);
+        messageEvent(event, conversation, message, "message.created");
+
+        StringRedisTemplate silent = new StringRedisTemplate(redis.getConnectionFactory()) {
+            @Override
+            public <T> T execute(RedisCallback<T> action) {
+                throw new IllegalStateException(); // no message: the type is all an operator gets
+            }
+        };
+        // One attempt short of the cap, so the last_error the failure leaves is written and kept.
+        jdbc.update("UPDATE nexus.message_outbox SET attempts = ? WHERE event_id = ?",
+                OutboxPublisher.MAX_ATTEMPTS - 1, event);
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        OutboxPublisher failing = new OutboxPublisher(jdbc, named, silent, mapper, meters, transactions);
+
+        assertThatThrownBy(failing::publishPending).isInstanceOf(IllegalStateException.class);
+        assertThat(attempts(event)).isEqualTo(OutboxPublisher.MAX_ATTEMPTS);
+        assertThat(lastError(event))
+                .as("the row records the failure's type when it has nothing to say")
+                .contains("the publish failed:")
+                .contains("IllegalStateException");
+    }
+
+    @Test
     void recoversARowThatReachedTheCapWithoutAnAbandonment() throws Exception {
         UUID conversation = id(152);
         UUID message = id(242);
@@ -1346,6 +1415,12 @@ class OutboxPublisherIntegrationTest {
                 INSERT INTO nexus.mls_message (id, conversation_id, sender_id, epoch, kind, ciphertext)
                 VALUES (?, ?, ?, ?, ?, '\\x00')
                 """, mlsMessage, conversation, sender, epoch, kind);
+    }
+
+    /** What a crash between the count and the abandonment leaves on a row. */
+    private void atCap(UUID event) {
+        jdbc.update("UPDATE nexus.message_outbox SET attempts = ? WHERE event_id = ?",
+                OutboxPublisher.MAX_ATTEMPTS, event);
     }
 
     private void messageEvent(UUID event, UUID conversation, UUID message, String eventType) {
