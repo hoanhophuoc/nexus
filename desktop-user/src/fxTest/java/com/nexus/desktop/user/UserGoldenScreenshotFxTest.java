@@ -7,9 +7,12 @@ import com.nexus.desktop.shared.ui.ThemeManager;
 import com.nexus.sdk.model.Conversation;
 import com.nexus.sdk.model.User;
 import javafx.application.Platform;
+import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.SnapshotParameters;
+import javafx.scene.control.Label;
+import javafx.scene.control.ListView;
 import javafx.scene.image.PixelReader;
 import javafx.scene.image.WritableImage;
 import javafx.scene.paint.Color;
@@ -36,6 +39,8 @@ import java.util.function.BooleanSupplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static com.nexus.desktop.shared.testing.FxThread.onFx;
+import com.nexus.desktop.shared.testing.GoldenPointer;
+
 import static com.nexus.desktop.shared.testing.FxThread.waitForFx;
 
 /**
@@ -74,17 +79,17 @@ class UserGoldenScreenshotFxTest {
                         960, 720));
                 waitForFx(() -> account.lookup("#friendsList") instanceof javafx.scene.control.ListView<?> list
                         && !list.getItems().isEmpty(), Duration.ofSeconds(10));
-                snapshot(stage, account, "account-light.png", "account-dark.png", theme);
+                snapshot(stage, account, "account-light.png", "account-dark.png", theme, null, i18n);
 
                 Parent register = onFx(() -> mount(stage, theme,
                         ViewLoader.load(ViewLoader.REGISTER, new RegisterController(context,
                                 username -> { }, () -> { }), i18n), 560, 780));
-                snapshot(stage, register, "register-light.png", "register-dark.png", theme);
+                snapshot(stage, register, "register-light.png", "register-dark.png", theme, null, i18n);
 
                 Parent reset = onFx(() -> mount(stage, theme,
                         ViewLoader.load(ViewLoader.PASSWORD_RESET, new PasswordResetController(context,
                                 message -> { }, () -> { }), i18n), 540, 640));
-                snapshot(stage, reset, "reset-light.png", "reset-dark.png", theme);
+                snapshot(stage, reset, "reset-light.png", "reset-dark.png", theme, null, i18n);
 
                 User target = new User().id(FakeChatServer.FRIEND_ID).username("bob").fullName("Bob");
                 CachedMessage evidence = new CachedMessage(UUID.fromString(
@@ -94,7 +99,7 @@ class UserGoldenScreenshotFxTest {
                 Parent report = onFx(() -> mount(stage, theme,
                         ViewLoader.load(ViewLoader.REPORT, new ReportController(context, target,
                                 List.of(evidence), () -> { }), i18n), 560, 620));
-                snapshot(stage, report, "report-light.png", "report-dark.png", theme);
+                snapshot(stage, report, "report-light.png", "report-dark.png", theme, null, i18n);
 
                 Conversation group = context.groups().createGroup("Team",
                         List.of(FakeChatServer.FRIEND_ID));
@@ -103,7 +108,7 @@ class UserGoldenScreenshotFxTest {
                                 group, () -> { }, () -> { }, () -> { }), i18n), 640, 600));
                 waitForFx(() -> groupSettings.lookup("#membersList") instanceof javafx.scene.control.ListView<?> list
                         && list.getItems().size() == 2, Duration.ofSeconds(10));
-                snapshot(stage, groupSettings, "group-light.png", "group-dark.png", theme);
+                snapshot(stage, groupSettings, "group-light.png", "group-dark.png", theme, null, i18n);
             } finally {
                 onFx(() -> {
                     stage.close();
@@ -118,6 +123,119 @@ class UserGoldenScreenshotFxTest {
         }
     }
 
+    /**
+     * The two screens a user meets first, which had no baseline: sign-in and the chat shell with a
+     * settled conversation list, one incoming message and the connected status.
+     */
+    @Test
+    void loginAndShellMatchGoldensInLightAndDark(@TempDir Path home) throws Exception {
+        String previousHome = System.getProperty("user.home");
+        TimeZone previousZone = TimeZone.getDefault();
+        System.setProperty("user.home", home.toString());
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+        try (FakeChatServer server = new FakeChatServer()) {
+            Stage stage = onFx(Stage::new);
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            I18n i18n = new I18n(BASE, Locale.ENGLISH);
+            UserAppContext context = new UserAppContext(stage, server.origin().toString(), false,
+                    null, theme, i18n);
+            try {
+                Parent login = onFx(() -> mount(stage, theme,
+                        ViewLoader.load(ViewLoader.LOGIN, new LoginController(context, profile -> { }),
+                                i18n), 520, 640));
+                snapshot(stage, login, "login-light.png", "login-dark.png", theme, null, i18n);
+
+                context.activate(context.signIn("alice", PASSWORD.toCharArray()));
+                Parent shell = onFx(() -> mount(stage, theme,
+                        ViewLoader.load(ViewLoader.SHELL, new ShellController(context, () -> { }), i18n),
+                        1180, 760));
+                // Settled means the shell has its conversation, its one message bubble and the status
+                // the load task writes last; snapshotting earlier would baseline a loading screen.
+                waitForFx(() -> shell.lookupAll(".message-bubble").size() == 1
+                        && shell.lookup("#statusLabel") instanceof javafx.scene.control.Label status
+                        && i18n.get("shell.connected").equals(status.getText()),
+                        Duration.ofSeconds(10));
+                snapshot(stage, shell, "shell-light.png", "shell-dark.png", theme,
+                        FakeChatServer.FRIEND_NAME, i18n);
+            } finally {
+                onFx(() -> {
+                    stage.close();
+                    context.close();
+                    return true;
+                });
+            }
+        } finally {
+            TimeZone.setDefault(previousZone);
+            if (previousHome == null) System.clearProperty("user.home");
+            else System.setProperty("user.home", previousHome);
+        }
+    }
+
+    /**
+     * The group workspace, which had no baseline: a member message carrying its resolved name, an own
+     * message, and the header where only group actions apply.
+     */
+    @Test
+    void groupChatMatchesGoldensInLightAndDark(@TempDir Path home) throws Exception {
+        String previousHome = System.getProperty("user.home");
+        TimeZone previousZone = TimeZone.getDefault();
+        System.setProperty("user.home", home.toString());
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+        try (FakeChatServer server = new FakeChatServer()) {
+            Stage stage = onFx(Stage::new);
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            I18n i18n = new I18n(BASE, Locale.ENGLISH);
+            UserAppContext context = new UserAppContext(stage, server.origin().toString(), false,
+                    null, theme, i18n);
+            context.activate(context.signIn("alice", PASSWORD.toCharArray()));
+            Conversation group = context.groups().createGroup("Team", List.of(FakeChatServer.FRIEND_ID));
+            // Seeded history keeps the capture about rendering: one member message whose name the sync
+            // resolved, and one of the user's own.
+            context.cache().upsert(new CachedMessage(UUID.randomUUID(), group.getId(),
+                    FakeChatServer.FRIEND_ID, "Bob", "hello group",
+                    Instant.parse("2026-11-10T09:30:00Z")));
+            context.cache().upsert(new CachedMessage(UUID.randomUUID(), group.getId(),
+                    FakeChatServer.USER_ID, "", "my group message",
+                    Instant.parse("2026-11-10T09:31:00Z")));
+            try {
+                Parent shell = onFx(() -> mount(stage, theme,
+                        ViewLoader.load(ViewLoader.SHELL, new ShellController(context, () -> { }), i18n),
+                        1180, 760));
+                waitForFx(() -> openConversationNamed(shell, "Team"), Duration.ofSeconds(10));
+                waitForFx(() -> shell.lookupAll(".message-bubble").size() == 2
+                        && shell.lookup(".chat-title") instanceof Label title
+                        && "Team".equals(title.getText()), Duration.ofSeconds(10));
+                snapshot(stage, shell, "group-chat-light.png", "group-chat-dark.png", theme,
+                        "Team", i18n);
+            } finally {
+                onFx(() -> {
+                    stage.close();
+                    context.close();
+                    return true;
+                });
+            }
+        } finally {
+            TimeZone.setDefault(previousZone);
+            if (previousHome == null) System.clearProperty("user.home");
+            else System.setProperty("user.home", previousHome);
+        }
+    }
+
+    /** Selects a conversation by name once the shell's own refresh has listed it. */
+    private static boolean openConversationNamed(Parent root, String name) {
+        for (Node node : root.lookupAll(".list-view")) {
+            if (!(node instanceof ListView<?> list)) continue;
+            int index = conversationIndex(list, name);
+            if (index >= 0) {
+                list.getSelectionModel().clearAndSelect(index);
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static Parent mount(Stage stage, ThemeManager theme, Parent root, int width, int height) {
         Scene scene = new Scene(root, width, height);
         theme.apply(scene);
@@ -129,7 +247,7 @@ class UserGoldenScreenshotFxTest {
     }
 
     private static void snapshot(Stage stage, Parent root, String light, String dark,
-                                 ThemeManager theme) throws Exception {
+                                 ThemeManager theme, String openConversation, I18n i18n) throws Exception {
         onFx(() -> {
             theme.setTheme(Theme.LIGHT);
             theme.apply(stage.getScene());
@@ -138,7 +256,10 @@ class UserGoldenScreenshotFxTest {
             root.layout();
             return true;
         });
-        assertGolden(onFx(() -> capture(stage)), light);
+        GoldenPointer.capture(root, () -> {
+            pinLists(root, openConversation, i18n);
+            assertGolden(onFx(() -> capture(stage)), light);
+        });
         onFx(() -> {
             theme.setTheme(Theme.DARK);
             theme.apply(stage.getScene());
@@ -147,12 +268,64 @@ class UserGoldenScreenshotFxTest {
             root.layout();
             return true;
         });
-        assertGolden(onFx(() -> capture(stage)), dark);
+        GoldenPointer.capture(root, () -> {
+            pinLists(root, openConversation, i18n);
+            assertGolden(onFx(() -> capture(stage)), dark);
+        });
         onFx(() -> {
             theme.setTheme(Theme.LIGHT);
             theme.apply(stage.getScene());
             return true;
         });
+    }
+
+    /**
+     * Pins the conversation list to the chat the screen shows and empties the lists that are not the
+     * screen's subject. Selecting a row that is already selected raises no change event, so this never
+     * re-opens the conversation or reloads its history; only a runner that highlighted a different row
+     * makes the selection move, and then the wait covers the reload it causes.
+     */
+    private static void pinLists(Parent root, String openConversation, I18n i18n) throws Exception {
+        boolean reselected = Boolean.TRUE.equals(onFx(() -> {
+            boolean moved = false;
+            for (Node node : root.lookupAll(".list-view")) {
+                if (!(node instanceof ListView<?> list)) continue;
+                if ("conversationList".equals(list.getId())) {
+                    if (openConversation == null) continue;
+                    int index = conversationIndex(list, openConversation);
+                    if (index >= 0 && list.getSelectionModel().getSelectedIndex() != index) {
+                        list.getSelectionModel().select(index);
+                        moved = true;
+                    }
+                } else if (!list.getSelectionModel().isEmpty()) {
+                    list.getSelectionModel().clearSelection();
+                }
+            }
+            return moved;
+        }));
+        if (!reselected) return;
+        // Moving the selection re-opens the conversation, so wait for the chat it belongs to and for
+        // its messages to arrive; the connection status alone says nothing about that load.
+        waitForFx(() -> root.lookup(".chat-title") instanceof Label title
+                        && openConversation.equals(title.getText())
+                        && !labelContaining(root, i18n.get("shell.loadingMessages")),
+                Duration.ofSeconds(10));
+    }
+
+    private static boolean labelContaining(Parent root, String text) {
+        return root.lookupAll(".label").stream()
+                .filter(Label.class::isInstance).map(Label.class::cast)
+                .anyMatch(label -> label.getText() != null && label.getText().contains(text));
+    }
+
+    private static int conversationIndex(ListView<?> list, String name) {
+        for (int index = 0; index < list.getItems().size(); index++) {
+            if (list.getItems().get(index) instanceof Conversation conversation
+                    && name.equals(conversation.getName())) {
+                return index;
+            }
+        }
+        return -1;
     }
 
     private static void clearFocus(Parent root) {

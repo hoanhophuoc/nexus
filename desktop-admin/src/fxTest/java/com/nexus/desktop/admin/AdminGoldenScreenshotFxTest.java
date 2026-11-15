@@ -30,6 +30,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import com.nexus.desktop.shared.testing.GoldenPointer;
+
 import static com.nexus.desktop.shared.testing.FxThread.onFx;
 
 /**
@@ -84,7 +86,11 @@ class AdminGoldenScreenshotFxTest {
             });
             Stage stage = stageReference.get();
             try {
-                waitForFx(() -> tableRows(stage, 0) > 1 && tableRows(stage, 1) > 0 && tableRows(stage, 2) > 0,
+                // The login history and friends panes fill in behind the table, so the wait covers
+                // their counts too: a capture taken while they still read "Loading…" is a different
+                // screen from one taken after, and which one you get depends on the machine's speed.
+                waitForFx(() -> tableRows(stage, 0) > 1 && tableRows(stage, 1) > 0 && tableRows(stage, 2) > 0
+                                && !loadingDetails(stage, english),
                         Duration.ofSeconds(10));
                 onFx(() -> {
                     rootReference.get().applyCss();
@@ -96,7 +102,10 @@ class AdminGoldenScreenshotFxTest {
                             .isEqualTo("Nexus Sans");
                     return true;
                 });
-                assertGolden(snapshot(stage), "accounts-light.png");
+                GoldenPointer.capture(rootReference.get(), () -> {
+                    selectPrimaryRow(stage, english, "#accountsTable");
+                    assertGolden(snapshot(stage), "accounts-light.png");
+                });
 
                 onFx(() -> {
                     themeReference.get().setTheme(Theme.DARK);
@@ -105,7 +114,10 @@ class AdminGoldenScreenshotFxTest {
                     rootReference.get().layout();
                     return true;
                 });
-                assertGolden(snapshot(stage), "accounts-dark.png");
+                GoldenPointer.capture(rootReference.get(), () -> {
+                    selectPrimaryRow(stage, english, "#accountsTable");
+                    assertGolden(snapshot(stage), "accounts-dark.png");
+                });
 
                 AtomicReference<Parent> reportsRoot = new AtomicReference<>();
                 onFx(() -> {
@@ -130,7 +142,10 @@ class AdminGoldenScreenshotFxTest {
                     clearFocus(reportsRoot.get());
                     return true;
                 });
-                assertGolden(snapshot(stage), "reports-light.png");
+                GoldenPointer.capture(reportsRoot.get(), () -> {
+                    selectPrimaryRow(stage, english, "#reportsTable");
+                    assertGolden(snapshot(stage), "reports-light.png");
+                });
 
                 onFx(() -> {
                     themeReference.get().setTheme(Theme.DARK);
@@ -139,7 +154,10 @@ class AdminGoldenScreenshotFxTest {
                     reportsRoot.get().layout();
                     return true;
                 });
-                assertGolden(snapshot(stage), "reports-dark.png");
+                GoldenPointer.capture(reportsRoot.get(), () -> {
+                    selectPrimaryRow(stage, english, "#reportsTable");
+                    assertGolden(snapshot(stage), "reports-dark.png");
+                });
             } finally {
                 onFx(() -> {
                     stage.close();
@@ -150,6 +168,127 @@ class AdminGoldenScreenshotFxTest {
         } finally {
             TimeZone.setDefault(previousZone);
         }
+    }
+
+    /**
+     * The two screens an administrator meets first, which had no baseline: sign-in and the shell with
+     * its navigation, identity block and the accounts workspace it opens on.
+     */
+    @Test
+    void loginAndShellMatchGoldensInLightAndDark() throws Exception {
+        TimeZone previousZone = TimeZone.getDefault();
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+        try (FakeAdminServer server = new FakeAdminServer()) {
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            I18n english = new I18n(BASE, Locale.ENGLISH);
+            AtomicReference<Stage> stageReference = new AtomicReference<>();
+            AdminAppContext context = onFx(() -> {
+                Stage ownStage = new Stage();
+                stageReference.set(ownStage);
+                return new AdminAppContext(ownStage, server.origin().toString(), theme, english);
+            });
+            Stage stage = stageReference.get();
+            try {
+                Parent login = onFx(() -> {
+                    Parent root = AdminViewLoader.load(AdminViewLoader.LOGIN,
+                            new AdminLoginController(context, profile -> { }), english);
+                    mount(stage, theme, root);
+                    return root;
+                });
+                GoldenPointer.capture(login,
+                        () -> assertGolden(snapshot(stage), "login-light.png"));
+                onFx(() -> {
+                    theme.setTheme(Theme.DARK);
+                    theme.apply(stage.getScene());
+                    login.applyCss();
+                    login.layout();
+                    return true;
+                });
+                GoldenPointer.capture(login,
+                        () -> assertGolden(snapshot(stage), "login-dark.png"));
+
+                // The sign-in is three HTTP round trips: done on the test thread, like the existing
+                // account/report goldens, so the FX side only builds the scene being measured.
+                context.activate(context.signIn("admin", "correct horse battery staple".toCharArray()));
+                AtomicReference<Parent> shellReference = new AtomicReference<>();
+                onFx(() -> {
+                    theme.setTheme(Theme.LIGHT);
+                    Parent root = AdminViewLoader.load(AdminViewLoader.SHELL,
+                            new AdminShellController(context, () -> { }), english);
+                    mount(stage, theme, root);
+                    shellReference.set(root);
+                    return true;
+                });
+                waitForFx(() -> tableRows(stage, 0) > 1 && !loadingDetails(stage, english),
+                        Duration.ofSeconds(10));
+                onFx(() -> {
+                    shellReference.get().applyCss();
+                    shellReference.get().layout();
+                    clearFocus(shellReference.get());
+                    return true;
+                });
+                GoldenPointer.capture(shellReference.get(), () -> {
+                    selectPrimaryRow(stage, english, "#accountsTable");
+                    assertGolden(snapshot(stage), "shell-light.png");
+                });
+                onFx(() -> {
+                    theme.setTheme(Theme.DARK);
+                    theme.apply(stage.getScene());
+                    shellReference.get().applyCss();
+                    shellReference.get().layout();
+                    return true;
+                });
+                GoldenPointer.capture(shellReference.get(), () -> {
+                    selectPrimaryRow(stage, english, "#accountsTable");
+                    assertGolden(snapshot(stage), "shell-dark.png");
+                });
+            } finally {
+                onFx(() -> {
+                    stage.close();
+                    context.close();
+                    return true;
+                });
+            }
+        } finally {
+            TimeZone.setDefault(previousZone);
+        }
+    }
+
+    private static void mount(Stage stage, ThemeManager theme, Parent root) {
+        Scene scene = new Scene(root, WIDTH, HEIGHT);
+        theme.apply(scene);
+        AdminViewLoader.applyStylesheet(scene);
+        stage.setScene(scene);
+        stage.show();
+        root.applyCss();
+        root.layout();
+        clearFocus(root);
+    }
+
+    /** True while a detail pane still shows its placeholder instead of the loaded count. */
+    private static boolean loadingDetails(Stage stage, I18n i18n) {
+        return labelContaining(stage, i18n.get("admin.accounts.loginHistoryLoading"))
+                || labelContaining(stage, i18n.get("admin.accounts.friendListLoading"));
+    }
+
+    /**
+     * The capture clears table selections so no runner's focus behaviour decides them; this restores
+     * the one the screen is about — the record whose detail the right-hand pane shows.
+     */
+    private static void selectPrimaryRow(Stage stage, I18n i18n, String tableId) {
+        onFx(() -> {
+            if (stage.getScene().getRoot().lookup(tableId) instanceof TableView<?> primary
+                    && !primary.getItems().isEmpty()) {
+                primary.getSelectionModel().select(0);
+                primary.applyCss();
+                primary.layout();
+            }
+            return true;
+        });
+        // Selecting the row reloads its detail panes, so wait again: the capture must not record the
+        // placeholder the reload puts back.
+        waitForFx(() -> !loadingDetails(stage, i18n), Duration.ofSeconds(10));
     }
 
     private static WritableImage snapshot(Stage stage) {
