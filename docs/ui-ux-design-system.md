@@ -94,7 +94,7 @@ Rules:
 
 ### 3.3 Typography
 
-- Continue using the bundled Nexus font assets unless an intentional, documented typography change is approved. The current golden test asserts the registered JavaFX family name `Chat System Sans`; do not assume the resource basename `nexusSans` is the CSS family name.
+- Continue using the bundled Nexus font assets unless an intentional, documented typography change is approved. The current golden test asserts the registered JavaFX family name `Nexus Sans`; do not assume the resource basename `nexusSans` is the CSS family name.
 - Verify the actual internal font family name and fallback behavior; a resource filename is not proof of its font family.
 - Use the platform monospace family for cryptographic fingerprints, key IDs and audit hashes only where fixed-width alignment improves comparison. Do not add JetBrains Mono or another font package without checking its license, embedding terms and jpackage behavior. Timestamps and normal metadata should remain in the primary UI font unless a specific data-display need proves otherwise.
 - Do not copy browser CSS typography syntax such as `letter-spacing: -0.02em` into JavaFX CSS. JavaFX has its own CSS property set; `-fx-line-spacing` is documented for `Text` and `TextFlow`, not as a universal property for every `Label` or control. Verify every proposed style property against the JavaFX 27 CSS reference.

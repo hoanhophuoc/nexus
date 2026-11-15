@@ -28,6 +28,7 @@ client-sdk/             OpenAPI-generated client (com.nexus.sdk)
 desktop-shared/         session, encrypted cache, history sync, MLS crypto, UI kit
 desktop-user/           user client + fxTest suite
 desktop-admin/          admin client + fxTest suite
+ui-spike/               AtlantaFX/Ikonli proof of concept; no product module depends on it
 api/v1/openapi.yaml     the contract
 docs/                   this documentation set
 perf/                   k6 scenarios, Prometheus config, seed data

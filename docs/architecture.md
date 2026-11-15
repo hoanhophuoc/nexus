@@ -89,8 +89,10 @@ Rules that the schema enforces rather than the code:
    no rollback can make encodable. Every poll also adopts the rows a crash left behind: a count can
    commit and the process die before the abandonment is written, and such a row is invisible to both
    pending polls (`attempts < 5`) and to the admin list, so the poll first abandons any unpublished
-   row at the cap that has no `abandoned_at`, keeping the `last_error` it already had. The pass is
-   idempotent: nothing matches on the next tick. Each wait is jittered by up to a quarter,
+   row at the cap that has no `abandoned_at`, keeping the `last_error` it already had. It runs at most
+   once every `chat.messaging.outbox-reconcile-ms` (10 seconds by default) rather than on each of the
+   ten polls a second, so an idle outbox is not written every tick; the pass is idempotent, so a
+   throttled run loses nothing but a few seconds of visibility. Each wait is jittered by up to a quarter,
    so concurrent publishers do not retry in lockstep, which puts the outage a row survives at 22.5 to
    37.5 seconds. A failed publish is not retried on the next tick: the
    retry counter also moves `next_attempt_at` out by 2, 4, 8 and then 16 seconds, and both polls only
