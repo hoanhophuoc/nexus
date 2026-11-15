@@ -1,7 +1,9 @@
 # Nexus documentation
 
 This directory is the single source of truth for how Nexus is built, configured, operated
-and measured. `README.md` at the repository root is only a landing page.
+and measured. The root `DESIGN.md` is a short UI/UX entry point; canonical design rules live in
+`docs/ui-ux-design-system.md` and `docs/ui-ux-tooling.md`. Root `CLAUDE.md` imports
+`AGENTS.md` so Claude Code receives the same repository rules.
 
 ## The documents
 
@@ -13,6 +15,9 @@ and measured. `README.md` at the repository root is only a landing page.
 | [operations.md](operations.md) | Every environment variable, deployment topology, health and metrics, backups, scaling knobs |
 | [ci-cd.md](ci-cd.md) | What each workflow does, which gates can fail a build, how a release is cut |
 | [performance.md](performance.md) | Measured capacity, latency, and the database cost of each hot path |
+| [ui-ux-design-system.md](ui-ux-design-system.md) | Canonical native JavaFX visual language, component contracts, interaction, motion, accessibility and UI quality gates |
+| [ui-ux-tooling.md](ui-ux-tooling.md) | Evaluated design/JavaFX libraries, agent skills, adoption decisions, compatibility and dependency gates |
+
 
 ## One name
 
