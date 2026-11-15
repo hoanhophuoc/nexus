@@ -27,7 +27,7 @@ public class SmtpPasswordResetNotifier implements PasswordResetNotifier {
         SimpleMailMessage message = new SimpleMailMessage();
         message.setFrom(from);
         message.setTo(email);
-        message.setSubject("Chat System password reset");
+        message.setSubject("Nexus password reset");
         message.setText("Use this single-use password reset token within 15 minutes:\n\n" + rawToken);
         try {
             mailSender.send(message);
