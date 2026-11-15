@@ -16,15 +16,17 @@
             <Insets top="34" right="34" bottom="30" left="34"/>
         </padding>
         <HBox alignment="CENTER_LEFT" spacing="10">
-            <Label styleClass="brand-mark" text="%admin.brand.mark"/>
+            <StackPane styleClass="brand-mark">
+                <Label styleClass="brand-mark-text" text="%admin.brand.mark"/>
+            </StackPane>
             <VBox spacing="2">
                 <Label styleClass="brand-name" text="%admin.app.name"/>
-                <Label styleClass="muted-label" text="%admin.app.tagline"/>
+                <Label styleClass="caption" text="%admin.app.tagline"/>
             </VBox>
         </HBox>
         <VBox spacing="4">
             <Label styleClass="title" text="%admin.login.title"/>
-            <Label styleClass="muted-label" text="%admin.login.subtitle"/>
+            <Label styleClass="subtitle" text="%admin.login.subtitle"/>
         </VBox>
         <VBox spacing="5">
             <Label fx:id="usernameLabel" styleClass="field-label" text="%admin.login.username"/>
@@ -38,7 +40,7 @@
         <Button fx:id="signInButton" defaultButton="true" maxWidth="Infinity" styleClass="primary-button"
                 text="%admin.login.submit"/>
         <HBox alignment="CENTER_LEFT" spacing="8">
-            <Label styleClass="muted-label" text="%admin.login.themeHint"/>
+            <Label styleClass="caption" text="%admin.login.themeHint"/>
             <Button fx:id="themeButton" styleClass="icon-button" text="%admin.login.themeToggle"/>
         </HBox>
     </VBox>

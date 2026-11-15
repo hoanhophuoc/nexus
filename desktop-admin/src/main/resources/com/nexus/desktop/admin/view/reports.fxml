@@ -27,7 +27,7 @@
     </HBox>
     <VBox fx:id="decisionConfirmBox" spacing="6" managed="false" visible="false"
           styleClass="admin-confirm">
-        <Label fx:id="decisionConfirmLabel" styleClass="body" text="%admin.reports.decisionConfirmHint"
+        <Label fx:id="decisionConfirmLabel" styleClass="caption" text="%admin.reports.decisionConfirmHint"
                wrapText="true"/>
         <HBox spacing="7">
             <Button fx:id="confirmDecisionButton" styleClass="danger-button"

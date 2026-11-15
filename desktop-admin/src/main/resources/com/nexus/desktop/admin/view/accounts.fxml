@@ -93,7 +93,7 @@
                 </FlowPane>
                 <VBox fx:id="actionConfirmBox" spacing="6" managed="false" visible="false"
                       styleClass="admin-confirm">
-                    <Label fx:id="confirmActionLabel" styleClass="body" text="%admin.accounts.confirmHint"
+                    <Label fx:id="confirmActionLabel" styleClass="caption" text="%admin.accounts.confirmHint"
                            wrapText="true"/>
                     <HBox spacing="7">
                         <Button fx:id="confirmActionButton" styleClass="danger-button"

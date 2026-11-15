@@ -13,10 +13,12 @@
     <left>
         <VBox prefWidth="264" styleClass="admin-sidebar" spacing="14">
             <HBox alignment="CENTER_LEFT" spacing="10" styleClass="admin-brand">
-                <Label styleClass="brand-mark" text="%admin.brand.mark"/>
+                <StackPane styleClass="brand-mark">
+                    <Label styleClass="brand-mark-text" text="%admin.brand.mark"/>
+                </StackPane>
                 <VBox spacing="1">
                     <Label styleClass="brand-name" text="%admin.app.name"/>
-                    <Label styleClass="muted-label" text="%admin.shell.subtitle"/>
+                    <Label styleClass="caption" text="%admin.shell.subtitle"/>
                 </VBox>
             </HBox>
             <HBox alignment="CENTER_LEFT" spacing="10" styleClass="admin-identity">
@@ -36,7 +38,7 @@
             <HBox alignment="CENTER_LEFT" styleClass="admin-header">
                 <VBox spacing="2">
                     <Label styleClass="title" text="%admin.shell.title"/>
-                    <Label styleClass="muted-label" text="%admin.shell.tagline"/>
+                    <Label styleClass="subtitle" text="%admin.shell.tagline"/>
                 </VBox>
             </HBox>
             <StackPane fx:id="contentHost" styleClass="admin-content" VBox.vgrow="ALWAYS"/>
