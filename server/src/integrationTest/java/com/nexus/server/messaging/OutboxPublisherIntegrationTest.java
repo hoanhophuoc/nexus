@@ -331,6 +331,9 @@ class OutboxPublisherIntegrationTest {
         group(conversation, SENDER, MEMBER);
         message(message, conversation, SENDER);
         mlsMessage(mlsMessage, conversation, SENDER, 1, "application");
+        // The poll has no per-test scope, and other tests in this class leave rows pending on
+        // purpose; a leftover row would reach the cap here too and inflate the counter below.
+        jdbc.update("DELETE FROM nexus.message_outbox");
         messageEvent(messageEvent, conversation, message, "message.created");
         mls(mlsEvent, conversation, mlsMessage, "mls.message");
 
