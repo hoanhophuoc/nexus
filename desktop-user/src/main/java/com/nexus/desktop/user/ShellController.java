@@ -122,7 +122,17 @@ public final class ShellController {
         conversationList.setCellFactory(ignored -> new ConversationCell());
         conversationList.getSelectionModel().selectedItemProperty().addListener(
                 (observable, previous, selected) -> {
-                    if (selected != null) openConversation(selected, null);
+                    // A list refresh replaces the items and re-selects the chat that is already open,
+                    // which clears the selection first. That chat keeps its timeline — reopening it
+                    // would blank the rows to their loading state and re-sync for a chat the user
+                    // never left — but its header still moves, so a renamed chat does not go stale.
+                    if (selected == null) return;
+                    if (activeConversation != null
+                            && selected.getId().equals(activeConversation.getId())) {
+                        showConversationHeader(selected);
+                    } else {
+                        openConversation(selected, null);
+                    }
                 });
 
         searchField.textProperty().addListener((observable, previous, query) -> refreshSearch(query));
@@ -239,17 +249,8 @@ public final class ShellController {
     }
 
     private void openConversation(Conversation conversation, UUID messageToReveal) {
-        activeConversation = conversation;
+        showConversationHeader(conversation);
         int open = openGeneration.open();
-        boolean group = conversation.getType() == Conversation.TypeEnum.GROUP;
-        reportButton.setDisable(group);
-        groupSettingsButton.setDisable(!group);
-        clearHistoryButton.setDisable(group);
-        String title = conversation.getName() == null || conversation.getName().isBlank()
-                ? i18n.get("shell.directChat") : conversation.getName();
-        chatTitleLabel.setText(title);
-        chatSubtitleLabel.setText(conversation.getType() == Conversation.TypeEnum.GROUP
-                ? i18n.get("shell.groupSubtitle") : i18n.get("shell.directSubtitle"));
         messageRows.getChildren().setAll(UiComponents.loadingState(i18n.get("shell.loadingMessages")));
         context.runAsync(() -> {
             if (conversation.getType() == Conversation.TypeEnum.GROUP) {
@@ -266,6 +267,24 @@ public final class ShellController {
                     i18n.get("shell.retry"),
                     () -> openConversation(conversation, messageToReveal)));
         });
+    }
+
+    /**
+     * Everything the shell says about the open chat: its title, its subtitle and the buttons only one
+     * kind of chat offers. Separate from opening it, because a list refresh can re-select the chat that
+     * is already open and only its header needs to follow the refreshed name.
+     */
+    private void showConversationHeader(Conversation conversation) {
+        activeConversation = conversation;
+        boolean group = conversation.getType() == Conversation.TypeEnum.GROUP;
+        reportButton.setDisable(group);
+        groupSettingsButton.setDisable(!group);
+        clearHistoryButton.setDisable(group);
+        String title = conversation.getName() == null || conversation.getName().isBlank()
+                ? i18n.get("shell.directChat") : conversation.getName();
+        chatTitleLabel.setText(title);
+        chatSubtitleLabel.setText(group
+                ? i18n.get("shell.groupSubtitle") : i18n.get("shell.directSubtitle"));
     }
 
     /** A completion started for one open must not repaint a conversation opened since. */
@@ -654,10 +673,9 @@ public final class ShellController {
         window.initModality(Modality.WINDOW_MODAL);
         window.setTitle(i18n.get("groupSettings.title"));
         GroupSettingsController controller = new GroupSettingsController(context, current,
-                () -> {
-                    refreshConversations();
-                    chatTitleLabel.setText(current.getName());
-                },
+                // The list refresh re-selects this chat, and that is what brings its new name to the
+                // header; setting the title here would write the name captured before the rename.
+                this::refreshConversations,
                 () -> {
                     conversationList.getItems().remove(current);
                     activeConversation = null;

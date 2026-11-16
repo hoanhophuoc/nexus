@@ -121,6 +121,8 @@ final class FakeChatServer implements AutoCloseable {
     Set<UUID> blockedUsers() { return Set.copyOf(blocked); }
     String profileFullName() { return profileFullName; }
     String groupName() { return groupName; }
+    /** Renames the group the way another session would: the next conversation list carries it. */
+    void renameGroup(String name) { this.groupName = name; }
     Map<UUID, String> memberRoles() { return Map.copyOf(memberRoles); }
     Set<UUID> removedMembers() { return Set.copyOf(removedMembers); }
     int incomingRequestCount() { return incomingRequests.size(); }

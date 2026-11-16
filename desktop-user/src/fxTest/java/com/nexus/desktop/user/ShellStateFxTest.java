@@ -2,7 +2,9 @@ package com.nexus.desktop.user;
 
 import com.nexus.sdk.model.Conversation;
 import javafx.application.Platform;
+import javafx.collections.ListChangeListener;
 import javafx.scene.Node;
+import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
@@ -20,6 +22,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 
@@ -42,6 +45,10 @@ class ShellStateFxTest {
 
     /** One state transition: what the user does, and what the shell must be showing once it settles. */
     private record Step(String state, Runnable action, BooleanSupplier settled) { }
+
+    private static final String RENAMED_GROUP = "Renamed team";
+    private static final String GROUP_SUBTITLE = "Encrypted group conversation";
+    private static final String LOADING_MESSAGES = "Loading messages…";
 
     @Test
     void movesBetweenConversationsAndIgnoresAStaleRealtimeEvent(@TempDir Path home) throws Exception {
@@ -80,6 +87,7 @@ class ShellStateFxTest {
                 // from that settled state instead of racing the opening one.
                 waitForFx(() -> titleIs(stage, FakeChatServer.FRIEND_NAME), Duration.ofSeconds(10));
 
+                AtomicBoolean timelineShowedLoading = new AtomicBoolean();
                 List<Step> table = List.of(
                         new Step("open the group",
                                 () -> assertThat(onFx(() -> selectConversation(stage, FakeChatServer.GROUP_NAME)))
@@ -90,6 +98,27 @@ class ShellStateFxTest {
                                         // status string behind them is unreachable from the UI.
                                         && disabled(stage, "#clearHistoryButton")
                                         && disabled(stage, "#reportButton")),
+                        new Step("rename the open group while the list refreshes",
+                                () -> {
+                                    // The settings dialog saves, the shell refreshes the conversation
+                                    // list, and that refresh re-selects the chat that is already open.
+                                    // It must carry the new name to the header and leave the timeline
+                                    // alone; the watch records any swap of the timeline's children to
+                                    // the loading placeholder, which a reopen would cause.
+                                    watchForLoadingPlaceholder(stage, LOADING_MESSAGES, timelineShowedLoading);
+                                    Platform.runLater(() -> button(stage, "Group settings").fire());
+                                    Window settings = awaitDialog("#nameField");
+                                    Platform.runLater(() -> {
+                                        ((TextField) settings.getScene().lookup("#nameField"))
+                                                .setText(RENAMED_GROUP);
+                                        primaryButton(settings).fire();
+                                    });
+                                },
+                                () -> server.groupName().equals(RENAMED_GROUP)
+                                        && titleIs(stage, RENAMED_GROUP)
+                                        && subtitleIs(stage, GROUP_SUBTITLE)
+                                        && !timelineShowedLoading.get()
+                                        && !mentions(stage, LOADING_MESSAGES)),
                         new Step("switch to the direct chat and send",
                                 () -> onFx(() -> {
                                     assertThat(selectConversation(stage, FakeChatServer.FRIEND_NAME)).isTrue();
@@ -103,9 +132,15 @@ class ShellStateFxTest {
                                         // text is exactly this, and "mine to delete for everyone"
                                         // also contains it, so `mentions` could pass while the row
                                         // this step asks for had not been rendered yet.
-                                        && showsExactly(stage, "mine to delete")),
+                                        && showsExactly(stage, "mine to delete")
+                                        // The row's text is not the action: the delete item exists only
+                                        // once the row is drawn as a stored message, so wait for the menu
+                                        // the next step fires instead of for the label alone.
+                                        && rowMenuOffers(stage, "mine to delete", "for me")),
                         new Step("delete a message for this user only",
                                 () -> assertThat(onFx(() -> fireMessageMenu(stage, "mine to delete", "for me")))
+                                        .as("the row offers its own menu: "
+                                                + onFx(() -> diagnostics(stage)))
                                         .isTrue(),
                                 () -> !showsExactly(stage, "mine to delete")),
                         new Step("decline delete for everyone at its confirmation",
@@ -272,19 +307,28 @@ class ShellStateFxTest {
      * looked up by position would be the conversation list's own menu, which deletes a chat instead.
      */
     private static boolean fireMessageMenu(Stage stage, String text, String itemText) {
+        MenuItem item = messageMenuItem(stage, text, itemText);
+        if (item == null) return false;
+        item.fire();
+        return true;
+    }
+
+    /** Whether the action {@link #fireMessageMenu} would find is available for that row right now. */
+    private static boolean rowMenuOffers(Stage stage, String text, String itemText) {
+        return messageMenuItem(stage, text, itemText) != null;
+    }
+
+    private static MenuItem messageMenuItem(Stage stage, String text, String itemText) {
         Scene scene = stage.getScene();
-        if (scene == null) return false;
+        if (scene == null) return null;
         for (Node node : scene.getRoot().lookupAll(".menu-button")) {
             if (!(node instanceof MenuButton menu) || menu.getItems().isEmpty()) continue;
             if (!rowShows(menu, text)) continue;
             for (MenuItem item : menu.getItems()) {
-                if (item.getText() != null && item.getText().toLowerCase().contains(itemText)) {
-                    item.fire();
-                    return true;
-                }
+                if (item.getText() != null && item.getText().toLowerCase().contains(itemText)) return item;
             }
         }
-        return false;
+        return null;
     }
 
     /** True when the message row around {@code menu}, and no other row, shows exactly {@code text}. */
@@ -316,6 +360,31 @@ class ShellStateFxTest {
 
     private static boolean titleIs(Stage stage, String title) {
         return title.equals(titleOf(stage));
+    }
+
+    /**
+     * Records whether the timeline is ever swapped to its loading placeholder: the children are watched
+     * rather than sampled, so a swap that is undone before the next poll still counts.
+     */
+    private static void watchForLoadingPlaceholder(Stage stage, String loadingText, AtomicBoolean seen) {
+        Node rows = stage.getScene().lookup("#messageRows");
+        if (rows == null) throw new AssertionError("The shell has no timeline");
+        ((Parent) rows).getChildrenUnmodifiable().addListener((ListChangeListener<Node>) change -> {
+            while (change.next()) {
+                for (Node added : change.getAddedSubList()) {
+                    if (labelsIn(added).contains(loadingText)) seen.set(true);
+                }
+            }
+        });
+    }
+
+    private static boolean subtitleIs(Stage stage, String text) {
+        return text.equals(subtitleOf(stage));
+    }
+
+    private static String subtitleOf(Stage stage) {
+        return stage.getScene() == null ? null
+                : stage.getScene().lookup("#chatSubtitleLabel") instanceof Label label ? label.getText() : null;
     }
 
     private static String titleOf(Stage stage) {
