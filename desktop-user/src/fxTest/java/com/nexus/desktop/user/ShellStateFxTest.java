@@ -239,6 +239,39 @@ class ShellStateFxTest {
                                         && subtitleIs(stage, NO_CONVERSATION_HINT)
                                         && disabled(stage, "#reportButton")
                                         && disabled(stage, "#groupSettingsButton")
+                                        && disabled(stage, "#clearHistoryButton")),
+                        new Step("open a chat the list does not show",
+                                () -> {
+                                    // Friends, not the conversation list: the list is empty, so this
+                                    // is the one way left to be inside a chat.
+                                    Platform.runLater(() -> button(stage, "Friends").fire());
+                                    Window dialog = awaitDialog("#userList");
+                                    Platform.runLater(() -> primaryButton(dialog).fire());
+                                },
+                                () -> server.directChatsOpened() == 2
+                                        && titleIs(stage, FakeChatServer.FRIEND_NAME)
+                                        && subtitleIs(stage, DIRECT_SUBTITLE)),
+                        new Step("a conversation-list load that comes back empty while a chat is open",
+                                () -> {
+                                    // Creating a group is the one action that ends in a plain list
+                                    // load rather than a refresh, and the fake serves no
+                                    // conversations at all, which is the stale read a shell has to
+                                    // survive: the open chat goes with the list.
+                                    Platform.runLater(() -> button(stage, "New group").fire());
+                                    Window dialog = awaitDialog("#userList");
+                                    Platform.runLater(() -> {
+                                        ((TextField) dialog.getScene().lookup("#nameField"))
+                                                .setText("Third team");
+                                        ((ListView<?>) dialog.getScene().lookup("#userList"))
+                                                .getSelectionModel().select(0);
+                                        primaryButton(dialog).fire();
+                                    });
+                                },
+                                () -> server.groupsCreated() == 2
+                                        && titleIs(stage, NO_CONVERSATION_TITLE)
+                                        && subtitleIs(stage, NO_CONVERSATION_HINT)
+                                        && disabled(stage, "#reportButton")
+                                        && disabled(stage, "#groupSettingsButton")
                                         && disabled(stage, "#clearHistoryButton")));
 
                 for (Step step : table) {
