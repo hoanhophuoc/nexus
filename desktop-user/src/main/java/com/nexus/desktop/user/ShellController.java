@@ -170,7 +170,6 @@ public final class ShellController {
 
         statusDot.getStyleClass().setAll("presence-dot", "offline");
         updateThemeButton();
-        setConversationActionsDisabled(true);
         showEmptyChat();
         status(i18n.get("shell.connecting"), false);
         startRealtime();
@@ -678,10 +677,8 @@ public final class ShellController {
                 this::refreshConversations,
                 () -> {
                     conversationList.getItems().remove(current);
-                    activeConversation = null;
                     // Nothing still in flight for the deleted group may repaint the shell.
                     openGeneration.open();
-                    setConversationActionsDisabled(true);
                     showEmptyChat();
                     loadConversations();
                 }, window::close);
@@ -897,7 +894,15 @@ public final class ShellController {
         }
     }
 
+    /**
+     * The shell with no chat open, and the only writer of the header when there is nothing to show.
+     * The whole empty state belongs here rather than at each call site: with no conversation, there is
+     * nothing for the actions to act on, and a refresh that still saw one in {@code activeConversation}
+     * could re-select a chat the shell has stopped showing.
+     */
     private void showEmptyChat() {
+        activeConversation = null;
+        setConversationActionsDisabled(true);
         chatTitleLabel.setText(i18n.get("shell.noConversationTitle"));
         chatSubtitleLabel.setText(i18n.get("shell.noConversationHint"));
         messageRows.getChildren().setAll(UiComponents.emptyState(

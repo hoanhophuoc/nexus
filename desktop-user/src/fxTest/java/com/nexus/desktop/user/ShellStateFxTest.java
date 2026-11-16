@@ -4,7 +4,6 @@ import com.nexus.sdk.model.Conversation;
 import javafx.application.Platform;
 import javafx.collections.ListChangeListener;
 import javafx.scene.Node;
-import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
@@ -12,6 +11,7 @@ import javafx.scene.control.ListView;
 import javafx.scene.control.MenuButton;
 import javafx.scene.control.MenuItem;
 import javafx.scene.control.TextField;
+import javafx.scene.layout.Pane;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 import org.junit.jupiter.api.Test;
@@ -48,6 +48,7 @@ class ShellStateFxTest {
 
     private static final String RENAMED_GROUP = "Renamed team";
     private static final String GROUP_SUBTITLE = "Encrypted group conversation";
+    private static final String DIRECT_SUBTITLE = "Private conversation";
     private static final String LOADING_MESSAGES = "Loading messages…";
 
     @Test
@@ -88,6 +89,7 @@ class ShellStateFxTest {
                 waitForFx(() -> titleIs(stage, FakeChatServer.FRIEND_NAME), Duration.ofSeconds(10));
 
                 AtomicBoolean timelineShowedLoading = new AtomicBoolean();
+                AtomicBoolean reselectShowedLoading = new AtomicBoolean();
                 List<Step> table = List.of(
                         new Step("open the group",
                                 () -> assertThat(onFx(() -> selectConversation(stage, FakeChatServer.GROUP_NAME)))
@@ -137,6 +139,21 @@ class ShellStateFxTest {
                                         // once the row is drawn as a stored message, so wait for the menu
                                         // the next step fires instead of for the label alone.
                                         && rowMenuOffers(stage, "mine to delete", "for me")),
+                        new Step("select the open chat again without reloading it",
+                                () -> {
+                                    // The selection is cleared and put back on the chat that is
+                                    // already open, which is how a list refresh re-selects it and the
+                                    // sequence that used to count as opening it a second time.
+                                    // clearAndSelect cannot stand in: it does nothing when the row
+                                    // is already selected, so no listener would run.
+                                    watchForLoadingPlaceholder(stage, LOADING_MESSAGES, reselectShowedLoading);
+                                    assertThat(onFx(() -> reselectConversation(stage,
+                                            FakeChatServer.FRIEND_NAME))).isTrue();
+                                },
+                                () -> titleIs(stage, FakeChatServer.FRIEND_NAME)
+                                        && subtitleIs(stage, DIRECT_SUBTITLE)
+                                        && showsExactly(stage, "mine to delete")
+                                        && !reselectShowedLoading.get()),
                         new Step("delete a message for this user only",
                                 () -> assertThat(onFx(() -> fireMessageMenu(stage, "mine to delete", "for me")))
                                         .as("the row offers its own menu: "
@@ -368,8 +385,8 @@ class ShellStateFxTest {
      */
     private static void watchForLoadingPlaceholder(Stage stage, String loadingText, AtomicBoolean seen) {
         Node rows = stage.getScene().lookup("#messageRows");
-        if (rows == null) throw new AssertionError("The shell has no timeline");
-        ((Parent) rows).getChildrenUnmodifiable().addListener((ListChangeListener<Node>) change -> {
+        if (!(rows instanceof Pane timeline)) throw new AssertionError("The shell has no timeline");
+        timeline.getChildren().addListener((ListChangeListener<Node>) change -> {
             while (change.next()) {
                 for (Node added : change.getAddedSubList()) {
                     if (labelsIn(added).contains(loadingText)) seen.set(true);
@@ -394,6 +411,24 @@ class ShellStateFxTest {
                 .filter(Label.class::isInstance).map(Label.class::cast)
                 .map(Label::getText).filter(text -> text != null)
                 .findFirst().orElse(null);
+    }
+
+    /** Clears the selection and re-selects {@code name}, the way a refresh re-selects open chat. */
+    private static boolean reselectConversation(Stage stage, String name) {
+        Scene scene = stage.getScene();
+        if (scene == null) return false;
+        for (Node node : scene.getRoot().lookupAll(".list-view")) {
+            if (!(node instanceof ListView<?> list)) continue;
+            for (int index = 0; index < list.getItems().size(); index++) {
+                if (list.getItems().get(index) instanceof Conversation conversation
+                        && name.equals(conversation.getName())) {
+                    list.getSelectionModel().clearSelection();
+                    list.getSelectionModel().select(index);
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static boolean selectConversation(Stage stage, String name) {
