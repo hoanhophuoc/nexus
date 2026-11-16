@@ -374,7 +374,8 @@ final class FakeChatServer implements AutoCloseable {
                 """.formatted(GROUP_ID, escape(groupName));
         java.util.ArrayList<String> items = new java.util.ArrayList<>();
         if (directVisible) items.add(direct);
-        if (groupCreated) items.add(group);
+        // A group this account left is no longer one of its conversations.
+        if (groupCreated && !removedMembers.contains(USER_ID)) items.add(group);
         respondJson(exchange, 200, "{\"items\":[" + String.join(",", items) + "]}");
     }
 

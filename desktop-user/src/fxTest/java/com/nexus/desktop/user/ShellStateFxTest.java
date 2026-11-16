@@ -49,6 +49,9 @@ class ShellStateFxTest {
     private static final String RENAMED_GROUP = "Renamed team";
     private static final String GROUP_SUBTITLE = "Encrypted group conversation";
     private static final String DIRECT_SUBTITLE = "Private conversation";
+    private static final String NO_CONVERSATION_TITLE = "Choose a conversation";
+    private static final String NO_CONVERSATION_HINT =
+            "Select a chat on the left, or open Friends to start a new one.";
     private static final String LOADING_MESSAGES = "Loading messages…";
 
     @Test
@@ -215,7 +218,28 @@ class ShellStateFxTest {
                                 () -> showsExactly(stage, "live from bob")),
                         new Step("a realtime event for the group that is no longer open",
                                 () -> sendCreated(realtime, FakeChatServer.GROUP_ID, "late group message"),
-                                () -> !mentions(stage, "late group message")));
+                                // The stale event repainted nothing, and the shell is still the one
+                                // the user had.
+                                () -> !mentions(stage, "late group message")
+                                        && titleIs(stage, FakeChatServer.FRIEND_NAME)),
+                        new Step("leave the open group and land on the empty shell",
+                                () -> {
+                                    // The empty state is what is left once nothing can be opened, so
+                                    // the direct chat goes first: the refresh that follows the leave
+                                    // then finds no conversation at all.
+                                    server.hideDirectConversation();
+                                    assertThat(onFx(() -> selectConversation(stage, RENAMED_GROUP))).isTrue();
+                                    Platform.runLater(() -> button(stage, "Group settings").fire());
+                                    Window settings = awaitDialog("#nameField");
+                                    Platform.runLater(() -> button(settings.getScene(), "Leave group").fire());
+                                    answerConfirmButton("#confirmDialogConfirm");
+                                },
+                                () -> server.removedMembers().contains(FakeChatServer.USER_ID)
+                                        && titleIs(stage, NO_CONVERSATION_TITLE)
+                                        && subtitleIs(stage, NO_CONVERSATION_HINT)
+                                        && disabled(stage, "#reportButton")
+                                        && disabled(stage, "#groupSettingsButton")
+                                        && disabled(stage, "#clearHistoryButton")));
 
                 for (Step step : table) {
                     step.action().run();
@@ -230,10 +254,6 @@ class ShellStateFxTest {
                 assertThat(server.deletedScopes())
                         .as("both delete scopes went through the row menu's own actions")
                         .containsExactly("me", "everyone");
-                // The stale event repainted nothing, and the shell is still the one the user had.
-                assertThat(onFx(() -> titleOf(stage)))
-                        .as("after the stale group event the direct chat is still open")
-                        .isEqualTo(FakeChatServer.FRIEND_NAME);
             } finally {
                 onFx(() -> {
                     stage.close();
@@ -258,8 +278,12 @@ class ShellStateFxTest {
      * {@code showAndWait} and fail the next row with a timeout that names nothing.
      */
     private static void answerConfirmation(Runnable open, boolean accept) {
-        String id = accept ? "#confirmDialogConfirm" : "#confirmDialogCancel";
         Platform.runLater(open);
+        answerConfirmButton(accept ? "#confirmDialogConfirm" : "#confirmDialogCancel");
+    }
+
+    /** Answers the confirmation a step's own action opened, once it is on screen. */
+    private static void answerConfirmButton(String id) {
         waitForFx(() -> confirmButton(id) != null, Duration.ofSeconds(10));
         Platform.runLater(() -> {
             Node answer = confirmButton(id);
