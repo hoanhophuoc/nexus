@@ -64,6 +64,8 @@ public final class ShellController {
     private final Map<UUID, Node> messageNodes = new HashMap<>();
     private Conversation activeConversation;
     private final OpenGeneration openGeneration = new OpenGeneration();
+    /** The newest conversation-list request, so a slower earlier response cannot speak for the list. */
+    private int listRequest;
 
     @FXML private StackPane profileAvatarHost;
     @FXML private Label profileNameLabel;
@@ -187,6 +189,7 @@ public final class ShellController {
 
     private void loadConversations() {
         status(i18n.get("shell.connecting"), false);
+        int request = ++listRequest;
         context.runAsync(() -> {
             context.messaging().syncAllDirectConversations();
             List<Conversation> all = listConversations();
@@ -207,6 +210,7 @@ public final class ShellController {
             syncGroups(all);
             return all;
         }, all -> {
+            if (request != listRequest) return;
             conversationList.setItems(FXCollections.observableArrayList(all));
             status(i18n.get("shell.connected"), true);
             if (all.isEmpty()) {
@@ -220,15 +224,30 @@ public final class ShellController {
 
     private void refreshConversations() {
         if (context.session() == null) return;
+        // The open in progress when the fetch starts, so a chat opened while it was in flight is not
+        // mistaken for one the server no longer has.
+        int generation = openGeneration.current();
+        int request = ++listRequest;
         context.runAsync(this::listConversations, all -> {
+            // A response a later list request has already superseded is not the list any more: letting
+            // it land would repaint older data, and once the shell can clear itself an older snapshot
+            // arriving last could clear a chat the newer one still has.
+            if (request != listRequest) return;
             conversationList.setItems(FXCollections.observableArrayList(all));
             // Read at completion, not at start: a refresh that was already in flight when the user
             // opened another chat would otherwise put the old one back and take the title with it.
             UUID open = activeConversation == null ? null : activeConversation.getId();
-            if (open != null) {
-                all.stream().filter(conversation -> conversation.getId().equals(open))
-                        .findFirst().ifPresent(conversation ->
-                                conversationList.getSelectionModel().select(conversation));
+            if (open == null) return;
+            Conversation refreshed = all.stream()
+                    .filter(conversation -> conversation.getId().equals(open))
+                    .findFirst().orElse(null);
+            if (refreshed != null) {
+                conversationList.getSelectionModel().select(refreshed);
+            } else if (openGeneration.isCurrent(generation)) {
+                // The chat that was open is not one of the account's conversations any more, so there
+                // is nothing left to show: the shell clears with the list instead of keeping the
+                // header and the actions of a chat the server has stopped having.
+                showEmptyChat();
             }
         }, this::showStatusError);
     }

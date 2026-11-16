@@ -222,6 +222,19 @@ class ShellStateFxTest {
                                 // the user had.
                                 () -> !mentions(stage, "late group message")
                                         && titleIs(stage, FakeChatServer.FRIEND_NAME)),
+                        new Step("a refresh whose list no longer has the open chat",
+                                () -> {
+                                    // The only refresh an idle shell runs comes from an MLS event, and
+                                    // this row wants the open chat to be the thing that went away, so
+                                    // the direct chat leaves the server's list first.
+                                    server.hideDirectConversation();
+                                    sendMlsEvent(realtime, FakeChatServer.GROUP_ID);
+                                },
+                                () -> titleIs(stage, NO_CONVERSATION_TITLE)
+                                        && subtitleIs(stage, NO_CONVERSATION_HINT)
+                                        && disabled(stage, "#reportButton")
+                                        && disabled(stage, "#groupSettingsButton")
+                                        && disabled(stage, "#clearHistoryButton")),
                         new Step("leave the open group and land on the empty shell",
                                 () -> {
                                     // The empty state is what is left once nothing can be opened, so
@@ -240,10 +253,12 @@ class ShellStateFxTest {
                                         && disabled(stage, "#reportButton")
                                         && disabled(stage, "#groupSettingsButton")
                                         && disabled(stage, "#clearHistoryButton")),
-                        new Step("open a chat the list does not show",
+                        new Step("open the direct chat again from Friends",
                                 () -> {
-                                    // Friends, not the conversation list: the list is empty, so this
-                                    // is the one way left to be inside a chat.
+                                    // The leave left the account without conversations, so the list
+                                    // has to carry this chat again before one can be open while the
+                                    // list still has it.
+                                    server.showDirectConversation();
                                     Platform.runLater(() -> button(stage, "Friends").fire());
                                     Window dialog = awaitDialog("#userList");
                                     Platform.runLater(() -> primaryButton(dialog).fire());
@@ -255,8 +270,9 @@ class ShellStateFxTest {
                                 () -> {
                                     // Creating a group is the one action that ends in a plain list
                                     // load rather than a refresh, and the fake serves no
-                                    // conversations at all, which is the stale read a shell has to
-                                    // survive: the open chat goes with the list.
+                                    // conversations once the chat is gone, which is the stale read a
+                                    // shell has to survive: the open chat goes with the list.
+                                    server.hideDirectConversation();
                                     Platform.runLater(() -> button(stage, "New group").fire());
                                     Window dialog = awaitDialog("#userList");
                                     Platform.runLater(() -> {
@@ -361,6 +377,15 @@ class ShellStateFxTest {
             if (button != null) return button;
         }
         return null;
+    }
+
+    /** A group event, which is what makes the shell re-read its conversation list. */
+    private static void sendMlsEvent(FakeWebSocketServer realtime, UUID conversation) {
+        try {
+            realtime.sendText("{\"type\":\"MlsMessage\",\"conversationId\":\"" + conversation + "\"}");
+        } catch (java.io.IOException failure) {
+            throw new AssertionError("The test could not send a realtime event", failure);
+        }
     }
 
     private static void sendCreated(FakeWebSocketServer realtime, UUID conversation, String content) {

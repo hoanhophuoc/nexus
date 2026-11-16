@@ -173,6 +173,11 @@ final class FakeChatServer implements AutoCloseable {
         directVisible = false;
     }
 
+    /** Puts the direct conversation back into the list, as rejoining or creating it would. */
+    void showDirectConversation() {
+        directVisible = true;
+    }
+
     private void auth(HttpExchange exchange) throws IOException {
         String path = exchange.getRequestURI().getPath();
         if (path.endsWith("/csrf")) {
