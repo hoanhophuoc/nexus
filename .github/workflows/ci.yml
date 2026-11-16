@@ -127,10 +127,14 @@ jobs:
       - name: Install Xvfb
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb
 
+      # Xvfb's own default screen is 640x480, smaller than the 1184x784 scenes the goldens capture,
+      # so the display is pinned at a size no baseline can outgrow.
       - name: Run JavaFX tests
         env:
           GOLDEN_BASELINE: ci
-        run: xvfb-run -a ./gradlew --no-daemon :desktop-user:fxTest :desktop-admin:fxTest
+        run: >
+          xvfb-run -a -s "-screen 0 1280x1024x24"
+          ./gradlew --no-daemon :desktop-user:fxTest :desktop-admin:fxTest
 
       - name: Upload JavaFX coverage data
         if: always()

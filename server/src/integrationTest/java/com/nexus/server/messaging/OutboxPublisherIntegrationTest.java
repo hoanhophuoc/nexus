@@ -331,9 +331,15 @@ class OutboxPublisherIntegrationTest {
         group(conversation, SENDER, MEMBER);
         message(message, conversation, SENDER);
         mlsMessage(mlsMessage, conversation, SENDER, 1, "application");
-        // The poll has no per-test scope, and other tests in this class leave rows pending on
-        // purpose; a leftover row would reach the cap here too and inflate the counter below.
-        jdbc.update("DELETE FROM nexus.message_outbox");
+        // The poll has no per-test scope, so a row another test left behind is picked up by this
+        // test's polls: still pending, it reaches the cap here and is counted as abandoned, and one
+        // that reached the cap unrecorded is counted by the recovery pass. Clearing only those rows
+        // leaves every published or already abandoned row — none of which this counter can reach —
+        // and the rows this test creates below.
+        jdbc.update("""
+                DELETE FROM nexus.message_outbox
+                WHERE published_at IS NULL AND abandoned_at IS NULL
+                """);
         messageEvent(messageEvent, conversation, message, "message.created");
         mls(mlsEvent, conversation, mlsMessage, "mls.message");
 
