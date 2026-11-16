@@ -6,6 +6,10 @@ WORKDIR /workspace
 COPY settings.gradle build.gradle gradlew gradlew.bat ./
 COPY gradle ./gradle
 COPY client-sdk/build.gradle ./client-sdk/build.gradle
+# Gradle refuses to configure a project whose directory is absent, so every module in settings.gradle
+# needs one here even when this image never builds it.
+COPY fx-test-support/build.gradle ./fx-test-support/build.gradle
+COPY ui-spike/build.gradle ./ui-spike/build.gradle
 COPY desktop-shared ./desktop-shared
 COPY desktop-user ./desktop-user
 COPY desktop-admin ./desktop-admin
