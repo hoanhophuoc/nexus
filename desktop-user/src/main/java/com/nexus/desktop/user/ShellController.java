@@ -207,6 +207,10 @@ public final class ShellController {
             syncGroups(all);
             return all;
         }, all -> {
+            // The selection goes first for the same reason a refresh clears it: replacing the items
+            // under a selection for a chat this list does not carry would hand it to the neighbour,
+            // and a load that then selects the first conversation would open two.
+            conversationList.getSelectionModel().clearSelection();
             conversationList.setItems(FXCollections.observableArrayList(all));
             status(i18n.get("shell.connected"), true);
             if (all.isEmpty()) {
