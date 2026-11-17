@@ -31,14 +31,22 @@ final class FakeChatServer implements AutoCloseable {
     static final UUID FRIEND_ID = UUID.fromString("22222222-2222-4222-8222-222222222222");
     static final UUID CONVERSATION_ID = UUID.fromString("33333333-3333-4333-8333-333333333333");
     static final UUID GROUP_ID = UUID.fromString("55555555-5555-4555-8555-555555555555");
+    static final UUID CAROL_ID = UUID.fromString("66666666-6666-4666-8666-666666666666");
+    static final UUID CAROL_CONVERSATION_ID = UUID.fromString("77777777-7777-4777-8777-777777777777");
     static final String GROUP_NAME = "Team";
     static final String FRIEND_NAME = "Bob";
+    static final String CAROL_NAME = "Carol";
 
     private final HttpServer server;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
     private final byte[] friendKeyPackage;
+    private final byte[] carolKeyPackage;
     private final List<String> sentContents = new CopyOnWriteArrayList<>();
     private final List<String> directMessages = new CopyOnWriteArrayList<>();
+    private final List<String> carolMessages = new CopyOnWriteArrayList<>();
+    private final Set<UUID> addedMembers = ConcurrentHashMap.newKeySet();
+    private volatile boolean secondDirectVisible;
+    private volatile boolean carolIsFriend;
     private final List<MlsWireMessage> groupMessages = new CopyOnWriteArrayList<>();
     private final Map<UUID, UUID> incomingRequests = new ConcurrentHashMap<>();
     private final Map<UUID, UUID> outgoingRequests = new ConcurrentHashMap<>();
@@ -71,6 +79,7 @@ final class FakeChatServer implements AutoCloseable {
 
     FakeChatServer(byte[] friendKeyPackage) throws IOException {
         this.friendKeyPackage = friendKeyPackage == null ? new byte[0] : friendKeyPackage.clone();
+        this.carolKeyPackage = keyPackageFor(CAROL_ID, "carol");
         directMessages.add(messageJson(UUID.fromString("44444444-4444-4444-8444-444444444444"),
                 FRIEND_ID, "hello from history"));
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -174,6 +183,31 @@ final class FakeChatServer implements AutoCloseable {
     /** Puts the direct conversation back into the list, as rejoining or creating it would. */
     void showDirectConversation() {
         directVisible = true;
+    }
+
+    /** Makes Carol a friend too, so a group has someone left to add. */
+    void showCarolFriend() {
+        carolIsFriend = true;
+    }
+
+    /** Lists a second direct chat, so a hit can point at one that is not open. */
+    void showSecondDirectChat() {
+        secondDirectVisible = true;
+    }
+
+    /** Undoes the leave: the account is a member of the group again. */
+    void restoreMembership() {
+        removedMembers.remove(USER_ID);
+    }
+
+    Set<UUID> addedMembers() {
+        return Set.copyOf(addedMembers);
+    }
+
+    String addCarolMessage(String content) {
+        String message = messageJson(UUID.randomUUID(), CAROL_CONVERSATION_ID, CAROL_ID, content);
+        carolMessages.add(message);
+        return message;
     }
 
     private void auth(HttpExchange exchange) throws IOException {
@@ -371,11 +405,15 @@ final class FakeChatServer implements AutoCloseable {
         String direct = """
                 {"id":"%s","name":"%s","type":"direct","createdAt":"2026-11-07T10:00:00Z"}
                 """.formatted(CONVERSATION_ID, FRIEND_NAME);
+        String secondDirect = """
+                {"id":"%s","name":"%s","type":"direct","createdAt":"2026-11-07T10:00:00Z"}
+                """.formatted(CAROL_CONVERSATION_ID, CAROL_NAME);
         String group = """
                 {"id":"%s","name":"%s","type":"group","createdAt":"2026-11-07T10:00:00Z"}
                 """.formatted(GROUP_ID, escape(groupName));
         java.util.ArrayList<String> items = new java.util.ArrayList<>();
         if (directVisible) items.add(direct);
+        if (secondDirectVisible) items.add(secondDirect);
         // A group this account left is no longer one of its conversations.
         if (groupCreated && !removedMembers.contains(USER_ID)) items.add(group);
         respondJson(exchange, 200, "{\"items\":[" + String.join(",", items) + "]}");
@@ -383,8 +421,9 @@ final class FakeChatServer implements AutoCloseable {
 
     private void conversationMessages(HttpExchange exchange) throws IOException {
         String path = exchange.getRequestURI().getPath();
+        List<String> history = conversationHistory(path);
         if (path.endsWith("/history") && "DELETE".equals(exchange.getRequestMethod())) {
-            directMessages.clear();
+            history.clear();
             clearedHistories++;
             respondJson(exchange, 204, "");
             return;
@@ -392,7 +431,7 @@ final class FakeChatServer implements AutoCloseable {
         if (path.contains("/messages/") && "DELETE".equals(exchange.getRequestMethod())) {
             deletedScopes.add(queryParam(exchange, "scope"));
             String id = path.substring(path.lastIndexOf('/') + 1);
-            directMessages.removeIf(message -> message.contains("\"id\":\"" + id + "\""));
+            history.removeIf(message -> message.contains("\"id\":\"" + id + "\""));
             respondJson(exchange, 204, "");
             return;
         }
@@ -401,7 +440,7 @@ final class FakeChatServer implements AutoCloseable {
             return;
         }
         if ("GET".equals(exchange.getRequestMethod())) {
-            respondJson(exchange, 200, "{\"items\":[" + String.join(",", directMessages) + "]}");
+            respondJson(exchange, 200, "{\"items\":[" + String.join(",", history) + "]}");
             return;
         }
         if (!"POST".equals(exchange.getRequestMethod())) {
@@ -414,7 +453,8 @@ final class FakeChatServer implements AutoCloseable {
             return;
         }
         sentContents.add(content);
-        String message = addDirectMessage(content);
+        String message = messageJson(UUID.randomUUID(), conversationIdOf(path), USER_ID, content);
+        history.add(message);
         respondJson(exchange, 201, message);
     }
 
@@ -428,9 +468,9 @@ final class FakeChatServer implements AutoCloseable {
             respondJson(exchange, 405, "{}");
             return;
         }
-        respondJson(exchange, 200, """
-                {"items":[{"id":"%s","username":"bob","fullName":"%s","presence":"online"}]}
-                """.formatted(FRIEND_ID, FRIEND_NAME));
+        String items = userJson(FRIEND_ID, "bob", FRIEND_NAME)
+                + (carolIsFriend ? "," + userJson(CAROL_ID, "carol", CAROL_NAME) : "");
+        respondJson(exchange, 200, "{\"items\":[" + items + "]}");
     }
 
     private void users(HttpExchange exchange) throws IOException {
@@ -452,10 +492,12 @@ final class FakeChatServer implements AutoCloseable {
             return;
         }
         if (path.endsWith("/key-package") && "GET".equals(exchange.getRequestMethod())) {
-            if (friendKeyPackage.length == 0) {
+            UUID owner = trailingUuid(path.substring(0, path.length() - "/key-package".length()));
+            byte[] keyPackage = CAROL_ID.equals(owner) ? carolKeyPackage : friendKeyPackage;
+            if (keyPackage.length == 0) {
                 respondJson(exchange, 404, "{}");
             } else {
-                respondBytes(exchange, 200, "application/octet-stream", friendKeyPackage);
+                respondBytes(exchange, 200, "application/octet-stream", keyPackage);
             }
             return;
         }
@@ -502,16 +544,29 @@ final class FakeChatServer implements AutoCloseable {
             respondJson(exchange, 204, "");
             return;
         }
+        if (path.endsWith("/members") && "POST".equals(method)) {
+            UUID userId = UUID.fromString(String.valueOf(jsonText(readText(exchange), "userId")));
+            addedMembers.add(userId);
+            respondJson(exchange, 204, "");
+            return;
+        }
         if (path.endsWith("/members") && "GET".equals(method)) {
-            respondJson(exchange, 200, """
-                    {"items":[
-                      {"user":{"id":"%s","username":"alice","fullName":"Alice Example","presence":"online"},
-                       "role":"%s","joinedEpoch":0},
-                      {"user":{"id":"%s","username":"bob","fullName":"%s","presence":"online"},
-                       "role":"%s","joinedEpoch":0}
-                    ]}
-                    """.formatted(USER_ID, memberRoles.getOrDefault(USER_ID, "admin"),
-                    FRIEND_ID, FRIEND_NAME, memberRoles.getOrDefault(FRIEND_ID, "member")));
+            // The account first, then the friend it invited, then whoever was added since: the
+            // pickers narrow this list themselves.
+            java.util.ArrayList<UUID> members = new java.util.ArrayList<>();
+            members.add(USER_ID);
+            if (!removedMembers.contains(FRIEND_ID)) members.add(FRIEND_ID);
+            for (UUID added : addedMembers) {
+                if (!removedMembers.contains(added) && !members.contains(added)) members.add(added);
+            }
+            String items = members.stream().map(id -> """
+                    {"user":{"id":"%s","username":"%s","fullName":"%s","presence":"online"},
+                     "role":"%s","joinedEpoch":0}""".formatted(id,
+                    id.equals(USER_ID) ? "alice" : id.equals(FRIEND_ID) ? "bob" : "carol",
+                    id.equals(USER_ID) ? "Alice Example" : id.equals(FRIEND_ID) ? FRIEND_NAME : CAROL_NAME,
+                    memberRoles.getOrDefault(id, id.equals(USER_ID) ? "admin" : "member")))
+                    .reduce((first, second) -> first + "," + second).orElse("");
+            respondJson(exchange, 200, "{\"items\":[" + items + "]}");
             return;
         }
         if (path.endsWith("/mls-commits") && "POST".equals(method)) {
@@ -561,10 +616,24 @@ final class FakeChatServer implements AutoCloseable {
     }
 
     private String messageJson(UUID id, UUID senderId, String content) {
+        return messageJson(id, CONVERSATION_ID, senderId, content);
+    }
+
+    private String messageJson(UUID id, UUID conversationId, UUID senderId, String content) {
         return """
                 {"id":"%s","conversationId":"%s","senderId":"%s","content":"%s",
                  "createdAt":"2026-11-07T10:00:00Z"}
-                """.formatted(id, CONVERSATION_ID, senderId, escape(content));
+                """.formatted(id, conversationId, senderId, escape(content));
+    }
+
+    /** The stored messages of the conversation a message path names. */
+    private List<String> conversationHistory(String path) {
+        return CAROL_CONVERSATION_ID.equals(conversationIdOf(path)) ? carolMessages : directMessages;
+    }
+
+    private static UUID conversationIdOf(String path) {
+        Matcher matcher = Pattern.compile("/conversations/([0-9a-fA-F-]{36})").matcher(path);
+        return matcher.find() ? UUID.fromString(matcher.group(1)) : CONVERSATION_ID;
     }
 
     private String profileJson() {
@@ -609,8 +678,12 @@ final class FakeChatServer implements AutoCloseable {
     }
 
     private static byte[] defaultFriendKeyPackage() throws IOException {
+        return keyPackageFor(FRIEND_ID, "desktop-friend");
+    }
+
+    private static byte[] keyPackageFor(UUID userId, String username) throws IOException {
         try {
-            return MlsKeyPackage.create(MlsIdentity.generate(FRIEND_ID, "desktop-friend")).encode();
+            return MlsKeyPackage.create(MlsIdentity.generate(userId, username)).encode();
         } catch (MlsException exception) {
             throw new IOException("Could not create the test key package.", exception);
         }

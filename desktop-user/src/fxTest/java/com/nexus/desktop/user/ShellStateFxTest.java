@@ -7,10 +7,12 @@ import javafx.collections.ListChangeListener;
 import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListView;
 import javafx.scene.control.MenuButton;
 import javafx.scene.control.MenuItem;
+import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.Pane;
 import javafx.stage.Stage;
@@ -49,6 +51,8 @@ class ShellStateFxTest {
 
     private static final String RENAMED_GROUP = "Renamed team";
     private static final String CREATED_GROUP = "Second team";
+    private static final String THIRD_GROUP = "Third team";
+    private static final String CAROL_MESSAGE = "marigold patch";
     private static final String GROUP_SUBTITLE = "Encrypted group conversation";
     private static final String DIRECT_SUBTITLE = "Private conversation";
     private static final String NO_CONVERSATION_TITLE = "Choose a conversation";
@@ -297,7 +301,100 @@ class ShellStateFxTest {
                                     });
                                 },
                                 () -> server.groupsCreated() == 2
-                                        && emptyShell(stage)));
+                                        && emptyShell(stage)),
+                        new Step("rejoin the group the account had left",
+                                () -> {
+                                    // The leave dropped the server membership, so the group the last
+                                    // row created is not in the list; the account is a member again
+                                    // here, the way a fresh invitation would make it.
+                                    server.restoreMembership();
+                                    server.showCarolFriend();
+                                    sendMlsEvent(realtime, FakeChatServer.GROUP_ID);
+                                },
+                                () -> listsConversation(stage, THIRD_GROUP)),
+                        new Step("open the group again",
+                                () -> assertThat(onFx(() -> selectConversation(stage, THIRD_GROUP))).isTrue(),
+                                () -> titleIs(stage, THIRD_GROUP) && subtitleIs(stage, GROUP_SUBTITLE)),
+                        new Step("add a friend who is not a member yet",
+                                () -> {
+                                    Platform.runLater(() -> button(stage, "Add member").fire());
+                                    Window dialog = awaitDialog("#userList");
+                                    Platform.runLater(() -> {
+                                        ((ListView<?>) dialog.getScene().lookup("#userList"))
+                                                .getSelectionModel().select(0);
+                                        primaryButton(dialog).fire();
+                                    });
+                                },
+                                () -> server.addedMembers().contains(FakeChatServer.CAROL_ID)
+                                        && titleIs(stage, THIRD_GROUP)),
+                        new Step("remove a member from the open group",
+                                () -> {
+                                    Platform.runLater(() -> button(stage, "Remove member").fire());
+                                    Window dialog = awaitDialog("#userList");
+                                    Platform.runLater(() -> {
+                                        ((ListView<?>) dialog.getScene().lookup("#userList"))
+                                                .getSelectionModel().select(0);
+                                        primaryButton(dialog).fire();
+                                    });
+                                },
+                                () -> server.removedMembers().contains(FakeChatServer.FRIEND_ID)
+                                        && titleIs(stage, THIRD_GROUP)),
+                        new Step("a second direct chat joins the list",
+                                () -> {
+                                    server.showDirectConversation();
+                                    server.showSecondDirectChat();
+                                    server.addCarolMessage(CAROL_MESSAGE);
+                                    sendMlsEvent(realtime, FakeChatServer.GROUP_ID);
+                                },
+                                () -> listsConversation(stage, FakeChatServer.FRIEND_NAME)
+                                        && listsConversation(stage, FakeChatServer.CAROL_NAME)),
+                        new Step("open the other direct chat so its message is cached",
+                                () -> assertThat(onFx(() -> selectConversation(stage,
+                                        FakeChatServer.CAROL_NAME))).isTrue(),
+                                () -> titleIs(stage, FakeChatServer.CAROL_NAME)
+                                        && showsExactly(stage, CAROL_MESSAGE)),
+                        new Step("go back to the first direct chat",
+                                () -> assertThat(onFx(() -> selectConversation(stage,
+                                        FakeChatServer.FRIEND_NAME))).isTrue(),
+                                () -> titleIs(stage, FakeChatServer.FRIEND_NAME)
+                                        && !showsExactly(stage, CAROL_MESSAGE)),
+                        new Step("search a message whose chat is not the open one",
+                                () -> onFx(() -> {
+                                    searchField(stage).setText("marigold");
+                                    return null;
+                                }),
+                                // The hit belongs to another direct chat, so its sender name has to
+                                // come from the list instead of the chat that is open.
+                                () -> searchPreviews(stage).contains(CAROL_MESSAGE)),
+                        new Step("clear the search before reporting",
+                                () -> onFx(() -> {
+                                    searchField(stage).clear();
+                                    return null;
+                                }),
+                                () -> !searchVisible(stage)),
+                        new Step("a message from the other side arrives for the report",
+                                () -> sendCreated(realtime, FakeChatServer.CONVERSATION_ID,
+                                        "reported wording"),
+                                () -> showsExactly(stage, "reported wording")),
+                        new Step("report the open direct chat with that message as evidence",
+                                () -> {
+                                    Platform.runLater(() -> {
+                                        if (stage.getScene().lookup("#reportButton") instanceof Button report) {
+                                            report.fire();
+                                        }
+                                    });
+                                    Window report = awaitDialog("#reasonField");
+                                    Platform.runLater(() -> {
+                                        ((TextArea) report.getScene().lookup("#reasonField"))
+                                                .setText("harassment");
+                                        ((ListView<?>) report.getScene().lookup("#evidenceList"))
+                                                .getSelectionModel().select(0);
+                                        ((CheckBox) report.getScene().lookup("#consentCheck"))
+                                                .setSelected(true);
+                                        ((Button) report.getScene().lookup("#submitButton")).fire();
+                                    });
+                                },
+                                () -> server.reports() == 1 && server.reportsWithEvidence() == 1));
 
                 for (Step step : table) {
                     step.action().run();
