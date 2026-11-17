@@ -48,6 +48,7 @@ class ShellStateFxTest {
     private record Step(String state, Runnable action, BooleanSupplier settled) { }
 
     private static final String RENAMED_GROUP = "Renamed team";
+    private static final String CREATED_GROUP = "Second team";
     private static final String GROUP_SUBTITLE = "Encrypted group conversation";
     private static final String DIRECT_SUBTITLE = "Private conversation";
     private static final String NO_CONVERSATION_TITLE = "Choose a conversation";
@@ -201,21 +202,22 @@ class ShellStateFxTest {
                                     Window dialog = awaitDialog("#userList");
                                     Platform.runLater(() -> primaryButton(dialog).fire());
                                 },
-                                () -> server.directChatsOpened() == 1
-                                        && titleIs(stage, FakeChatServer.FRIEND_NAME)),
+                                () -> titleIs(stage, FakeChatServer.FRIEND_NAME)
+                                        && subtitleIs(stage, DIRECT_SUBTITLE)),
                         new Step("create a group from the picker",
                                 () -> {
                                     Platform.runLater(() -> button(stage, "New group").fire());
                                     Window dialog = awaitDialog("#userList");
                                     Platform.runLater(() -> {
                                         ((TextField) dialog.getScene().lookup("#nameField"))
-                                                .setText("Second team");
+                                                .setText(CREATED_GROUP);
                                         ((ListView<?>) dialog.getScene().lookup("#userList"))
                                                 .getSelectionModel().select(0);
                                         primaryButton(dialog).fire();
                                     });
                                 },
-                                () -> server.groupsCreated() == 1),
+                                () -> listsConversation(stage, CREATED_GROUP)
+                                        && titleIs(stage, FakeChatServer.FRIEND_NAME)),
                         new Step("a realtime event for the open chat",
                                 () -> sendCreated(realtime, FakeChatServer.CONVERSATION_ID, "live from bob"),
                                 () -> showsExactly(stage, "live from bob")),
@@ -250,29 +252,21 @@ class ShellStateFxTest {
                                     server.hideDirectConversation();
                                     sendMlsEvent(realtime, FakeChatServer.GROUP_ID);
                                 },
-                                () -> titleIs(stage, NO_CONVERSATION_TITLE)
-                                        && subtitleIs(stage, NO_CONVERSATION_HINT)
-                                        && disabled(stage, "#reportButton")
-                                        && disabled(stage, "#groupSettingsButton")
-                                        && disabled(stage, "#clearHistoryButton")),
+                                () -> emptyShell(stage)),
                         new Step("leave the open group and land on the empty shell",
                                 () -> {
                                     // The empty state is what is left once nothing can be opened, so
                                     // the direct chat goes first: the refresh that follows the leave
                                     // then finds no conversation at all.
                                     server.hideDirectConversation();
-                                    assertThat(onFx(() -> selectConversation(stage, RENAMED_GROUP))).isTrue();
+                                    assertThat(onFx(() -> selectConversation(stage, CREATED_GROUP))).isTrue();
                                     Platform.runLater(() -> button(stage, "Group settings").fire());
                                     Window settings = awaitDialog("#nameField");
                                     Platform.runLater(() -> button(settings.getScene(), "Leave group").fire());
                                     answerConfirmButton("#confirmDialogConfirm");
                                 },
                                 () -> server.removedMembers().contains(FakeChatServer.USER_ID)
-                                        && titleIs(stage, NO_CONVERSATION_TITLE)
-                                        && subtitleIs(stage, NO_CONVERSATION_HINT)
-                                        && disabled(stage, "#reportButton")
-                                        && disabled(stage, "#groupSettingsButton")
-                                        && disabled(stage, "#clearHistoryButton")),
+                                        && emptyShell(stage)),
                         new Step("open the direct chat again from Friends",
                                 () -> {
                                     // The leave left the account without conversations, so the list
@@ -283,8 +277,7 @@ class ShellStateFxTest {
                                     Window dialog = awaitDialog("#userList");
                                     Platform.runLater(() -> primaryButton(dialog).fire());
                                 },
-                                () -> server.directChatsOpened() == 2
-                                        && titleIs(stage, FakeChatServer.FRIEND_NAME)
+                                () -> titleIs(stage, FakeChatServer.FRIEND_NAME)
                                         && subtitleIs(stage, DIRECT_SUBTITLE)),
                         new Step("a conversation-list load that comes back empty while a chat is open",
                                 () -> {
@@ -304,11 +297,7 @@ class ShellStateFxTest {
                                     });
                                 },
                                 () -> server.groupsCreated() == 2
-                                        && titleIs(stage, NO_CONVERSATION_TITLE)
-                                        && subtitleIs(stage, NO_CONVERSATION_HINT)
-                                        && disabled(stage, "#reportButton")
-                                        && disabled(stage, "#groupSettingsButton")
-                                        && disabled(stage, "#clearHistoryButton")));
+                                        && emptyShell(stage)));
 
                 for (Step step : table) {
                     step.action().run();
@@ -383,6 +372,27 @@ class ShellStateFxTest {
     private static Button primaryButton(Window dialog) {
         if (dialog.getScene().lookup(".primary-button") instanceof Button confirm) return confirm;
         throw new AssertionError("The dialog has no primary button");
+    }
+
+    /** The shell with nothing open: the empty-state copy and the actions that need a chat. */
+    private static boolean emptyShell(Stage stage) {
+        return titleIs(stage, NO_CONVERSATION_TITLE)
+                && subtitleIs(stage, NO_CONVERSATION_HINT)
+                && disabled(stage, "#reportButton")
+                && disabled(stage, "#groupSettingsButton")
+                && disabled(stage, "#clearHistoryButton");
+    }
+
+    /** Whether the sidebar is listing a conversation under this name. */
+    private static boolean listsConversation(Stage stage, String name) {
+        if (stage.getScene() == null
+                || !(stage.getScene().lookup("#conversationList") instanceof ListView<?> list)) {
+            return false;
+        }
+        return list.getItems().stream()
+                .filter(Conversation.class::isInstance)
+                .map(Conversation.class::cast)
+                .anyMatch(conversation -> name.equals(conversation.getName()));
     }
 
     private static boolean disabled(Stage stage, String id) {

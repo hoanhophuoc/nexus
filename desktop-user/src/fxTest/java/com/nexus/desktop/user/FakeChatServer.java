@@ -52,7 +52,6 @@ final class FakeChatServer implements AutoCloseable {
     private volatile String signedInPassword = DEFAULT_PASSWORD;
     private volatile boolean groupCreated;
     private volatile boolean directVisible = true;
-    private volatile int directChatsOpened;
     private volatile int groupsCreated;
     private volatile byte[] firstCommit;
     private volatile int reports;
@@ -113,7 +112,6 @@ final class FakeChatServer implements AutoCloseable {
     int passwordResetRequests() { return passwordResetRequests; }
     int clearedHistories() { return clearedHistories; }
 
-    int directChatsOpened() { return directChatsOpened; }
 
     int groupsCreated() { return groupsCreated; }
     int friendRemovals() { return friendRemovals; }
@@ -361,7 +359,6 @@ final class FakeChatServer implements AutoCloseable {
     private void conversations(HttpExchange exchange) throws IOException {
         if ("POST".equals(exchange.getRequestMethod())
                 && "/api/v1/conversations".equals(exchange.getRequestURI().getPath())) {
-            directChatsOpened++;
             respondJson(exchange, 201, """
                     {"id":"%s","name":"%s","type":"direct","createdAt":"2026-11-07T10:00:00Z"}
                     """.formatted(CONVERSATION_ID, FRIEND_NAME));
@@ -470,12 +467,14 @@ final class FakeChatServer implements AutoCloseable {
             respondJson(exchange, 405, "{}");
             return;
         }
-        readText(exchange);
+        String name = jsonText(readText(exchange), "name");
         groupCreated = true;
         groupsCreated++;
+        // A created group is served under the name it was given, so the list shows it as new.
+        if (name != null && !name.isBlank()) groupName = name;
         respondJson(exchange, 201, """
                 {"id":"%s","name":"%s","type":"group","createdAt":"2026-11-07T10:00:00Z"}
-                """.formatted(GROUP_ID, GROUP_NAME));
+                """.formatted(GROUP_ID, escape(groupName)));
     }
 
     private void groups(HttpExchange exchange) throws IOException {
