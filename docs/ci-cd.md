@@ -20,9 +20,9 @@ The two desktop modules take their coverage from their JavaFX suites, so the `fx
 their `fxTest.exec` files as the `fx-coverage` artifact and the analysis job downloads it before the
 coverage report, the gate and `./gradlew sonar` (`build-test` therefore waits for `fx-test`).
 Without that data the module reports were empty, SonarQube counted both UI modules as 0% covered,
-and the project sat at 38%. With it they measure 85.12% and 84.69% of lines, and the project reports
+and the project sat at 38%. With it they measure 85.12% and 84.78% of lines, and the project reports
 74.0% coverage. Across the four product modules and both desktop suites the
-aggregate report — the one the bundle floor is checked against — measures 85.10% of lines and 60.66%
+aggregate report — the one the bundle floor is checked against — measures 85.56% of lines and 61.11%
 of branches, above both bundle floors (83% and 58%). Summing the four per-module reports
 instead gives 76.46% and 54.16%, because a module's report only credits its own suites:
 `com.nexus.desktop.shared/ui` reads as 11 covered lines of 191 in the shared report but 175 of 191 in
@@ -44,9 +44,10 @@ suite's own results means the run was narrowed (`--tests '...'`) or skipped it, 
 the suite and the missing classes. Measure a tree with
 `xvfb-run -a ./gradlew fullTest coverageReport --rerun-tasks`.
 
-A package average still hides a weak class, so four floors are per class rather than per package:
+A package average still hides a weak class, so five floors are per class rather than per package:
 `OutboxPublisher` (100.00% line / 95.89% branch when the floor was set), `ShellController`
-(81.62% / 63.95%), `AdminService` (85.96% / 58.86%) and `AdminAppContext` (74.19% / 60.00%). The
+(81.62% / 63.95%), `AdminService` (85.96% / 58.86%), `AdminAppContext` (74.19% / 60.00%) and
+`RealtimeConnection` (93.48% / 100.00%). The
 publisher's three uncovered branches are guards no publish reaches — an empty mark list, an
 exception with no message, an empty attempt list — while its encode-poison and connection-failure
 catches are driven by publishing a stubbed MLS row through a mapper that refuses to encode it and a
@@ -63,6 +64,13 @@ through the two member dialogs, searches for a message that belongs to a direct 
 open one (so the hit's sender name comes from the list) and reports the open chat with a cached
 message as evidence. What stays uncovered are the error and recovery paths the table does not drive,
 which is why each floor sits a few points under the measured figure instead of at it.
+
+`RealtimeConnection` covers every branch of the retry policy without sleeping: the suite hands the
+connection a fake socket and a scheduler that records the delay it asks for, so a failed attempt
+waits inside half to whole of a doubling ceiling, an open resets the counter, a close followed by an
+error still schedules one retry, a handler or after-connect failure abandons the socket and retries,
+and a close refuses an open that arrives after it. Its three uncovered lines are the production
+session lookup and the daemon-thread factory, which need a real handshake to reach.
 
 The line figure is reproducible because no suite relies on a timer to reach a line. The presence
 heartbeat used to be covered only when a Spring context happened to outlive its 30-second first run,

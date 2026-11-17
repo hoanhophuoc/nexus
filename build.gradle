@@ -160,7 +160,7 @@ def coverageVerification = tasks.register('coverageVerification', JacocoCoverage
     executionData existingCoverageExecutionData()
     classDirectories.setFrom files(coverageClassDirectories)
     violationRules {
-        // Measured 2026-11-17: 85.10% of lines and 60.66% of branches across the four modules.
+        // Measured 2026-11-17: 85.56% of lines and 61.11% of branches across the four modules.
         rule {
             element = 'BUNDLE'
             limit { counter = 'LINE'; value = 'COVEREDRATIO'; minimum = 0.83 }
@@ -168,7 +168,7 @@ def coverageVerification = tasks.register('coverageVerification', JacocoCoverage
         }
         // Measured 2026-11-17, package by package: identity 74.22/67.65, social 69.77/52.59,
         // messaging 91.46/77.39, groups 86.08/70.55, administration 83.56/61.79, shared.mls
-        // 86.50/55.33, shared.cache 95.20/66.42, shared.messaging 84.32/57.69, desktop.user
+        // 86.50/55.33, shared.cache 95.20/66.42, shared.messaging 90.99/62.69, desktop.user
         // 85.12/62.36, desktop.admin 84.69/53.53. shared.mls keeps its old pair: its branch ratio is
         // the one the BouncyCastle MLS paths cap, and a higher floor would fail on an unchanged tree.
         [
@@ -179,7 +179,7 @@ def coverageVerification = tasks.register('coverageVerification', JacocoCoverage
                 'com.nexus.server.administration'       : [0.82d, 0.60d],
                 'com.nexus.desktop.shared.mls'          : [0.85d, 0.54d],
                 'com.nexus.desktop.shared.cache'        : [0.93d, 0.64d],
-                'com.nexus.desktop.shared.messaging'    : [0.82d, 0.55d],
+                'com.nexus.desktop.shared.messaging'    : [0.89d, 0.61d],
                 'com.nexus.desktop.user'                : [0.83d, 0.60d],
                 'com.nexus.desktop.admin'               : [0.84d, 0.52d]
         ].each { packageName, floors ->
@@ -193,16 +193,20 @@ def coverageVerification = tasks.register('coverageVerification', JacocoCoverage
         // The classes every delivery path and the admin shell run through, held on their own
         // because a package average absorbs them. Measured 2026-11-17: OutboxPublisher 100.00%
         // line / 95.89% branch, ShellController 81.62% / 63.95%, AdminService 85.96% / 58.86%,
-        // AdminAppContext 74.19% / 60.00%. The publisher's three uncovered branches are guards no
-        // publish reaches (an empty mark list, an exception with no message, an empty attempt list);
-        // its encode and connection-failure catches are driven through mocks. ShellController rose
-        // when the FX table started opening the member dialogs, a hit in a chat that is not open and
-        // the report with cached evidence; AdminService joined for its group cursor and sort guard.
+        // AdminAppContext 74.19% / 60.00%, RealtimeConnection 93.48% / 100.00%. The publisher's three
+        // uncovered branches are guards no publish reaches (an empty mark list, an exception with no
+        // message, an empty attempt list); its encode and connection-failure catches are driven
+        // through mocks. ShellController rose when the FX table started opening the member dialogs, a
+        // hit in a chat that is not open and the report with cached evidence; AdminService joined for
+        // its group cursor and sort guard. RealtimeConnection's last three lines are the production
+        // session lookup and the daemon-thread factory, so the suite drives the listener and the
+        // backoff through a fake socket rather than a real handshake.
         [
                 'com.nexus.server.messaging.OutboxPublisher'  : [0.99d, 0.94d],
                 'com.nexus.desktop.user.ShellController'      : [0.80d, 0.62d],
                 'com.nexus.server.administration.AdminService': [0.84d, 0.57d],
-                'com.nexus.desktop.admin.AdminAppContext'     : [0.73d, 0.59d]
+                'com.nexus.desktop.admin.AdminAppContext'     : [0.73d, 0.59d],
+                'com.nexus.desktop.shared.messaging.RealtimeConnection': [0.92d, 0.98d]
         ].each { className, floors ->
             rule {
                 element = 'CLASS'
