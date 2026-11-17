@@ -1,5 +1,6 @@
 package com.nexus.desktop.user;
 
+import com.nexus.desktop.shared.cache.MessageSearchResult;
 import com.nexus.sdk.model.Conversation;
 import javafx.application.Platform;
 import javafx.collections.ListChangeListener;
@@ -53,6 +54,8 @@ class ShellStateFxTest {
     private static final String NO_CONVERSATION_HINT =
             "Select a chat on the left, or open Friends to start a new one.";
     private static final String LOADING_MESSAGES = "Loading messages…";
+    private static final String SEARCH_QUERY = "zebra";
+    private static final String SEARCHED_MESSAGE = "zebra crossing";
 
     @Test
     void movesBetweenConversationsAndIgnoresAStaleRealtimeEvent(@TempDir Path home) throws Exception {
@@ -222,6 +225,23 @@ class ShellStateFxTest {
                                 // the user had.
                                 () -> !mentions(stage, "late group message")
                                         && titleIs(stage, FakeChatServer.FRIEND_NAME)),
+                        new Step("type a query nothing in the cache answers yet",
+                                () -> onFx(() -> {
+                                    searchField(stage).setText(SEARCH_QUERY);
+                                    return null;
+                                }),
+                                () -> searchVisible(stage) && searchPreviews(stage).isEmpty()),
+                        new Step("a message that matches is cached and the results pick it up",
+                                // A group message while the direct chat is open: the cache moves and
+                                // the panel has to answer with it, not with what it held before.
+                                () -> sendCreated(realtime, FakeChatServer.GROUP_ID, SEARCHED_MESSAGE),
+                                () -> searchPreviews(stage).contains(SEARCHED_MESSAGE)),
+                        new Step("clear the query and the panel goes away",
+                                () -> onFx(() -> {
+                                    searchField(stage).clear();
+                                    return null;
+                                }),
+                                () -> !searchVisible(stage) && searchPreviews(stage).isEmpty()),
                         new Step("a refresh whose list no longer has the open chat",
                                 () -> {
                                     // The only refresh an idle shell runs comes from an MLS event, and
@@ -544,6 +564,31 @@ class ShellStateFxTest {
     private static boolean mentions(Stage stage, String text) {
         return stage.getScene() != null && labelsIn(stage.getScene().getRoot()).stream()
                 .anyMatch(label -> label.contains(text));
+    }
+
+    private static TextField searchField(Stage stage) {
+        if (stage.getScene() != null && stage.getScene().lookup("#searchField") instanceof TextField box) {
+            return box;
+        }
+        throw new AssertionError("The shell has no search box");
+    }
+
+    private static boolean searchVisible(Stage stage) {
+        Node results = stage.getScene() == null ? null : stage.getScene().lookup("#searchResults");
+        return results != null && results.isVisible();
+    }
+
+    /** What the search panel is listing, by preview: the one field a result carries from the cache. */
+    private static List<String> searchPreviews(Stage stage) {
+        if (stage.getScene() == null
+                || !(stage.getScene().lookup("#searchResults") instanceof ListView<?> results)) {
+            return List.of();
+        }
+        return results.getItems().stream()
+                .filter(MessageSearchResult.class::isInstance)
+                .map(MessageSearchResult.class::cast)
+                .map(MessageSearchResult::preview)
+                .toList();
     }
 
     private static TextField messageField(Stage stage) {
