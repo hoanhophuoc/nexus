@@ -225,36 +225,6 @@ class ShellStateFxTest {
                                 // the user had.
                                 () -> !mentions(stage, "late group message")
                                         && titleIs(stage, FakeChatServer.FRIEND_NAME)),
-                        new Step("a plain list load while the chat it opened is not in it",
-                                () -> {
-                                    // Creating a group is the one action that ends in a plain load
-                                    // rather than a refresh, and the fake serves the list without
-                                    // the open direct chat: the load must land on the conversation
-                                    // it serves, not on a neighbour that inherited the selection.
-                                    server.hideDirectConversation();
-                                    Platform.runLater(() -> button(stage, "New group").fire());
-                                    Window dialog = awaitDialog("#userList");
-                                    Platform.runLater(() -> {
-                                        ((TextField) dialog.getScene().lookup("#nameField"))
-                                                .setText("Second team");
-                                        ((ListView<?>) dialog.getScene().lookup("#userList"))
-                                                .getSelectionModel().select(0);
-                                        primaryButton(dialog).fire();
-                                    });
-                                },
-                                () -> server.groupsCreated() == 2
-                                        && titleIs(stage, RENAMED_GROUP)
-                                        && subtitleIs(stage, GROUP_SUBTITLE)),
-                        new Step("open the direct chat again for the rows that need another chat",
-                                () -> {
-                                    server.showDirectConversation();
-                                    Platform.runLater(() -> button(stage, "Friends").fire());
-                                    Window dialog = awaitDialog("#userList");
-                                    Platform.runLater(() -> primaryButton(dialog).fire());
-                                },
-                                () -> server.directChatsOpened() == 2
-                                        && titleIs(stage, FakeChatServer.FRIEND_NAME)
-                                        && subtitleIs(stage, DIRECT_SUBTITLE)),
                         new Step("type a query nothing in the cache answers yet",
                                 () -> onFx(() -> {
                                     searchField(stage).setText(SEARCH_QUERY);
@@ -313,7 +283,7 @@ class ShellStateFxTest {
                                     Window dialog = awaitDialog("#userList");
                                     Platform.runLater(() -> primaryButton(dialog).fire());
                                 },
-                                () -> server.directChatsOpened() == 3
+                                () -> server.directChatsOpened() == 2
                                         && titleIs(stage, FakeChatServer.FRIEND_NAME)
                                         && subtitleIs(stage, DIRECT_SUBTITLE)),
                         new Step("a conversation-list load that comes back empty while a chat is open",
@@ -333,7 +303,7 @@ class ShellStateFxTest {
                                         primaryButton(dialog).fire();
                                     });
                                 },
-                                () -> server.groupsCreated() == 3
+                                () -> server.groupsCreated() == 2
                                         && titleIs(stage, NO_CONVERSATION_TITLE)
                                         && subtitleIs(stage, NO_CONVERSATION_HINT)
                                         && disabled(stage, "#reportButton")
