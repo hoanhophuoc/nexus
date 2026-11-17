@@ -8,8 +8,10 @@ import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.SqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import tools.jackson.core.JacksonException;
@@ -20,6 +22,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -44,6 +48,10 @@ class OutboxPublisherTest {
     private static final UUID MESSAGE_ID = new UUID(0L, 3L);
     private static final UUID SENDER_ID = new UUID(0L, 4L);
     private static final UUID RECIPIENT_ID = new UUID(0L, 5L);
+    private static final UUID MEMBER_ONE = new UUID(0L, 6L);
+    private static final UUID MEMBER_TWO = new UUID(0L, 7L);
+    /** Joined after the MLS row's epoch: the fan-out must skip this member. */
+    private static final UUID LATE_MEMBER = new UUID(0L, 8L);
     private static final Instant CREATED_AT = Instant.parse("2026-11-16T10:00:00Z");
     private static final ObjectMapper CONTRACT = new ObjectMapper();
 
@@ -169,6 +177,14 @@ class OutboxPublisherTest {
                 .isEqualTo(CONTRACT.readTree(Files.readString(file, StandardCharsets.UTF_8)));
     }
 
+    private static ResultSet memberRow(UUID userId, int joinedEpoch) throws SQLException {
+        ResultSet row = mock(ResultSet.class);
+        when(row.getObject(1, UUID.class)).thenReturn(CONVERSATION_ID);
+        when(row.getObject(2, UUID.class)).thenReturn(userId);
+        when(row.getInt(3)).thenReturn(joinedEpoch);
+        return row;
+    }
+
     private static UUID id(int number) {
         return new UUID(0L, number);
     }
@@ -189,8 +205,22 @@ class OutboxPublisherTest {
                     ? (mlsRow == null ? List.of() : List.of(mlsRow))
                     : (messageRow == null ? List.of() : List.of(messageRow)))
                     .when(jdbc).query(anyString(), any(RowMapper.class));
+            // The fan-out reads every active member of the conversation; the epoch column is what
+            // lets the MLS fan-out drop a member who joined after the row's epoch.
+            doAnswer(invocation -> {
+                RowCallbackHandler rows = invocation.getArgument(2);
+                for (ResultSet member : members()) {
+                    rows.processRow(member);
+                }
+                return null;
+            }).when(named).query(anyString(), any(SqlParameterSource.class), any(RowCallbackHandler.class));
             doAnswer(invocation -> ((RedisCallback<?>) invocation.getArgument(0)).doInRedis(connection))
                     .when(redis).execute(any(RedisCallback.class));
+        }
+
+        /** Every member of the conversation, the late joiner included. */
+        private List<ResultSet> members() throws SQLException {
+            return List.of(memberRow(MEMBER_ONE, 1), memberRow(MEMBER_TWO, 2), memberRow(LATE_MEMBER, 9));
         }
 
         private OutboxPublisher publisher() {

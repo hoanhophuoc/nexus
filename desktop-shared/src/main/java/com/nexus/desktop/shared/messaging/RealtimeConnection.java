@@ -19,14 +19,16 @@ public final class RealtimeConnection implements AutoCloseable {
     private static final int MAX_EVENT_CHARS = 1_100_000;
     private static final long MAX_BACKOFF_MILLIS = 30_000;
 
-    private final SessionApi session;
+    /** Opens one socket attempt: production goes through {@link SessionApi}, tests hand in a fake. */
+    @FunctionalInterface
+    interface SocketFactory {
+        CompletableFuture<WebSocket> connect(WebSocket.Listener listener);
+    }
+
+    private final SocketFactory sockets;
     private final Consumer<String> eventHandler;
     private final Runnable afterConnect;
-    private final ScheduledExecutorService reconnectExecutor = Executors.newSingleThreadScheduledExecutor(task -> {
-        Thread thread = new Thread(task, "chat-websocket-reconnect");
-        thread.setDaemon(true);
-        return thread;
-    });
+    private final ScheduledExecutorService reconnectExecutor;
     private final AtomicBoolean reconnectScheduled = new AtomicBoolean();
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicInteger attempts = new AtomicInteger();
@@ -35,9 +37,25 @@ public final class RealtimeConnection implements AutoCloseable {
     private volatile ScheduledFuture<?> pendingReconnect;
 
     public RealtimeConnection(SessionApi session, Consumer<String> eventHandler, Runnable afterConnect) {
-        this.session = session;
+        this(listener -> session.webSocketBuilder().buildAsync(session.webSocketUri(), listener),
+                eventHandler, afterConnect, reconnectExecutor());
+    }
+
+    /** Tests own the scheduler, so a backoff delay can be read instead of slept through. */
+    RealtimeConnection(SocketFactory sockets, Consumer<String> eventHandler, Runnable afterConnect,
+                       ScheduledExecutorService reconnectExecutor) {
+        this.sockets = sockets;
         this.eventHandler = eventHandler;
         this.afterConnect = afterConnect;
+        this.reconnectExecutor = reconnectExecutor;
+    }
+
+    private static ScheduledExecutorService reconnectExecutor() {
+        return Executors.newSingleThreadScheduledExecutor(task -> {
+            Thread thread = new Thread(task, "chat-websocket-reconnect");
+            thread.setDaemon(true);
+            return thread;
+        });
     }
 
     public void start() {
@@ -59,7 +77,7 @@ public final class RealtimeConnection implements AutoCloseable {
     private void connect() {
         if (closed) return;
         try {
-            session.webSocketBuilder().buildAsync(session.webSocketUri(), new Listener())
+            sockets.connect(new Listener())
                     .whenComplete((connected, failure) -> {
                         if (failure != null) scheduleReconnect();
                         else socket = connected;
