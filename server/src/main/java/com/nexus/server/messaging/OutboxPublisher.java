@@ -542,7 +542,25 @@ public class OutboxPublisher {
     private record Abandon(List<UUID> eventIds, String reason, String error) { }
 
     /** One event's encoded payload, kept with its id so it can be published on its own. */
-    private record Delivery(UUID eventId, byte[] payload) { }
+    private record Delivery(UUID eventId, byte[] payload) {
+        // A record compares a byte[] by reference, which makes two deliveries of the same event unequal.
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof Delivery delivery && Objects.equals(eventId, delivery.eventId)
+                    && Arrays.equals(payload, delivery.payload);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(eventId, Arrays.hashCode(payload));
+        }
+
+        @Override
+        public String toString() {
+            // The payload stays out of the log line; the id is what an operator needs.
+            return "Delivery[" + eventId + "]";
+        }
+    }
 
     private record OutboxRow(UUID eventId, UUID conversationId, UUID messageId, UUID recipientId,
                              String eventType, UUID senderId, String content, Instant createdAt,
