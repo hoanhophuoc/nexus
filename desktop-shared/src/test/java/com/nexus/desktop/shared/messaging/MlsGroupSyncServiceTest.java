@@ -14,6 +14,9 @@ import com.nexus.sdk.model.MlsMessagePage;
 import com.nexus.sdk.model.User;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
@@ -42,6 +45,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * the Spring server exposes.
  */
 class MlsGroupSyncServiceTest {
+    private static final ObjectMapper CONTRACT = new ObjectMapper();
+
     @TempDir
     Path directory;
 
@@ -126,17 +131,17 @@ class MlsGroupSyncServiceTest {
             UUID groupId = alice.createGroup("realtime", List.of(bobId)).getId();
 
             // A new member can join directly from the realtime commit event, without opening the group first.
-            assertThat(bob.handleRealtimeEvent(event("MlsCommit", groupId))).isTrue();
+            assertThat(bob.handleRealtimeEvent(realtimeEvent("mls-commit", groupId))).isTrue();
             assertThat(bob.hasState(groupId)).isTrue();
 
             alice.sendGroupMessage(groupId, "hello realtime");
-            assertThat(bob.handleRealtimeEvent(event("MlsMessage", groupId))).isTrue();
+            assertThat(bob.handleRealtimeEvent(realtimeEvent("mls-message", groupId))).isTrue();
             assertThat(contents(bobCache, groupId)).contains("hello realtime");
 
             alice.addMember(groupId, charlieId);
-            assertThat(bob.handleRealtimeEvent(event("MlsCommit", groupId))).isTrue();
+            assertThat(bob.handleRealtimeEvent(realtimeEvent("mls-commit", groupId))).isTrue();
             alice.sendGroupMessage(groupId, "after add");
-            assertThat(bob.handleRealtimeEvent(event("MlsMessage", groupId))).isTrue();
+            assertThat(bob.handleRealtimeEvent(realtimeEvent("mls-message", groupId))).isTrue();
             assertThat(contents(bobCache, groupId)).contains("after add");
 
             assertThat(bob.handleRealtimeEvent("""
@@ -146,10 +151,19 @@ class MlsGroupSyncServiceTest {
         }
     }
 
-    private static String event(String type, UUID groupId) {
-        return """
-                {"type":"%s","conversationId":"%s"}
-                """.formatted(type, groupId);
+    /**
+     * The payload of the envelope the server publisher pins in contract/realtime, with this suite's
+     * group id in place of the fixture's: the field names come from the server, the value from the
+     * fake server the test drives.
+     */
+    private static String realtimeEvent(String name, UUID groupId) throws IOException {
+        Path directory = Path.of(System.getProperty("nexus.contractDir", "contract/realtime"));
+        JsonNode envelope = CONTRACT.readTree(Files.readString(directory.resolve(name + ".json")));
+        assertThat(envelope.hasNonNull("payload"))
+                .as("the publisher wraps every event as {targets, payload}").isTrue();
+        ObjectNode payload = (ObjectNode) envelope.get("payload").deepCopy();
+        payload.put("conversationId", groupId.toString());
+        return CONTRACT.writeValueAsString(payload);
     }
 
     /**

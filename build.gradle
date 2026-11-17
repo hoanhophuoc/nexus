@@ -160,22 +160,27 @@ def coverageVerification = tasks.register('coverageVerification', JacocoCoverage
     executionData existingCoverageExecutionData()
     classDirectories.setFrom files(coverageClassDirectories)
     violationRules {
+        // Measured 2026-11-17: 85.10% of lines and 60.66% of branches across the four modules.
         rule {
             element = 'BUNDLE'
-            limit { counter = 'LINE'; value = 'COVEREDRATIO'; minimum = 0.78 }
-            limit { counter = 'BRANCH'; value = 'COVEREDRATIO'; minimum = 0.54 }
+            limit { counter = 'LINE'; value = 'COVEREDRATIO'; minimum = 0.83 }
+            limit { counter = 'BRANCH'; value = 'COVEREDRATIO'; minimum = 0.58 }
         }
+        // Measured 2026-11-17, package by package: identity 74.22/67.65, social 69.77/52.59,
+        // messaging 91.46/77.39, groups 86.08/70.55, administration 83.56/61.79, shared.mls
+        // 86.50/55.33, shared.cache 95.20/66.42, shared.messaging 84.32/57.69, desktop.user
+        // 85.12/62.36, desktop.admin 84.69/53.53. shared.mls keeps its old pair: its branch ratio is
+        // the one the BouncyCastle MLS paths cap, and a higher floor would fail on an unchanged tree.
         [
-                'com.nexus.server.identity'             : [0.69d, 0.50d],
-                'com.nexus.server.social'               : [0.64d, 0.38d],
-                'com.nexus.server.messaging'            : [0.82d, 0.61d],
-                'com.nexus.server.groups'               : [0.85d, 0.66d],
-                'com.nexus.server.administration'       : [0.80d, 0.53d],
+                'com.nexus.server.identity'             : [0.72d, 0.65d],
+                'com.nexus.server.social'               : [0.68d, 0.50d],
+                'com.nexus.server.messaging'            : [0.90d, 0.75d],
+                'com.nexus.server.groups'               : [0.85d, 0.68d],
+                'com.nexus.server.administration'       : [0.82d, 0.60d],
                 'com.nexus.desktop.shared.mls'          : [0.85d, 0.54d],
-                'com.nexus.desktop.shared.cache'        : [0.88d, 0.57d],
-                'com.nexus.desktop.shared.messaging'    : [0.63d, 0.45d],
-                // Measured 2026-11-13: 70.36% of lines and 47.77% of branches.
-                'com.nexus.desktop.user'                : [0.70d, 0.47d],
+                'com.nexus.desktop.shared.cache'        : [0.93d, 0.64d],
+                'com.nexus.desktop.shared.messaging'    : [0.82d, 0.55d],
+                'com.nexus.desktop.user'                : [0.83d, 0.60d],
                 'com.nexus.desktop.admin'               : [0.84d, 0.52d]
         ].each { packageName, floors ->
             rule {
@@ -258,6 +263,24 @@ tasks.register('fullTest') {
             ':desktop-user:test', ':desktop-admin:test',
             ':desktop-user:fxTest', ':desktop-admin:fxTest',
             coverageVerification
+}
+
+// The realtime wire contract is one directory of JSON files: the server's publisher test writes and
+// checks them, the desktop parser tests read the same files. A renamed field then fails on the side
+// that moved it, instead of both suites staying green while delivery stops.
+def realtimeContractDir = file('contract/realtime')
+subprojects {
+    tasks.withType(Test).configureEach {
+        systemProperty 'nexus.contractDir', realtimeContractDir.absolutePath
+        // A test task that read the fixtures has to notice when one of them changes, or an edited
+        // golden file leaves the last green run in place.
+        inputs.dir(realtimeContractDir)
+                .withPropertyName('realtimeContract')
+                .withPathSensitivity(org.gradle.api.tasks.PathSensitivity.RELATIVE)
+        if (project.hasProperty('contractUpdate')) {
+            systemProperty 'nexus.contract.update', 'true'
+        }
+    }
 }
 
 sonar {

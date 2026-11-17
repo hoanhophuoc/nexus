@@ -1,0 +1,16 @@
+{
+  "payload" : {
+    "eventId" : "00000000-0000-0000-0000-000000000001",
+    "cursor" : "00000000-0000-0000-0000-000000000003",
+    "message" : {
+      "id" : "00000000-0000-0000-0000-000000000003",
+      "conversationId" : "00000000-0000-0000-0000-000000000002",
+      "senderId" : "00000000-0000-0000-0000-000000000004",
+      "content" : "the payload the wire carries",
+      "createdAt" : "2026-11-16T10:00:00Z",
+      "deletedForEveryoneAt" : null
+    },
+    "type" : "MessageCreated"
+  },
+  "targets" : [ ]
+}

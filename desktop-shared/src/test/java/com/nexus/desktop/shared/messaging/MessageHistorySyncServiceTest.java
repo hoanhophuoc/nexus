@@ -9,9 +9,14 @@ import com.nexus.sdk.model.MessagePage;
 import com.nexus.sdk.ApiException;
 import com.nexus.sdk.model.MessageSubmission;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import javax.crypto.KeyGenerator;
+import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -20,6 +25,74 @@ import java.util.ArrayList;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class MessageHistorySyncServiceTest {
+    private static final ObjectMapper CONTRACT = new ObjectMapper();
+
+    // The three tests below parse the envelopes the server publisher pins in contract/realtime, so a
+    // renamed payload field fails in the suite that still expects the old name.
+
+    @Test
+    void appliesTheServersMessageCreatedEnvelope() throws Exception {
+        JsonNode payload = contractPayload("message-created");
+        JsonNode message = payload.get("message");
+        UUID conversationId = UUID.fromString(message.get("conversationId").asText());
+        var keyGenerator = KeyGenerator.getInstance("AES");
+        keyGenerator.init(256);
+        try (var cache = new EncryptedMessageCache(
+                Files.createTempDirectory("message-contract-created").resolve("cache"),
+                UUID.randomUUID(), keyGenerator.generateKey())) {
+            new MessageHistorySyncService(new DefaultApi(), cache)
+                    .acceptRealtimeEvent(CONTRACT.writeValueAsString(payload));
+
+            assertThat(cache.messagesInConversation(conversationId)).singleElement().satisfies(cached -> {
+                assertThat(cached.id()).isEqualTo(UUID.fromString(message.get("id").asText()));
+                assertThat(cached.senderId()).isEqualTo(UUID.fromString(message.get("senderId").asText()));
+                assertThat(cached.content()).isEqualTo(message.get("content").asText());
+                assertThat(cached.createdAt()).isEqualTo(Instant.parse(message.get("createdAt").asText()));
+            });
+        }
+    }
+
+    @Test
+    void appliesTheServersMessageDeletedEnvelope() throws Exception {
+        JsonNode created = contractPayload("message-created");
+        UUID conversationId = UUID.fromString(created.get("message").get("conversationId").asText());
+        var keyGenerator = KeyGenerator.getInstance("AES");
+        keyGenerator.init(256);
+        try (var cache = new EncryptedMessageCache(
+                Files.createTempDirectory("message-contract-deleted").resolve("cache"),
+                UUID.randomUUID(), keyGenerator.generateKey())) {
+            var sync = new MessageHistorySyncService(new DefaultApi(), cache);
+            sync.acceptRealtimeEvent(CONTRACT.writeValueAsString(created));
+            sync.acceptRealtimeEvent(CONTRACT.writeValueAsString(contractPayload("message-deleted")));
+
+            assertThat(cache.messagesInConversation(conversationId)).singleElement().satisfies(cached -> {
+                assertThat(cached.deletedForEveryoneAt()).as("a deleted message keeps its tombstone").isNotNull();
+                assertThat(cached.content()).isEmpty();
+            });
+        }
+    }
+
+    @Test
+    void appliesTheServersMessageHiddenEnvelopeToTheUserItNames() throws Exception {
+        JsonNode created = contractPayload("message-created");
+        JsonNode hidden = contractPayload("message-hidden");
+        UUID owner = UUID.fromString(hidden.get("userId").asText());
+        String content = created.get("message").get("content").asText();
+        var keyGenerator = KeyGenerator.getInstance("AES");
+        keyGenerator.init(256);
+        try (var cache = new EncryptedMessageCache(
+                Files.createTempDirectory("message-contract-hidden").resolve("cache"),
+                owner, keyGenerator.generateKey())) {
+            var sync = new MessageHistorySyncService(new DefaultApi(), cache);
+            sync.acceptRealtimeEvent(CONTRACT.writeValueAsString(created));
+            assertThat(cache.search(content)).as("the message is searchable before the hide").hasSize(1);
+
+            sync.acceptRealtimeEvent(CONTRACT.writeValueAsString(hidden));
+
+            assertThat(cache.search(content)).as("the hide the server named this user for applied").isEmpty();
+        }
+    }
+
     @Test
     void syncsEveryDirectMessagePageIntoTheEncryptedLocalSearchStore() throws Exception {
         UUID conversationId = UUID.randomUUID();
@@ -154,6 +227,15 @@ class MessageHistorySyncServiceTest {
             assertThat(cache.search("other side")).singleElement()
                     .satisfies(hit -> assertThat(hit.senderId()).isEqualTo(senderId));
         }
+    }
+
+    /** The payload half of a checked-in envelope: the object the socket handler forwards. */
+    private static JsonNode contractPayload(String name) throws IOException {
+        Path directory = Path.of(System.getProperty("nexus.contractDir", "contract/realtime"));
+        JsonNode envelope = CONTRACT.readTree(Files.readString(directory.resolve(name + ".json")));
+        assertThat(envelope.hasNonNull("payload"))
+                .as("the publisher wraps every event as {targets, payload}").isTrue();
+        return envelope.get("payload");
     }
 
     private static Message message(UUID conversationId, UUID senderId, String content, OffsetDateTime createdAt) {

@@ -562,7 +562,8 @@ public class OutboxPublisher {
         }
     }
 
-    private record OutboxRow(UUID eventId, UUID conversationId, UUID messageId, UUID recipientId,
+    /** Readable by OutboxPublisherTest, which pins the wire contract of every envelope it encodes. */
+    record OutboxRow(UUID eventId, UUID conversationId, UUID messageId, UUID recipientId,
                              String eventType, UUID senderId, String content, Instant createdAt,
                              Instant deletedAt, long ageSeconds) { }
 
