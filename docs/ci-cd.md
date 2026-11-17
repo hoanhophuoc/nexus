@@ -20,10 +20,10 @@ The two desktop modules take their coverage from their JavaFX suites, so the `fx
 their `fxTest.exec` files as the `fx-coverage` artifact and the analysis job downloads it before the
 coverage report, the gate and `./gradlew sonar` (`build-test` therefore waits for `fx-test`).
 Without that data the module reports were empty, SonarQube counted both UI modules as 0% covered,
-and the project sat at 38%. With it they measure 70.36% and 84.86% of lines, which takes the reported
-project coverage from 38% to 67%. Across the four product modules and both desktop suites the
-aggregate report — the one the bundle floor is checked against — measures 82.46% of lines and 58.23%
-of branches, about two points above both bundle floors. Summing the four per-module reports
+and the project sat at 38%. With it they measure 85.12% and 84.69% of lines, and the project reports
+74.0% coverage. Across the four product modules and both desktop suites the
+aggregate report — the one the bundle floor is checked against — measures 85.10% of lines and 60.66%
+of branches, above both bundle floors (78% and 54%). Summing the four per-module reports
 instead gives 76.46% and 54.16%, because a module's report only credits its own suites:
 `com.nexus.desktop.shared/ui` reads as 11 covered lines of 191 in the shared report but 175 of 191 in
 the aggregate, since the desktop FX suites are what exercise it. The package floors are rounded down
@@ -44,17 +44,25 @@ suite's own results means the run was narrowed (`--tests '...'`) or skipped it, 
 the suite and the missing classes. Measure a tree with
 `xvfb-run -a ./gradlew fullTest coverageReport --rerun-tasks`.
 
-A package average still hides a weak class, so three floors are per class rather than per package:
-`OutboxPublisher` (98.45% line / 91.55% branch when the floor was set), `ShellController`
-(59.78% / 45.83%) and `AdminAppContext` (74.19% / 60.00%) — the classes every delivery path and both
-shells run through. `ShellController` moved up with `ShellStateFxTest`, which drives one shell through
-a table of states — open a group, switch to the direct chat and send, delete for this user only,
-delete for everyone through its confirmation, decline that confirmation and the one that clears the
-history and check nothing changed, clear the history through its confirmation, open a chat from the friends picker, create a group from it, receive a realtime event for the open
-chat and then one for the group that is no longer open, which must repaint nothing. The group row also
-holds the "direct chats only" rule to its user-visible form: clear history and report are disabled. Its floor is still the low one because the dialogs
-the rows do not open (friends, groups, report, account) are still uncovered. Its floor is still the low one because
-the class's dialogs are not covered; it records where the JavaFX shell stands and fails if it slips.
+A package average still hides a weak class, so four floors are per class rather than per package:
+`OutboxPublisher` (100.00% line / 95.89% branch when the floor was set), `ShellController`
+(81.62% / 63.95%), `AdminService` (85.96% / 58.86%) and `AdminAppContext` (74.19% / 60.00%). The
+publisher's three uncovered branches are guards no publish reaches — an empty mark list, an
+exception with no message, an empty attempt list — while its encode-poison and connection-failure
+catches are driven by publishing a stubbed MLS row through a mapper that refuses to encode it and a
+Redis template that drops the connection on the row-by-row retry. `AdminService` joined them when its
+group page gained a `createdAt` cursor and a sort guard the suite can drive.
+
+`ShellController` rose with `ShellStateFxTest`, which drives one shell through a table of states —
+open a group, switch to the direct chat and send, delete for this user only, delete for everyone
+through its confirmation, decline that confirmation and the one that clears the history and check
+nothing changed, clear the history through its confirmation, open a chat from the friends picker,
+create a group from it, receive a realtime event for the open chat and then one for the group that is
+no longer open, which must repaint nothing. The table then rejoins a group, adds and removes a member
+through the two member dialogs, searches for a message that belongs to a direct chat other than the
+open one (so the hit's sender name comes from the list) and reports the open chat with a cached
+message as evidence. What stays uncovered are the error and recovery paths the table does not drive,
+which is why each floor sits a few points under the measured figure instead of at it.
 
 The line figure is reproducible because no suite relies on a timer to reach a line. The presence
 heartbeat used to be covered only when a Spring context happened to outlive its 30-second first run,

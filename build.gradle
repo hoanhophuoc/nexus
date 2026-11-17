@@ -185,17 +185,19 @@ def coverageVerification = tasks.register('coverageVerification', JacocoCoverage
                 limit { counter = 'BRANCH'; value = 'COVEREDRATIO'; minimum = floors[1] }
             }
         }
-        // The three classes every delivery path runs through, held on their own because a package
-        // average absorbs them. Measured 2026-11-14: OutboxPublisher 98.45% line / 91.55% branch,
-        // ShellController 59.78% / 45.83%, AdminAppContext 74.19% / 60.00%. OutboxPublisher's branch
-        // ratio fell from 92.75 when the recovery pass was added; what stays uncovered are guards no
-        // publisher reaches (an empty mark list, an exception with no message, an empty attempt list).
-        // ShellController's floor is still the low one on purpose: it records where the FX shell
-        // stands, it does not bless it.
+        // The classes every delivery path and the admin shell run through, held on their own
+        // because a package average absorbs them. Measured 2026-11-17: OutboxPublisher 100.00%
+        // line / 95.89% branch, ShellController 81.62% / 63.95%, AdminService 85.96% / 58.86%,
+        // AdminAppContext 74.19% / 60.00%. The publisher's three uncovered branches are guards no
+        // publish reaches (an empty mark list, an exception with no message, an empty attempt list);
+        // its encode and connection-failure catches are driven through mocks. ShellController rose
+        // when the FX table started opening the member dialogs, a hit in a chat that is not open and
+        // the report with cached evidence; AdminService joined for its group cursor and sort guard.
         [
-                'com.nexus.server.messaging.OutboxPublisher' : [0.97d, 0.91d],
-                'com.nexus.desktop.user.ShellController'     : [0.58d, 0.44d],
-                'com.nexus.desktop.admin.AdminAppContext'    : [0.73d, 0.59d]
+                'com.nexus.server.messaging.OutboxPublisher'  : [0.99d, 0.94d],
+                'com.nexus.desktop.user.ShellController'      : [0.80d, 0.62d],
+                'com.nexus.server.administration.AdminService': [0.84d, 0.57d],
+                'com.nexus.desktop.admin.AdminAppContext'     : [0.73d, 0.59d]
         ].each { className, floors ->
             rule {
                 element = 'CLASS'
