@@ -272,6 +272,11 @@ sonar {
         property 'sonar.java.binaries', [project(':server'), project(':desktop-shared')].collect {
             it.layout.buildDirectory.dir('classes/java/main').get().asFile.absolutePath
         }.join(',')
+        // Coverage is judged on the four product modules, the same set coverageModules gates. The
+        // spike is a proof of concept no product module references, and fx-test-support is the
+        // harness the JavaFX suites run on; counting their lines as uncovered new code measured
+        // the tooling, not the product, and held the quality gate at 65% of new code.
+        property 'sonar.coverage.exclusions', ['ui-spike/**', 'fx-test-support/**'].join(',')
         // sonar.sources, sonar.tests and sonar.java.test.binaries come from each module's source
         // sets. Listing them here as well made the scanner index the test sources twice and the
         // analysis failed with "can't be indexed twice" for server/src/test.

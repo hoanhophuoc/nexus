@@ -542,7 +542,7 @@ public class OutboxPublisher {
     private record Abandon(List<UUID> eventIds, String reason, String error) { }
 
     /** One event's encoded payload, kept with its id so it can be published on its own. */
-    private record Delivery(UUID eventId, byte[] payload) {
+    record Delivery(UUID eventId, byte[] payload) {
         // A record compares a byte[] by reference, which makes two deliveries of the same event unequal.
         @Override
         public boolean equals(Object other) {

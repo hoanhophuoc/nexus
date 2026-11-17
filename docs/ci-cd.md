@@ -29,6 +29,11 @@ instead gives 76.46% and 54.16%, because a module's report only credits its own 
 the aggregate, since the desktop FX suites are what exercise it. The package floors are rounded down
 the same way.
 
+SonarQube measures the same four product modules as `coverageModules`: `ui-spike`, the AtlantaFX
+proof of concept no product module references, and `fx-test-support`, the harness the JavaFX suites
+run on, are excluded from its coverage through `sonar.coverage.exclusions`. Counting them measured
+the tooling rather than the product and held the quality gate at 65% of new code.
+
 Both `coverageReport` and the gate depend on `coverageDataCheck`, which refuses the measurement when
 an exec file is missing, older than the sources of the module it covers, or written by a suite that
 did not run all of its tests. The first two catch a stale run: a second
