@@ -115,6 +115,51 @@ class EncryptedMessageCacheTest {
      * Existing caches must keep opening, with the id recovered as identity and the name kept as display.
      */
     @Test
+    void deletingForEveryoneClearsThePreviewAndSurvivesRestart() throws Exception {
+        Path file = Files.createTempDirectory("encrypted-history").resolve("history.bin");
+        UUID owner = UUID.randomUUID();
+        SecretKey key = key();
+        UUID messageId = UUID.randomUUID();
+        UUID conversation = UUID.randomUUID();
+        UUID sender = UUID.randomUUID();
+        Instant deletedAt = Instant.parse("2026-11-16T08:00:00Z");
+        try (var cache = new EncryptedMessageCache(file, owner, key)) {
+            cache.upsert(new CachedMessage(messageId, conversation, sender, "Alice", "the words", Instant.now()));
+            cache.markDeletedForEveryone(messageId, deletedAt);
+            assertThat(cache.search("the words")).as("a deleted-for-everyone message leaves search").isEmpty();
+        }
+
+        try (var cache = new EncryptedMessageCache(file, owner, key)) {
+            assertThat(cache.search("the words")).as("the deletion was persisted").isEmpty();
+            assertThat(cache.messagesInConversation(conversation))
+                    .singleElement()
+                    .satisfies(message -> {
+                        assertThat(message.deletedForEveryoneAt()).isEqualTo(deletedAt);
+                        assertThat(message.content()).isEmpty();
+                    });
+        }
+    }
+
+    @Test
+    void refusesACacheWrittenByAnUnknownFormat() throws Exception {
+        Path file = Files.createTempDirectory("encrypted-history").resolve("history.bin");
+        UUID owner = UUID.randomUUID();
+        SecretKey key = key();
+        try (var cache = new EncryptedMessageCache(file, owner, key)) {
+            cache.upsert(new CachedMessage(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                    "Alice", "hello", Instant.now()));
+        }
+        byte[] envelope = Files.readAllBytes(file);
+        envelope[4] = 99;
+        Files.write(file, envelope);
+
+        assertThatThrownBy(() -> new EncryptedMessageCache(file, owner, key))
+                .as("a cache from a future format is refused rather than misread")
+                .isInstanceOf(java.io.IOException.class)
+                .hasMessageContaining("Unsupported message cache format");
+    }
+
+    @Test
     void readsFormat3CachesAndSplitsIdentityFromDisplayName() throws Exception {
         Path file = Files.createTempDirectory("encrypted-format3").resolve("history.bin");
         UUID owner = UUID.randomUUID();

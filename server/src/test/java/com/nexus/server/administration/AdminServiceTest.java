@@ -105,6 +105,44 @@ class AdminServiceTest {
     }
 
     @Test
+    void rejectsAnUnsupportedGroupSortBeforeQuerying() {
+        SessionIdentity actor = new SessionIdentity(UUID.randomUUID(), "admin");
+        assertThatThrownBy(() -> admin.groups(actor, null, "messageCount", "asc", null, 50))
+                .as("an unknown group sort never reaches the database")
+                .isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(jdbc);
+    }
+
+    @Test
+    void aCreatedAtGroupCursorIsPassedAsATimestamp() {
+        RecordingJdbc recording = new RecordingJdbc();
+        AdminService service = new AdminService(recording, mock(IdentityService.class),
+                mock(PasswordResetService.class));
+        UUID last = UUID.randomUUID();
+
+        service.groups(new SessionIdentity(UUID.randomUUID(), "admin"), null, "createdAt", "desc",
+                AdminSupport.encodeCursor(last, "2026-11-01T09:30:00Z"), 50);
+
+        assertThat(recording.queryArgs)
+                .as("a createdAt cursor is compared as an instant, not as text")
+                .hasSize(3);
+        assertThat(recording.queryArgs[0]).isEqualTo(java.sql.Timestamp.from(Instant.parse("2026-11-01T09:30:00Z")));
+        assertThat(recording.queryArgs[1]).isEqualTo(last);
+    }
+
+    /** Answers a group page with no rows so the arguments it was handed can be read back. */
+    private static final class RecordingJdbc extends JdbcTemplate {
+        private Object[] queryArgs;
+
+        @Override
+        public <T> List<T> query(String sql, org.springframework.jdbc.core.RowMapper<T> rowMapper,
+                                 Object... args) {
+            this.queryArgs = args;
+            return List.of();
+        }
+    }
+
+    @Test
     void doesNotAllowAnAdministratorToLockTheirOwnSession() {
         UUID adminId = UUID.randomUUID();
         assertThatThrownBy(() -> admin.setUserLock(new SessionIdentity(adminId, "admin"), adminId,
