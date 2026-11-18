@@ -20,10 +20,11 @@ application {
     applicationDefaultJvmArgs = ['--enable-native-access=javafx.graphics']
 }
 
-// Proof of concept only: nothing in desktop-shared/-user/-admin references this module. Its job is
-// to show AtlantaFX 3.0.0 and Ikonli 12.4.0 under JavaFX 27.0.1 next to the Nexus tokens before any
-// production module takes the dependency (docs/ui-ux-tooling.md, proof-of-concept exit criteria).
+// Proof of concept only: nothing in desktop-user or desktop-admin references this module. Its job is
+// to show AtlantaFX 3.0.0 and Ikonli 12.4.0 under JavaFX 27.0.1 next to the real Nexus ThemeManager
+// and tokens before either production module takes the dependency (docs/ui-ux-tooling.md).
 dependencies {
+    implementation project(':desktop-shared')
     implementation 'io.github.mkpaz:atlantafx-base:3.0.0'
     implementation 'org.kordamp.ikonli:ikonli-javafx:12.4.0'
     implementation 'org.kordamp.ikonli:ikonli-feather-pack:12.4.0'
@@ -32,4 +33,20 @@ dependencies {
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
     options.release = 27
+}
+
+// The proof of concept is a check, not a demo: it fails the build when a theme, a popup, an icon
+// font or the theme preference stops behaving. It renders windows, so it needs a display or Xvfb —
+// which is why it is its own task instead of being wired into `check`.
+tasks.register('spikeCheck', JavaExec) {
+    group = 'verification'
+    description = 'Verifies the AtlantaFX/Ikonli proof of concept; needs a display or Xvfb.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.nexus.spike.UiSpike'
+    systemProperty 'uiSpike.output', layout.buildDirectory.dir('ui-spike').get().asFile.absolutePath
+    // An isolated preferences store: the spike proves that ThemeManager persists the choice without
+    // writing over the developer's real theme preference.
+    systemProperty 'java.util.prefs.userRoot',
+            layout.buildDirectory.dir('ui-spike-prefs').get().asFile.absolutePath
+    jvmArgs '--enable-native-access=ALL-UNNAMED'
 }

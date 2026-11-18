@@ -51,7 +51,7 @@
                 <HBox spacing="6" alignment="CENTER_LEFT">
                     <Button fx:id="recoveryButton" text="%shell.recovery" styleClass="ghost-button"
                             maxWidth="Infinity" HBox.hgrow="ALWAYS"/>
-                    <Button fx:id="themeButton" text="☾" styleClass="icon-button" accessibleText="%theme.toDark"/>
+                    <Button fx:id="themeButton" styleClass="icon-button"/>
                     <Button fx:id="signOutButton" text="%shell.signOut" styleClass="danger-button"/>
                 </HBox>
                 <HBox spacing="7" alignment="CENTER_LEFT">

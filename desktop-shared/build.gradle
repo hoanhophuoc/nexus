@@ -20,6 +20,10 @@ javafx {
 
 dependencies {
     api project(':client-sdk')
+    // The icon helper returns FontIcon and takes Feather constants, so both clients compile against
+    // these types through this module's API.
+    api 'org.kordamp.ikonli:ikonli-javafx:12.4.0'
+    api 'org.kordamp.ikonli:ikonli-feather-pack:12.4.0'
     implementation 'tools.jackson.core:jackson-databind:3.3.0'
     implementation 'org.bouncycastle:bcmls-jdk18on:1.86'
     implementation 'org.bouncycastle:bcprov-jdk18on:1.86'

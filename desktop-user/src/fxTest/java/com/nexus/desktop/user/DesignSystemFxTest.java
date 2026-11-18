@@ -29,6 +29,8 @@ import javafx.scene.shape.Circle;
 import javafx.scene.text.Text;
 import javafx.stage.Stage;
 import org.junit.jupiter.api.Test;
+import org.kordamp.ikonli.feather.Feather;
+import org.kordamp.ikonli.javafx.FontIcon;
 
 import javafx.collections.FXCollections;
 
@@ -333,9 +335,31 @@ class DesignSystemFxTest {
                         .map(Label::getText)
                         .anyMatch("Chào mừng trở lại"::equals)).isTrue();
 
-                TextField username = field(scene, "Username");
-                PasswordField password = (PasswordField) field(scene, "Password");
-                Button signIn = button(scene, "Sign in");
+                // Looked up by their Vietnamese prompts and label, so a key that falls back to
+                // English instead of a translation fails here rather than passing as translated.
+                TextField username = field(scene, "Tên đăng nhập");
+                PasswordField password = (PasswordField) field(scene, "Mật khẩu");
+                Button signIn = button(scene, "Đăng nhập");
+                // The theme toggle is an icon, so its meaning has to come from the icon and from the
+                // Vietnamese accessible text; a glyph character in the bundle would have carried the
+                // words by accident.
+                Button themeButton = (Button) root.lookup("#themeButton");
+                assertThat(themeButton.getGraphic()).isInstanceOf(FontIcon.class);
+                assertThat(((FontIcon) themeButton.getGraphic()).getIconCode())
+                        .as("a light view offers the moon").isEqualTo(Feather.MOON);
+                assertThat(themeButton.getAccessibleText())
+                        .as("the icon button carries the translated action")
+                        .isEqualTo(vietnamese.get("theme.toDark"));
+                assertThat(themeButton.getTooltip()).as("an icon-only button explains itself on hover")
+                        .isNotNull();
+                assertThat(themeButton.getTooltip().getText())
+                        .isEqualTo(vietnamese.get("theme.toDark"));
+                themeButton.fire();
+                root.applyCss();
+                assertThat(root.getStyleClass()).contains("theme-dark");
+                assertThat(((FontIcon) themeButton.getGraphic()).getIconCode())
+                        .as("the dark view offers the sun").isEqualTo(Feather.SUN);
+                assertThat(themeButton.getAccessibleText()).isEqualTo(vietnamese.get("theme.toLight"));
                 assertThat(username.isFocusTraversable()).isTrue();
                 assertThat(password.isFocusTraversable()).isTrue();
                 assertThat(signIn.isDefaultButton()).isTrue();
@@ -346,14 +370,21 @@ class DesignSystemFxTest {
                 assertThat(root.lookupAll(".button").stream()
                         .filter(Button.class::isInstance)
                         .map(Button.class::cast)
-                        .allMatch(candidate -> candidate.getText() != null
-                                && !candidate.getText().isBlank())).isTrue();
+                        .allMatch(DesignSystemFxTest::named)).isTrue();
                 return true;
             } finally {
                 context.close();
                 stage.close();
             }
         })).isTrue();
+    }
+
+    /** A button either says what it does or shows an icon that does, with accessible text. */
+    private static boolean named(Button button) {
+        if (button.getText() != null && !button.getText().isBlank()) return true;
+        return button.getGraphic() instanceof FontIcon
+                && button.getAccessibleText() != null
+                && !button.getAccessibleText().isBlank();
     }
 
     private static TextField field(Scene scene, String prompt) {

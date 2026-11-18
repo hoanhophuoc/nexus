@@ -11,6 +11,7 @@ import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.SnapshotParameters;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListView;
 import javafx.scene.image.PixelReader;
@@ -85,6 +86,12 @@ class UserGoldenScreenshotFxTest {
                         ViewLoader.load(ViewLoader.REGISTER, new RegisterController(context,
                                 username -> { }, () -> { }), i18n), 560, 780));
                 snapshot(stage, register, "register-light.png", "register-dark.png", theme, null, i18n);
+                // Pinning the scene for a capture must leave the screen's own state alone. A ComboBox
+                // keeps its selection in the ListView it hosts, so emptying "the lists that are not
+                // the subject" used to clear this value and baseline the blank field.
+                assertThat(((ComboBox<?>) register.lookup("#genderField")).getValue())
+                        .as("the golden pinning keeps the register screen's default gender")
+                        .hasToString(i18n.get("register.gender.undisclosed"));
 
                 Parent reset = onFx(() -> mount(stage, theme,
                         ViewLoader.load(ViewLoader.PASSWORD_RESET, new PasswordResetController(context,
@@ -223,6 +230,95 @@ class UserGoldenScreenshotFxTest {
         }
     }
 
+    /**
+     * The same chat shell in Vietnamese. Text is the only intended difference from the English
+     * baseline; longer strings that clip, wrap unexpectedly or push the composer out of the window
+     * are exactly what a string-only assertion cannot catch.
+     */
+    @Test
+    void vietnameseShellMatchesGoldensInLightAndDark(@TempDir Path home) throws Exception {
+        String previousHome = System.getProperty("user.home");
+        TimeZone previousZone = TimeZone.getDefault();
+        System.setProperty("user.home", home.toString());
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+        try (FakeChatServer server = new FakeChatServer()) {
+            Stage stage = onFx(Stage::new);
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            I18n i18n = new I18n(BASE, Locale.forLanguageTag("vi"));
+            UserAppContext context = new UserAppContext(stage, server.origin().toString(), false,
+                    null, theme, i18n);
+            context.activate(context.signIn("alice", PASSWORD.toCharArray()));
+            try {
+                Parent shell = onFx(() -> mount(stage, theme,
+                        ViewLoader.load(ViewLoader.SHELL, new ShellController(context, () -> { }),
+                                i18n), 1180, 760));
+                waitForFx(() -> shell.lookupAll(".message-bubble").size() == 1
+                        && shell.lookup("#statusLabel") instanceof Label status
+                        && i18n.get("shell.connected").equals(status.getText()),
+                        Duration.ofSeconds(10));
+                snapshot(stage, shell, "shell-vi-light.png", "shell-vi-dark.png", theme,
+                        FakeChatServer.FRIEND_NAME, i18n);
+            } finally {
+                onFx(() -> {
+                    stage.close();
+                    context.close();
+                    return true;
+                });
+            }
+        } finally {
+            TimeZone.setDefault(previousZone);
+            if (previousHome == null) System.clearProperty("user.home");
+            else System.setProperty("user.home", previousHome);
+        }
+    }
+
+    /** The Vietnamese group workspace, where the header, subtitle and member meta are longest. */
+    @Test
+    void vietnameseGroupChatMatchesGoldensInLightAndDark(@TempDir Path home) throws Exception {
+        String previousHome = System.getProperty("user.home");
+        TimeZone previousZone = TimeZone.getDefault();
+        System.setProperty("user.home", home.toString());
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+        try (FakeChatServer server = new FakeChatServer()) {
+            Stage stage = onFx(Stage::new);
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            I18n i18n = new I18n(BASE, Locale.forLanguageTag("vi"));
+            UserAppContext context = new UserAppContext(stage, server.origin().toString(), false,
+                    null, theme, i18n);
+            context.activate(context.signIn("alice", PASSWORD.toCharArray()));
+            Conversation group = context.groups().createGroup("Team", List.of(FakeChatServer.FRIEND_ID));
+            context.cache().upsert(new CachedMessage(UUID.randomUUID(), group.getId(),
+                    FakeChatServer.FRIEND_ID, "Bob", "Xin chào cả nhóm",
+                    Instant.parse("2026-11-10T09:30:00Z")));
+            context.cache().upsert(new CachedMessage(UUID.randomUUID(), group.getId(),
+                    FakeChatServer.USER_ID, "", "Tin nhắn của tôi trong nhóm",
+                    Instant.parse("2026-11-10T09:31:00Z")));
+            try {
+                Parent shell = onFx(() -> mount(stage, theme,
+                        ViewLoader.load(ViewLoader.SHELL, new ShellController(context, () -> { }), i18n),
+                        1180, 760));
+                waitForFx(() -> openConversationNamed(shell, "Team"), Duration.ofSeconds(10));
+                waitForFx(() -> shell.lookupAll(".message-bubble").size() == 2
+                        && shell.lookup(".chat-title") instanceof Label title
+                        && "Team".equals(title.getText()), Duration.ofSeconds(10));
+                snapshot(stage, shell, "group-chat-vi-light.png", "group-chat-vi-dark.png",
+                        theme, "Team", i18n);
+            } finally {
+                onFx(() -> {
+                    stage.close();
+                    context.close();
+                    return true;
+                });
+            }
+        } finally {
+            TimeZone.setDefault(previousZone);
+            if (previousHome == null) System.clearProperty("user.home");
+            else System.setProperty("user.home", previousHome);
+        }
+    }
+
     /** Selects a conversation by name once the shell's own refresh has listed it. */
     private static boolean openConversationNamed(Parent root, String name) {
         for (Node node : root.lookupAll(".list-view")) {
@@ -297,7 +393,7 @@ class UserGoldenScreenshotFxTest {
                         list.getSelectionModel().select(index);
                         moved = true;
                     }
-                } else if (!list.getSelectionModel().isEmpty()) {
+                } else if (!list.getSelectionModel().isEmpty() && !partOfComboBox(list)) {
                     list.getSelectionModel().clearSelection();
                 }
             }
@@ -310,6 +406,19 @@ class UserGoldenScreenshotFxTest {
                         && openConversation.equals(title.getText())
                         && !labelContaining(root, i18n.get("shell.loadingMessages")),
                 Duration.ofSeconds(10));
+    }
+
+    /**
+     * A ComboBox hosts a ListView of its own, and that list shares its selection with the control:
+     * clearing it sets the combo's value to null, so emptying "the lists that are not the screen's
+     * subject" would blank a field the screen is showing. Those lists belong to a control, not to the
+     * screen's list state, and are left alone.
+     */
+    private static boolean partOfComboBox(Node node) {
+        for (Node current = node; current != null; current = current.getParent()) {
+            if (current instanceof ComboBox<?>) return true;
+        }
+        return false;
     }
 
     private static boolean labelContaining(Parent root, String text) {

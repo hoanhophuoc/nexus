@@ -41,7 +41,7 @@
                 text="%admin.login.submit"/>
         <HBox alignment="CENTER_LEFT" spacing="8">
             <Label styleClass="caption" text="%admin.login.themeHint"/>
-            <Button fx:id="themeButton" styleClass="icon-button" text="%admin.login.themeToggle"/>
+            <Button fx:id="themeButton" styleClass="icon-button"/>
         </HBox>
     </VBox>
 </StackPane>

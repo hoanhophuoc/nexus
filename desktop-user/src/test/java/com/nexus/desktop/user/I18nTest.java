@@ -22,17 +22,22 @@ class I18nTest {
         assertThat(vietnameseKeys).isEqualTo(englishKeys);
     }
 
+    /**
+     * The strings a Vietnamese user reads, types into and presses. They are user-visible copy, not
+     * automation identifiers, so an English fallback here is a missing translation — the previous
+     * version of this test asserted the English values, which locked the gap in place.
+     */
     @Test
-    void vietnameseTranslatesContentButKeepsAutomationLabelsStable() {
+    void vietnameseTranslatesContentAndItsPrimaryActions() {
         I18n vietnamese = new I18n(BASE, Locale.forLanguageTag("vi"));
 
         assertThat(vietnamese.get("login.title")).isEqualTo("Chào mừng trở lại");
         assertThat(vietnamese.get("shell.noMessages")).isEqualTo("Chưa có tin nhắn");
-        assertThat(vietnamese.get("login.submit")).isEqualTo("Sign in");
-        assertThat(vietnamese.get("login.usernamePrompt")).isEqualTo("Username");
-        assertThat(vietnamese.get("login.passwordPrompt")).isEqualTo("Password");
-        assertThat(vietnamese.get("shell.composePrompt")).isEqualTo("Write a message");
-        assertThat(vietnamese.get("shell.send")).isEqualTo("Send");
+        assertThat(vietnamese.get("login.submit")).isEqualTo("Đăng nhập");
+        assertThat(vietnamese.get("login.usernamePrompt")).isEqualTo("Tên đăng nhập");
+        assertThat(vietnamese.get("login.passwordPrompt")).isEqualTo("Mật khẩu");
+        assertThat(vietnamese.get("shell.composePrompt")).isEqualTo("Viết tin nhắn");
+        assertThat(vietnamese.get("shell.send")).isEqualTo("Gửi");
     }
 
     @Test

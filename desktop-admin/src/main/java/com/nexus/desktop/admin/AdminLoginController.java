@@ -1,6 +1,7 @@
 package com.nexus.desktop.admin;
 
 import com.nexus.desktop.shared.ui.I18n;
+import com.nexus.desktop.shared.ui.Icons;
 import com.nexus.sdk.model.MyProfile;
 import javafx.fxml.FXML;
 import javafx.scene.Scene;
@@ -99,8 +100,8 @@ public final class AdminLoginController {
 
     private void updateThemeButton() {
         boolean dark = context.themeManager().isDark();
-        themeButton.setText(context.i18n().get(dark ? "admin.theme.iconLight" : "admin.theme.iconDark"));
-        themeButton.setAccessibleText(context.i18n().get(
+        Icons.themeToggle(themeButton, dark);
+        Icons.describe(themeButton, context.i18n().get(
                 dark ? "admin.theme.toLight" : "admin.theme.toDark"));
     }
 }

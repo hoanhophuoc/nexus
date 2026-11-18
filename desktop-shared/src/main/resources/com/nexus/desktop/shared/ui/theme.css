@@ -219,6 +219,12 @@
     -fx-background-radius: 8px;
 }
 
+/* Ikonli FontIcon: one size and one colour wherever an icon is drawn. */
+.nx-icon {
+    -fx-icon-size: 15px;
+    -fx-icon-color: -color-text-muted;
+}
+
 .button:disabled {
     -fx-background-color: -color-surface-muted;
     -fx-text-fill: -color-text-muted;

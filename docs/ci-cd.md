@@ -9,12 +9,20 @@ the commands below.
 | --- | --- | --- |
 | Build, unit & integration tests | `check-ga-pins.sh`, `gaOnlyCheck`, `check-image-pins.sh`, `:desktop-shared:test`, `:desktop-user:test`, `:desktop-admin:test`, `:server:test`, `:server:integrationTest`, the JavaFX coverage artifact, coverage report and `coverageVerification`, SonarQube when a token is configured | A pre-release pin, a floating image, a failing test, or coverage below the floor in any of the four product modules |
 | Database identity pre-flight | `./scripts/test-database-identity.sh` against a throwaway PostgreSQL | Any documented exit status of `check-database-identity.sh` changes, including a rejected password or an unreachable host being reported as a fresh install |
-| JavaFX FXML tests | `xvfb-run -a -s "-screen 0 1280x1024x24" ./gradlew :desktop-user:fxTest :desktop-admin:fxTest` | FXML or controller wiring breaks |
+| JavaFX FXML tests | `xvfb-run -a -s "-screen 0 1280x1024x24" ./gradlew :desktop-user:fxTest :desktop-admin:fxTest`, then `:ui-spike:spikeCheck` | FXML or controller wiring breaks, a golden drifts, or the AtlantaFX/Ikonli proof of concept stops passing |
 | Live user journey (isolated Docker) | `./scripts/live-journey.sh`, then verifies no temporary container, volume or network survived | The end-to-end journey fails, or it leaks Docker resources |
 | Linux app image | Builds the desktop packaging output on Linux, then runs `scripts/verify-app-image.sh --image <dir> --launch` on both images | A packaging step fails, an image is missing a jar the app needs, or its launcher exits instead of showing its first window |
 
 The JavaFX job pins Xvfb's screen at 1280x1024, because the toolkit default is 640x480 and the
 goldens capture scenes up to 1184x784; pinned, the display is never the limit on a stage.
+
+The same job runs `xvfb-run -a ./gradlew :ui-spike:spikeCheck`, the AtlantaFX/Ikonli proof of
+concept. It is a check rather than a demo: it fails on a bundled font that stops loading, a Nexus
+token that stops winning the cascade over Primer, contrast below 4.5:1, an unskinned ComboBox or
+DatePicker popup, an FXML icon whose pack font is missing, `admin.css` failing to resolve a token,
+an AtlantaFX control without a skin, or a `ThemeManager` that stops persisting SYSTEM/LIGHT/DARK.
+Its screenshots are uploaded as the `ui-spike` artifact. The module is excluded from Sonar coverage
+(`sonar.coverage.exclusions`), so these checks — not a coverage figure — are what keep it honest.
 
 The two desktop modules take their coverage from their JavaFX suites, so the `fx-test` job uploads
 their `fxTest.exec` files as the `fx-coverage` artifact and the analysis job downloads it before the

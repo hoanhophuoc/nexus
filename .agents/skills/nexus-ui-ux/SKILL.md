@@ -57,7 +57,7 @@ For a major new screen or redesign, consider at least two design directions and 
 
 Follow `docs/ui-ux-tooling.md`:
 - AtlantaFX 3.0.0 is the preferred theme candidate but still requires a JavaFX 27.0.1 proof of concept before production adoption.
-- Ikonli 12.4.0 GA is the preferred icon candidate; the official pack catalogue lists `ikonli-feather-pack`, not `ikonli-lucide-pack`. Early Access releases are disallowed by the GA-only policy.
+- Ikonli 12.4.0 GA with the official `ikonli-feather-pack` is the adopted icon stack; draw icons through `com.nexus.desktop.shared.ui.Icons`, never with glyph characters. The pack catalogue does not list `ikonli-lucide-pack`. Early Access releases are disallowed by the GA-only policy.
 - UI UX Pro Max can be used as a UX/design-research assistant; verify JavaFX guidance against JavaFX 27 and this repository.
 - Impeccable is process inspiration only unless JavaFX support is explicitly proven.
 - Taste Skill is website-specific inspiration, not the JavaFX implementation skill.

@@ -116,8 +116,8 @@ Use a consistent spacing scale derived from 4px increments. Preferred steps are 
 
 ### 3.5 Icons and imagery
 
-- Use a single coherent icon family for the primary interface (Ikonli is the preferred candidate; see [tooling decisions](ui-ux-tooling.md)).
-- Do not use emoji, Unicode symbols or arbitrary text glyphs as action icons in production UI.
+- Use a single coherent icon family for the primary interface: Feather icons from Ikonli 12.4.0, drawn through `com.nexus.desktop.shared.ui.Icons` and styled by the `nx-icon` class (see [tooling decisions](ui-ux-tooling.md)).
+- Do not use emoji, Unicode symbols or arbitrary text glyphs as action icons in production UI. A theme toggle, a message overflow menu or any other action is a `FontIcon`, never a character in FXML or in a resource bundle.
 - Give every icon-only action a meaningful accessible name, tooltip and adequate hit target.
 - Use consistent icon sizes and optical alignment. A glyph must not shift layout when the font loads.
 - Use imagery only when it adds product meaning (for example profile avatars). Do not use stock decoration to fill empty space in a messaging client or operations console.
@@ -158,9 +158,10 @@ Use a consistent spacing scale derived from 4px increments. Preferred steps are 
 ### 4.4 Real-time chat experience
 
 - The message timeline and conversation list are the primary visual hierarchy. Do not let decorative dashboard-style cards compete with them.
-- Use virtualized JavaFX controls for potentially large conversation/message collections; do not create an unbounded scene graph of nodes for message history. The current shell uses a `ScrollPane` with a `VBox` message container, so benchmark this path with realistic history sizes before choosing a migration.
+- Use virtualized JavaFX controls for potentially large conversation/message collections; do not create an unbounded scene graph of nodes for message history. The shell still renders the open conversation as a `ScrollPane` over a `VBox`; a realistic-history benchmark and the virtualization decision remain outstanding.
 - Prefer public JavaFX APIs such as `ListView` with a carefully designed `cellFactory` when they satisfy variable message heights, grouping, selection, accessibility and scroll anchoring. Do not import internal implementation classes such as `com.sun.javafx.scene.control.skin.VirtualFlow`; internal APIs are not a stable extension point.
 - Preserve scroll position when older messages load. Auto-scroll only when the user is already at the bottom or explicitly requests it.
+- The implemented timeline contract: an update that only appends to the end of the loaded history adds rows without touching the ones above them; an update that rewrites or reorders the history rebuilds it and restores the message, and its offset, that sat at the top of the viewport; the newest row is followed only when the reader was already there or when the row is one the user just sent. A revealed search hit is positioned from the hit's own bounds, never from its index in the timeline.
 - Make pending, sent, failed, retrying and incoming states distinguishable without confusing them with encryption or delivery guarantees.
 - Keep composer focus, keyboard send behavior, multiline entry, attachments and error recovery predictable.
 - Presence and unread indicators must not rely on color alone.
@@ -286,6 +287,9 @@ The repository already maintains `golden` and `golden-ci` PNG baselines and FX s
 - Generate new goldens only with the relevant explicit update environment variable already defined by the test.
 - Review the changed images at the exact committed dimensions and in both themes before accepting them.
 - Keep the hosted-CI baseline deterministic. Do not loosen thresholds without evidence and review.
+- The comparison allows 0.75% of pixels to differ, with a per-channel delta of 16 — roughly 6,700 pixels of a 1180×760 capture. That absorbs the difference between a developer Linux run and the hosted runner, and is loose enough to miss a small real regression: treat a result near the threshold as a failure under review.
+- `golden/` is generated on a developer machine and `golden-ci/` on the hosted Linux runner; several English baselines already differ between the two within that tolerance. A new baseline is committed to both directories from one reviewed capture and confirmed again on the runner.
+- Every primary chat surface has both an English and a Vietnamese baseline, so a translated string that clips or reflows is caught by the image rather than only by a bundle assertion.
 - Extend coverage for the main chat shell, conversation timeline, composer, message states, connection/reconnect states, group flows and admin operational views where they are not yet covered.
 - Protect tests against machine-dependent font rendering, locale, timezone, focus and animation timing.
 

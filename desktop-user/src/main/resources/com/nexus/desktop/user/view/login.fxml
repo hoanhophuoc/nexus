@@ -54,7 +54,7 @@
 
         <HBox spacing="8" alignment="CENTER_RIGHT">
             <Label text="%login.themeHint" styleClass="caption"/>
-            <Button fx:id="themeButton" text="%login.themeToggle" styleClass="icon-button"/>
+            <Button fx:id="themeButton" styleClass="icon-button"/>
         </HBox>
     </VBox>
 </StackPane>

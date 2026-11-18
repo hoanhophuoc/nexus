@@ -14,7 +14,7 @@ This document records the role, recommendation and adoption gate for each tool e
 | Purpose | Recommendation | Adoption status |
 | --- | --- | --- |
 | Native JavaFX theme and baseline controls | **AtlantaFX 3.0.0** | Preferred candidate; prove with an isolated JavaFX 27.0.1 spike before adding to production modules |
-| Icons | **Ikonli 12.4.0 GA** | Preferred candidate; add one icon pack after a packaging and visual proof |
+| Icons | **Ikonli 12.4.0 GA** + `ikonli-feather-pack` | Adopted in `desktop-shared`, `desktop-user` and `desktop-admin`; font verified inside both jpackage images |
 | AI design research / UX heuristics | **UI UX Pro Max** | Preferred agent skill, but verify every JavaFX recipe against JavaFX 27 and this repository |
 | Design critique / polish workflow | **Impeccable concepts** | Borrow workflow; do not assume its commands or checker support JavaFX |
 | Product design and visual review | **Figma** | Optional design/prototyping workspace, not a runtime dependency |
@@ -78,6 +78,29 @@ Use `PrimerLight`/`PrimerDark` as the first neutral baseline to evaluate—not a
 6. Native packaging, startup, memory and distribution do not regress materially.
 7. The full FX test suite passes.
 
+**Proof-of-concept status (2026-11-18, `./gradlew :ui-spike:spikeCheck` under Xvfb)**
+
+Passing checks, each one an assertion that fails the build:
+- Both bundled Nexus fonts load and keep the `Nexus Sans` family.
+- `PrimerLight` and `PrimerDark` render the control sheet, and the real `ThemeManager` applies
+  `theme.css` last: the field surface becomes the Nexus token (`0xffffff` LIGHT, `0x151c26` DARK)
+  instead of Primer's, the theme class is on the root, and the bundled font survives.
+- Measured contrast on the rendered controls: 14.99:1 body and 16.22:1 field text in LIGHT,
+  15.72:1 and 14.57:1 in DARK (minimum asserted: 4.5:1).
+- ComboBox and DatePicker popups open and are skinned; three Feather icons load from FXML with the
+  pack's own font file (`FeatherIcons`); `admin.css` layers over the tokens and resolves
+  `-color-surface`; `SegmentedControl`, `ToggleSwitch`, `Notification` and `ModalPane` build and
+  skin; one `ThemeManager` round-trips SYSTEM/LIGHT/DARK through its preferences store.
+
+Still open before production adoption:
+- A popup's `Scene` carries no application stylesheets (the check prints `stylesheets=[]`), so Nexus
+  tokens do not reach ComboBox/DatePicker popups by themselves. Adoption must apply the shared
+  stylesheet to popup scenes and prove it on a rendered control.
+- Focus, keyboard and accessibility behaviour of the AtlantaFX-only controls inside real Nexus
+  screens, and the 5,000-message timeline benchmark that decides on virtualization.
+
+The check runs in the `fx-test` CI job; its screenshots are uploaded as the `ui-spike` artifact.
+
 Official references:
 - https://github.com/mkpaz/atlantafx
 - https://github.com/mkpaz/atlantafx/releases
@@ -96,7 +119,12 @@ Stable version choice: **12.4.0 GA**. Do not use 12.5.0 Early Access under Nexus
 - Font-backed vector glyphs scale more predictably than arbitrary Unicode symbols or raster icons.
 - It lets the project establish one coherent icon family and a repeatable icon sizing/accessibility convention.
 
-**Decision: preferred candidate after a small integration test.**
+**Decision: adopted for both desktop clients (2026-11-18).** `desktop-shared` exposes the coordinates
+below as API dependencies and ships one icon factory, `Icons`; `desktop-user` and `desktop-admin`
+declare them as well so their own runtime classpaths, and therefore their jpackage images, name the
+font they ship. Every icon in the product is `Icons.of(...)` / `Icons.set(...)` / `Icons.themeToggle(...)`,
+styled by the single `nx-icon` rule in `theme.css`; no glyph character is left in FXML or in a
+resource bundle, and each icon-only control carries translated accessible text.
 
 Initial proof-of-concept coordinates:
 
@@ -106,6 +134,23 @@ implementation 'org.kordamp.ikonli:ikonli-feather-pack:12.4.0'
 ```
 
 The official Ikonli guide confirms JavaFX `FontIcon` can be used in FXML and exposes `-fx-icon-code`, `-fx-icon-size` and `-fx-icon-color` CSS properties. It also documents the JavaFX module names for modular applications. Verify the actual pack/font loading inside the current `jpackage` output; the current Nexus modules are not to be changed to JPMS solely by copying a documentation sample. References: [Ikonli JavaFX usage](https://kordamp.org/ikonli/#_javafx), [Feather pack](https://kordamp.org/ikonli/#_feather).
+
+**Packaging and visual result (2026-11-18)**
+
+- `./gradlew :desktop-user:packageClient :desktop-admin:packageAdmin -PpackageType=app-image`
+  succeeds on this machine (JDK 27 `jpackage`, Linux).
+- In both produced images the Feather font is inside the shipped application, not only on a compile
+  classpath: `<image>/lib/app/ikonli-feather-pack-12.4.0.jar` contains
+  `META-INF/resources/feather/4.28/fonts/feather.ttf`, alongside `ikonli-core` and `ikonli-javafx`.
+  `lib/app` is the input set jpackage records on the image's classpath; `lib/runtime` is its private
+  jlink runtime.
+- Both packaged applications were launched from their images under Xvfb and screenshotted: the
+  theme toggle renders a Feather sun in the dark theme (stored preference), so the icon font loads
+  from the jar inside the image rather than from the Gradle test classpath. The loaded family is
+  `FeatherIcons`, the name the pack's `feather.ttf` registers, in the spike and in the product.
+- The FX tests assert the same wiring without a screenshot: the toggle's graphic is a `FontIcon`
+  with `Feather.MOON` in a light view and `Feather.SUN` after a click, and a button without text
+  must carry a `FontIcon` plus non-blank accessible text.
 
 Rules:
 - Select one coherent pack (for example, one Material Design or Bootstrap pack) as the primary family. Do not mix several packs for visual variety.

@@ -28,7 +28,7 @@
             <Label styleClass="section-label" text="%admin.nav.label"/>
             <ListView fx:id="navigationList" styleClass="admin-nav" VBox.vgrow="ALWAYS"/>
             <HBox alignment="CENTER_LEFT" spacing="8" styleClass="admin-sidebar-footer">
-                <Button fx:id="themeButton" styleClass="icon-button" text="%admin.shell.themeToggle"/>
+                <Button fx:id="themeButton" styleClass="icon-button"/>
                 <Button fx:id="signOutButton" styleClass="ghost-button" text="%admin.shell.signOut"/>
             </HBox>
         </VBox>

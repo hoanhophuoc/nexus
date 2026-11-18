@@ -1,6 +1,7 @@
 package com.nexus.desktop.admin;
 
 import com.nexus.desktop.shared.ui.I18n;
+import com.nexus.desktop.shared.ui.Icons;
 import com.nexus.desktop.shared.ui.UiComponents;
 import javafx.collections.FXCollections;
 import javafx.fxml.FXML;
@@ -89,7 +90,7 @@ public final class AdminShellController {
 
     private void updateThemeButton() {
         boolean dark = context.themeManager().isDark();
-        themeButton.setText(i18n.get(dark ? "admin.theme.iconLight" : "admin.theme.iconDark"));
-        themeButton.setAccessibleText(i18n.get(dark ? "admin.theme.toLight" : "admin.theme.toDark"));
+        Icons.themeToggle(themeButton, dark);
+        Icons.describe(themeButton, i18n.get(dark ? "admin.theme.toLight" : "admin.theme.toDark"));
     }
 }

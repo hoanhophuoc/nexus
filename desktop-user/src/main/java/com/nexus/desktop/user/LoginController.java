@@ -1,6 +1,7 @@
 package com.nexus.desktop.user;
 
 import com.nexus.desktop.shared.ui.I18n;
+import com.nexus.desktop.shared.ui.Icons;
 import com.nexus.sdk.model.MyProfile;
 import javafx.fxml.FXML;
 import javafx.scene.Scene;
@@ -115,7 +116,7 @@ public final class LoginController {
 
     private void updateThemeButton() {
         boolean dark = context.themeManager().isDark();
-        themeButton.setText(dark ? "☀" : "☾");
-        themeButton.setAccessibleText(context.i18n().get(dark ? "theme.toLight" : "theme.toDark"));
+        Icons.themeToggle(themeButton, dark);
+        Icons.describe(themeButton, context.i18n().get(dark ? "theme.toLight" : "theme.toDark"));
     }
 }

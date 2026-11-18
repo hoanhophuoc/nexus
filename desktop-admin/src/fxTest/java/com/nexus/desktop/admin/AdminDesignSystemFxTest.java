@@ -17,6 +17,8 @@ import javafx.scene.control.TextField;
 import javafx.scene.paint.Paint;
 import javafx.stage.Stage;
 import org.junit.jupiter.api.Test;
+import org.kordamp.ikonli.feather.Feather;
+import org.kordamp.ikonli.javafx.FontIcon;
 
 import java.util.List;
 import java.util.Locale;
@@ -63,8 +65,10 @@ class AdminDesignSystemFxTest {
                         .map(Label::getText).filter(text -> text != null)
                         .noneMatch(text -> text.contains("admin."))).isTrue();
 
-                TextField username = field(scene, "Administrator username");
-                PasswordField password = (PasswordField) field(scene, "Password");
+                // Looked up by their Vietnamese prompts, so a key that falls back to English
+                // instead of a translation fails here rather than passing as translated.
+                TextField username = field(scene, "Tên đăng nhập quản trị");
+                PasswordField password = (PasswordField) field(scene, "Mật khẩu");
                 Button signIn = button(scene, "Đăng nhập");
                 assertThat(username.getAccessibleText()).isNotBlank();
                 assertThat(password.getAccessibleText()).isNotBlank();
@@ -76,14 +80,29 @@ class AdminDesignSystemFxTest {
                         .anyMatch(label -> label.getLabelFor() == username)).isTrue();
                 assertThat(root.lookupAll(".button").stream()
                         .filter(Button.class::isInstance).map(Button.class::cast)
-                        .allMatch(candidate -> candidate.getText() != null
-                                && !candidate.getText().isBlank())).isTrue();
+                        .allMatch(AdminDesignSystemFxTest::named)).isTrue();
+
+                // The theme toggle is an icon with Vietnamese accessible text, not a glyph in the
+                // bundle; the click proves the graphic and the wording follow the theme.
+                Button themeToggle = (Button) root.lookup("#themeButton");
+                assertThat(themeToggle.getGraphic()).isInstanceOf(FontIcon.class);
+                assertThat(((FontIcon) themeToggle.getGraphic()).getIconCode())
+                        .as("a light view offers the moon").isEqualTo(Feather.MOON);
+                assertThat(themeToggle.getAccessibleText())
+                        .isEqualTo(vietnamese.get("admin.theme.toDark"));
+                assertThat(themeToggle.getTooltip()).as("an icon-only button explains itself on hover")
+                        .isNotNull();
+                assertThat(themeToggle.getTooltip().getText())
+                        .isEqualTo(vietnamese.get("admin.theme.toDark"));
 
                 Paint light = signIn.getTextFill();
-                theme.setTheme(Theme.DARK);
-                theme.apply(scene);
+                themeToggle.fire();
                 root.applyCss();
                 assertThat(root.getStyleClass()).contains("theme-dark");
+                assertThat(((FontIcon) themeToggle.getGraphic()).getIconCode())
+                        .as("the dark view offers the sun").isEqualTo(Feather.SUN);
+                assertThat(themeToggle.getAccessibleText())
+                        .isEqualTo(vietnamese.get("admin.theme.toLight"));
                 assertThat(signIn.getTextFill()).isNotEqualTo(light);
                 return true;
             } finally {
@@ -223,6 +242,14 @@ class AdminDesignSystemFxTest {
                 }
             })).isTrue();
         }
+    }
+
+    /** A button either says what it does or shows an icon that does, with accessible text. */
+    private static boolean named(Button button) {
+        if (button.getText() != null && !button.getText().isBlank()) return true;
+        return button.getGraphic() instanceof FontIcon
+                && button.getAccessibleText() != null
+                && !button.getAccessibleText().isBlank();
     }
 
     private static java.util.List<String> buttonTexts(Parent root) {
