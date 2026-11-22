@@ -61,6 +61,7 @@ class ChatTimelineScrollFxTest {
             // that repaint out of the measurement below.
             waitForFx(() -> labelsContain(root, "Up to date"), Duration.ofSeconds(10));
 
+            settleTimeline(root);
             scrollToTop(root);
             assertThat(position(root)).as("the test starts at the oldest message").isLessThan(0.05);
 
@@ -107,6 +108,7 @@ class ChatTimelineScrollFxTest {
             waitForFx(() -> labelsContain(root, "Up to date"), Duration.ofSeconds(10));
 
             // The shell opened on the newest row, so it is following the tail here.
+            settleTimeline(root);
             scrollToBottom(root);
             // A wheel scroll is what clears the follow intent.
             scrollUp(root);
@@ -176,6 +178,7 @@ class ChatTimelineScrollFxTest {
             realtime.awaitClient(TimeUnit.SECONDS, 10);
             waitForFx(() -> labelsContain(root, "Up to date"), Duration.ofSeconds(10));
 
+            settleTimeline(root);
             setPosition(root, 0.45);
             Thread.sleep(200);
             String anchorBefore = onFx(() -> firstVisibleText(root));
@@ -209,6 +212,7 @@ class ChatTimelineScrollFxTest {
             realtime.awaitClient(TimeUnit.SECONDS, 10);
             waitForFx(() -> labelsContain(root, "Up to date"), Duration.ofSeconds(10));
             waitForFx(() -> atBottom(root), Duration.ofSeconds(5));
+            settleTimeline(root);
 
             // Several rounds, each sent back to back without waiting for the previous one: a round
             // lands while the rebuild the last arrival caused is still re-applying the move to the
@@ -401,6 +405,33 @@ class ChatTimelineScrollFxTest {
             }
         }
         return true;
+    }
+
+    /**
+     * Waits for the shell's own move to the newest row to stop changing the viewport. The shell lands
+     * on the newest row after mounting and re-applies that move until the list has measured its rows;
+     * a test that sets a position mid-move is moved back, so the harness lets the move finish first
+     * instead of measuring against a viewport something else is still steering.
+     */
+    private static void settleTimeline(Parent root) throws InterruptedException {
+        double previous = Double.NaN;
+        for (int attempt = 0; attempt < 30; attempt++) {
+            double current = onFx(() -> scrollBarValue(root));
+            if (!Double.isNaN(previous) && Math.abs(current - previous) < 1e-6) return;
+            previous = current;
+            Thread.sleep(200);
+        }
+    }
+
+    private static double scrollBarValue(Parent root) {
+        ListView<?> list = timeline(root);
+        if (list == null) return -1;
+        for (Node node : list.lookupAll(".scroll-bar")) {
+            if (node instanceof ScrollBar bar && bar.getOrientation() == Orientation.VERTICAL) {
+                return bar.getValue();
+            }
+        }
+        return -1;
     }
 
     /** How far down the history the viewport sits, 0 at the oldest row and 1 at the newest. */
