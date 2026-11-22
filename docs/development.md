@@ -50,7 +50,7 @@ scripts/                gates, live journey, packaging helpers
 | `./scripts/check-ga-pins.sh` | Fails on a pre-release action SHA, image tag or base image |
 | `./scripts/check-image-pins.sh` | Fails on a floating or untagged container image |
 | `./gradlew :server:bootRun` | Runs the API and WebSocket on `NEXUS_SERVER_PORT` |
-| `./scripts/smoke-desktop.sh` | Starts throwaway PostgreSQL and Redis, runs the server, pushes a message from one real client to another over realtime, then cleans up |
+| `./scripts/smoke-desktop.sh` | Starts throwaway PostgreSQL and Redis, runs the server, pushes a message each way between two real clients over realtime, then cleans up |
 | `./gradlew :desktop-user:run` / `:desktop-admin:run` | Runs a desktop client |
 | `./gradlew :desktop-user:packageClient` / `:desktop-admin:packageAdmin` | Builds a native installer |
 | `./gradlew :client-sdk:openApiGenerate` | Regenerates the SDK from `api/v1/openapi.yaml` |
