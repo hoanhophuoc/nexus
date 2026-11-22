@@ -84,6 +84,8 @@ public final class ShellController {
     private UUID revealedMessageId;
     /** True while the timeline is meant to show the newest row: recomputed on every repaint. */
     private boolean followTail;
+    /** When the follow currently being re-applied gives up, in {@link System#nanoTime()} terms. */
+    private long followInFlightUntil;
     private Conversation activeConversation;
     private final OpenGeneration openGeneration = new OpenGeneration();
 
@@ -197,11 +199,11 @@ public final class ShellController {
         // A reader who scrolls away from the newest row is no longer following it. A wheel scroll,
         // a pressed scrollbar thumb or track and a keyboard move are all started by the reader, so
         // each clears the same intent; a programmatic scroll fires none of them.
-        messageList.addEventFilter(ScrollEvent.SCROLL, event -> followTail = false);
-        messageList.addEventFilter(MouseEvent.MOUSE_PRESSED, event -> followTail = false);
+        messageList.addEventFilter(ScrollEvent.SCROLL, event -> stopFollowing());
+        messageList.addEventFilter(MouseEvent.MOUSE_PRESSED, event -> stopFollowing());
         messageList.addEventFilter(KeyEvent.KEY_PRESSED, event -> {
             if (!SCROLL_KEYS.contains(event.getCode())) return;
-            followTail = false;
+            stopFollowing();
             scrollByKey(event.getCode());
             event.consume();
         });
@@ -378,7 +380,11 @@ public final class ShellController {
         if (current == null || context.cache() == null) return;
         List<CachedMessage> stored = context.cache().messagesInConversation(current.getId());
         List<PendingMessage> pending = context.cache().pendingInConversation(current.getId());
-        boolean wasAtBottom = isTimelineAtBottom();
+        // A follow this shell started counts as the reader still being at the bottom while it runs: an
+        // arrival lands between the passes of a move that is still re-applying, and reading the scroll
+        // bar mid-move would say the reader left and stop following for good. Once the move lands or
+        // gives up, the scroll bar is the truth again.
+        boolean wasAtBottom = isTimelineAtBottom() || System.nanoTime() < followInFlightUntil;
         TimelineAnchor anchor = messageToReveal == null && !followLatest
                 ? captureTimelineAnchor() : null;
         boolean follow = followLatest || wasAtBottom || anchor == null;
@@ -486,7 +492,7 @@ public final class ShellController {
         if (index < 0) return;
         revealedMessageId = messageId;
         // Revealing is the opposite of following: the reader asked for this row, not the newest one.
-        followTail = false;
+        stopFollowing();
         // A little room above the hit, so the match is not stuck against the header.
         messageList.scrollTo(Math.max(0, index - 1));
         messageList.refresh();
@@ -508,7 +514,14 @@ public final class ShellController {
      */
     private void scrollToLatestAfterLayout() {
         followTail = true;
-        followToLatest(System.nanoTime() + FOLLOW_BUDGET_NANOS);
+        followInFlightUntil = System.nanoTime() + FOLLOW_BUDGET_NANOS;
+        followToLatest(followInFlightUntil);
+    }
+
+    /** The reader took over: no follow runs and none is treated as in flight. */
+    private void stopFollowing() {
+        followTail = false;
+        followInFlightUntil = 0;
     }
 
     /**
@@ -522,9 +535,15 @@ public final class ShellController {
      * every pulse: a reader who scrolled in between must not be dragged back.
      */
     private void followToLatest(long deadlineNanos) {
-        if (!followTail || timelineItems.isEmpty()) return;
+        if (!followTail || timelineItems.isEmpty()) {
+            followInFlightUntil = 0;
+            return;
+        }
         messageList.scrollTo(timelineItems.size() - 1);
-        if (isTimelineAtBottom() || System.nanoTime() > deadlineNanos) return;
+        if (isTimelineAtBottom() || System.nanoTime() > deadlineNanos) {
+            followInFlightUntil = 0;
+            return;
+        }
         Platform.runLater(() -> followToLatest(deadlineNanos));
     }
 

@@ -194,6 +194,46 @@ class ChatTimelineScrollFxTest {
         }
     }
 
+    /**
+     * A message that lands while the shell is still re-applying its move to the newest row must not
+     * cancel that move. The scroll bar read mid-move says the reader left the bottom; the follow the
+     * shell itself started says they did not, and the reader keeps seeing what arrives.
+     */
+    @Test
+    void anArrivalDuringTheMoveToTheNewestRowKeepsFollowing(@TempDir Path home) throws Exception {
+        try (FakeChatServer server = new FakeChatServer();
+             FakeWebSocketServer realtime = new FakeWebSocketServer();
+             Shell shell = openShell(home, server, realtime)) {
+            Parent root = shell.root();
+            waitForFx(() -> messages(root) >= HISTORY + 1, Duration.ofSeconds(10));
+            realtime.awaitClient(TimeUnit.SECONDS, 10);
+            waitForFx(() -> labelsContain(root, "Up to date"), Duration.ofSeconds(10));
+            waitForFx(() -> atBottom(root), Duration.ofSeconds(5));
+
+            // Several rounds, each sent back to back without waiting for the previous one: a round
+            // lands while the rebuild the last arrival caused is still re-applying the move to the
+            // newest row. Once a move is cancelled the shell stops following for good, so the later
+            // rounds are the ones that catch it rather than the luck of a single interleaving.
+            for (int round = 0; round < 5; round++) {
+                final int roundIndex = round;
+                int before = onFx(() -> messages(root));
+                for (int index = 0; index < 4; index++) {
+                    realtime.sendText(messageCreated(UUID.randomUUID(), FakeChatServer.FRIEND_ID,
+                            "arrival " + roundIndex + "." + index + " during the move",
+                            String.format("2026-11-09T%02d:%02d:00Z", 14 + roundIndex, index * 10)));
+                }
+                waitForFx(() -> messages(root) == before + 4, Duration.ofSeconds(20));
+
+                waitForFx(() -> atBottom(root), Duration.ofSeconds(10));
+                assertThat(onFx(() -> atBottom(root)))
+                        .as("round %d: a follow that is still running survives an arrival", roundIndex)
+                        .isTrue();
+                assertThat(onFx(() -> labelsContain(root, "arrival " + roundIndex + ".3 during the move")))
+                        .as("round %d: the newest arrival is on screen", roundIndex).isTrue();
+            }
+        }
+    }
+
     @Test
     void revealsASearchHitWhereItActuallySits(@TempDir Path home) throws Exception {
         try (FakeChatServer server = new FakeChatServer();

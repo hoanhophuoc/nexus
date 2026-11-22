@@ -161,12 +161,14 @@ Use a consistent spacing scale derived from 4px increments. Preferred steps are 
 - Use virtualized JavaFX controls for potentially large conversation/message collections; do not create an unbounded scene graph of nodes for message history. The chat timeline is a `ListView<TimelineItem>` (`Day`, `Bubble`, `Pending`) whose cell factory builds row nodes on demand, so the scene graph stays bounded however long the history is. `ScrollPane` over a `VBox` was measured and rejected: at 1,000 messages it held 13,021 row nodes, appended at p95 1,969 ms and rebuilt at p95 2,111 ms, and the 5,000-message run exhausted the test JVM.
 - Prefer public JavaFX APIs such as `ListView` with a carefully designed `cellFactory` when they satisfy variable message heights, grouping, selection, accessibility and scroll anchoring. Do not import internal implementation classes such as `com.sun.javafx.scene.control.skin.VirtualFlow`; internal APIs are not a stable extension point.
 - Preserve scroll position when older messages load. Auto-scroll only when the user is already at the bottom or explicitly requests it.
-- The implemented timeline contract: an update that only appends to the end of the loaded history adds rows without touching the ones above them; an update that rewrites or reorders the history rebuilds it and restores the message that sat at the top of the viewport, by message id; the newest row is followed only when the reader was already there (read from the list's scroll position, not from a recycled cell's bounds) or when the row is one the user just sent. A revealed search hit is positioned by its row index in the list, with one row of room above it.
+- The implemented timeline contract: an update that only appends to the end of the loaded history adds rows without touching the ones above them; an update that rewrites or reorders the history rebuilds it and restores the message that sat at the top of the viewport, by message id; the newest row is followed only when the reader was already there (read from the list's scroll position, not from a recycled cell's bounds) or when the row is one the user just sent, and a follow the shell already started is not cancelled by an arrival that lands while the move to the newest row is still being re-applied — the scroll bar read mid-move is not the reader leaving the bottom. A revealed search hit is positioned by its row index in the list, with one row of room above it.
 
 **Timeline budget and measured result (2026-11-22).** `:desktop-user:fxTest --tests
 *TimelineBenchmarkFxTest` writes `desktop-user/build/timeline-benchmark.md` and fails the build when
 the 5,000-message budgets are missed: initial render ≤ 800 ms, append (row painted) p95 ≤ 50 ms,
-rebuild p95 ≤ 900 ms, resize p95 ≤ 150 ms, pulse gap p95 ≤ 100 ms and worst pulse gap ≤ 500 ms. The
+rebuild p95 ≤ 900 ms, resize p95 ≤ 150 ms, pulse gap p95 ≤ 150 ms and worst pulse gap ≤ 500 ms. The
+pulse budget is set above the measured spread rather than at it: nine runs put the 5,000-message p95
+between 58 and 113 ms, so a 100 ms ceiling failed on healthy runs. The
 fixture carries alternating senders, long and short bodies, a date separator every 30 messages and
 three queued rows that stay pending through the measured phases. On this machine (Linux, JDK
 27.0.1, JavaFX 27.0.1, Xvfb 1280x1024), from one run — the numbers move between runs, most of all
@@ -174,10 +176,10 @@ the 100-message size, which absorbs JIT warm-up; the budgets above are the contr
 
 | messages | render ms | append p95 ms | delivery p95 ms | rebuild p95 ms | resize p95 ms | reveal ms | pulse p95 ms | pulse max ms | row nodes | scene nodes | heap MB |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 100 | 90 | 26 | 32 | 46 | 70 | 4 | 31 | 113 | 7 | 307 | 170 |
-| 500 | 67 | 17 | 23 | 36 | 63 | 0 | 54 | 96 | 8 | 317 | 128 |
-| 1,000 | 96 | 17 | 12 | 29 | 95 | 0 | 66 | 97 | 8 | 317 | 177 |
-| 5,000 | 98 | 16 | 37 | 52 | 63 | 1 | 72 | 180 | 8 | 317 | 105 |
+| 100 | 83 | 44 | 46 | 28 | 66 | 3 | 51 | 79 | 7 | 304 | 101 |
+| 500 | 62 | 17 | 15 | 23 | 61 | 0 | 47 | 60 | 8 | 317 | 129 |
+| 1,000 | 76 | 18 | 20 | 24 | 61 | 11 | 44 | 59 | 8 | 317 | 171 |
+| 5,000 | 82 | 14 | 28 | 39 | 59 | 1 | 80 | 109 | 8 | 317 | 100 |
 
 `delivery p95` is the part before the timeline: the socket round trip plus the encrypted cache's
 whole-file persist. It is reported, not budgeted, because it is a data-layer cost; the append
