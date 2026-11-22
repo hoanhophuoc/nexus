@@ -110,8 +110,10 @@ these baselines while every screen golden still matches.
 A popup's content hangs off its scene root through JavaFX's internal `CSSBridge`, and a looked-up
 colour on that content is resolved from the scene on the far side of the bridge, not from the popup
 root. The class on the popup root alone therefore does not survive a flip, a reopen or a lost CSS
-pass: `ThemeManager.styleWindow` repeats `theme-light`/`theme-dark` on every node of a popup's
-content and then runs the CSS pass unconditionally, even when the class was already right. Without
+pass: `PopupThemes` repeats `theme-light`/`theme-dark` on every node of a popup's content and then
+runs the CSS pass unconditionally, even when the class was already right. `ThemeManager` routes a
+popup window to it and keeps only the scene-level work, so the popup rules live with the class that
+discovers popups. Without
 that stamping the ComboBox list and the tooltip label intermittently kept the palette they were
 built under (roughly one run in three) while the popup root itself was correct. Application scenes
 are deliberately not stamped: their tokens resolve from their own root, and stamping a scene's

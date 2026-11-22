@@ -395,7 +395,16 @@ class ChatTimelineScrollFxTest {
             timeline(root).scrollTo(0);
             return true;
         });
-        waitForFx(() -> firstVisibleIndex(root) == 0, Duration.ofSeconds(5));
+        // The cells carry the bounds this reads only after a layout pass, and a list that has just
+        // been moved needs that pass to place them; waiting for the toolkit to schedule one leaves
+        // the read racing the pulse. Driving it here is the same rule the rest of the harness
+        // follows: ask for the pass, do not hope for it.
+        waitForFx(() -> {
+            ListView<?> list = timeline(root);
+            list.applyCss();
+            list.layout();
+            return firstVisibleIndex(root) == 0;
+        }, Duration.ofSeconds(5));
     }
 
     /**

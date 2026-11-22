@@ -5,7 +5,6 @@ import javafx.application.Platform;
 import javafx.beans.property.ObjectProperty;
 import javafx.beans.property.ReadOnlyObjectProperty;
 import javafx.beans.property.SimpleObjectProperty;
-import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.SnapshotParameters;
@@ -170,34 +169,13 @@ public final class ThemeManager {
         Parent root = scene.getRoot();
         if (root != null) {
             styledRoots.add(root);
-            setThemeClass(root);
-            // A popup's content hangs off its root through JavaFX's CSSBridge, and the colours the
-            // list or menu resolves are looked up through that bridge, so the class on the popup
-            // root alone does not reach them: without this the content keeps the palette it was
-            // built under. Only popup content sits behind a bridge; an application scene resolves
-            // every token from its own root and must not be stamped, or its screens change.
-            if (window instanceof PopupWindow || window instanceof PopupControl) {
-                stampThemeClass(root);
-            }
-            // Always, even when the class was already right: a popup that is shown again reuses the
-            // class it had, and the pass that resolves its colours has to happen after the class is
-            // in place, not before it.
-            restyleSubtree(root);
+            if (setThemeClass(root)) restyleSubtree(root);
         }
         styledWindows.add(window);
-    }
-
-    /**
-     * Repeats the theme class on every node of a popup's content. The nodes behind JavaFX's
-     * CSSBridge keep the class they were built with, so a tooltip shown again after a theme switch
-     * would otherwise hold theme-light under a theme-dark popup and resolve the light palette.
-     */
-    private void stampThemeClass(Parent parent) {
-        for (Node child : parent.getChildrenUnmodifiable()) {
-            if (child instanceof Parent content) {
-                setThemeClass(content);
-                stampThemeClass(content);
-            }
+        // A popup's content is a separate problem — it sits behind JavaFX's CSSBridge and keeps the
+        // palette it was built under — so that half belongs to the class that discovers popups.
+        if (window instanceof PopupWindow || window instanceof PopupControl) {
+            PopupThemes.restyle(this, window);
         }
     }
 
@@ -207,7 +185,7 @@ public final class ThemeManager {
      * an open popup list stayed light — so the root's stylesheet list is re-set, which is the
      * public signal that invalidates everything below it.
      */
-    private static void restyleSubtree(Parent root) {
+    static void restyleSubtree(Parent root) {
         // A popup scene carries the stylesheet itself; an application root carries it on the root,
         // and a detached dialog pane has not reached a scene yet. Whichever it is, the list that
         // actually holds the stylesheet is the one re-set: re-setting it is the public signal that
@@ -232,7 +210,7 @@ public final class ThemeManager {
     }
 
     /** Returns true when the root actually moved to the other theme class. */
-    private boolean setThemeClass(Parent root) {
+    boolean setThemeClass(Parent root) {
         String target = isDark() ? DARK_CLASS : LIGHT_CLASS;
         if (root.getStyleClass().contains(target)) return false;
         root.getStyleClass().removeAll(LIGHT_CLASS, DARK_CLASS);

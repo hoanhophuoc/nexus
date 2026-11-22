@@ -1,6 +1,9 @@
 package com.nexus.desktop.shared.ui;
 
 import javafx.collections.ListChangeListener;
+import javafx.scene.Node;
+import javafx.scene.Parent;
+import javafx.scene.Scene;
 import javafx.stage.Window;
 
 import java.lang.ref.WeakReference;
@@ -68,6 +71,34 @@ final class PopupThemes {
     private static void style(Window window) {
         for (ThemeManager manager : managers()) {
             if (manager.owns(window)) manager.styleWindow(window);
+        }
+    }
+
+    /**
+     * Gives a popup scene what an application scene gets for free.
+     *
+     * <p>A popup's content hangs off its scene root through JavaFX's CSSBridge, and the colours the
+     * list, menu or tooltip resolves are looked up through that bridge, so the class on the popup
+     * root alone does not reach them: a content node keeps the palette it was built under, which
+     * shows up as a white list under a dark popup or a tooltip that stays light after a reopen.
+     * Repeating the class on every content node makes the tokens local, and the pass runs even when
+     * the class was already right, because a popup shown again reuses it and the colours must be
+     * resolved after the class is in place.
+     */
+    static void restyle(ThemeManager manager, Window window) {
+        Scene scene = window == null ? null : window.getScene();
+        Parent root = scene == null ? null : scene.getRoot();
+        if (root == null) return;
+        stamp(manager, root);
+        ThemeManager.restyleSubtree(root);
+    }
+
+    private static void stamp(ThemeManager manager, Parent parent) {
+        for (Node child : parent.getChildrenUnmodifiable()) {
+            if (child instanceof Parent content) {
+                manager.setThemeClass(content);
+                stamp(manager, content);
+            }
         }
     }
 
