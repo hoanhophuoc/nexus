@@ -6,10 +6,11 @@
 # it never collides with a database or service already running on this machine,
 # then runs `:server:bootRun` on a free port and waits for `/actuator/health` to
 # report UP. Finally it runs `RealServerUserSmokeFxTest` under Xvfb: that test
-# registers its own unique account through the real API, signs in through the
-# same code path the client uses, renders the FXML shell and switches it between
-# LIGHT and DARK. A green run means the SDK, the session cookie, the encrypted
-# cache and the shell all work against a live service.
+# creates its own two accounts and a direct conversation through the real API,
+# signs in through the same code path the client uses, renders the FXML shell,
+# sends a message and waits for the delivered bubble, then switches the shell
+# between LIGHT and DARK. A green run means the SDK, the session cookie, sending
+# and the shell all work against a live service.
 #
 # Requirements: Docker, JDK 27 and Xvfb (or set NEXUS_SMOKE_DISPLAY_PREFIX to
 # skip `xvfb-run` and use the current display).
@@ -95,14 +96,21 @@ DB_PORT="$(docker port "$DB_CONTAINER" 5432/tcp | head -1 | sed 's/.*://')"
 REDIS_PORT="$(docker port "$REDIS_CONTAINER" 6379/tcp | head -1 | sed 's/.*://')"
 
 echo "== waiting for them to accept connections"
-for _ in $(seq 1 60); do
+services_ready=0
+for _ in $(seq 1 90); do
     if docker exec "$DB_CONTAINER" pg_isready -U nexus -d nexus >/dev/null 2>&1 \
         && docker exec "$REDIS_CONTAINER" redis-cli -a "$REDIS_PASSWORD" ping 2>/dev/null | grep -q PONG; then
+        services_ready=1
         break
     fi
     sleep 1
 done
-docker exec "$DB_CONTAINER" pg_isready -U nexus -d nexus >/dev/null
+if [[ "$services_ready" != 1 ]]; then
+    echo "PostgreSQL and Redis did not become ready; their logs:" >&2
+    docker logs --tail 30 "$DB_CONTAINER" >&2 2>&1 || true
+    docker logs --tail 30 "$REDIS_CONTAINER" >&2 2>&1 || true
+    exit 1
+fi
 echo "   db on 127.0.0.1:$DB_PORT, redis on 127.0.0.1:$REDIS_PORT"
 
 echo "== starting the server on $ORIGIN (log: $SERVER_LOG)"

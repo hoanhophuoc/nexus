@@ -68,14 +68,18 @@ ephemeral host ports (so a database already running on 5432 is untouched), start
 `/actuator/health` to report `UP`, then runs the user client's opt-in test under Xvfb:
 
 ```
-NEXUS_REAL_SERVER=true./gradlew :desktop-user:fxTest --tests '*RealServerUserSmokeFxTest' --rerun-tasks
+NEXUS_REAL_SERVER=true ./gradlew :desktop-user:fxTest --tests '*RealServerUserSmokeFxTest' --rerun-tasks
 ```
 
 `RealServerUserSmokeFxTest` is skipped unless `NEXUS_REAL_SERVER=true`, so `fullTest` never needs a
-server. When it runs it registers its own unique account through `/auth/register`, signs in through
-the same `UserAppContext.signIn` the client uses, renders `shell.fxml` in a real `Stage`, waits for
-the connected status, and switches LIGHT → DARK → LIGHT on the live shell. A green run covers the
-SDK, the session cookie, the encrypted cache and the shell together.
+server. When it runs it registers two unique accounts through `/auth/register`, makes them friends
+and creates a direct conversation through the API, signs in as the first through the same
+`UserAppContext.signIn` the client uses, renders `shell.fxml` in a real `Stage`, waits for the
+connected status, opens that conversation, types into the composer and sends. It then waits for the
+bubble to lose its `pending` marker, which happens only after the queued message was accepted, and
+checks the message is in the server's history — one real conversation round trip. Finally it
+switches LIGHT → DARK → LIGHT on the live shell. A green run covers the SDK, the session cookie,
+the encrypted cache, sending and the shell together.
 
 Everything the script creates — both containers, the server and its Gradle daemon — is removed on
 exit, including on failure or Ctrl-C. Its log is `build/smoke/server.log`;
