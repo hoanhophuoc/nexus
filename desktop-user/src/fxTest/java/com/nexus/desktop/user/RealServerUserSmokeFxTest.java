@@ -41,8 +41,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Opt-in smoke test of the user client against a real server. It creates its own two accounts and a
  * friendship between them through the API, signs both into their own client windows through the same
  * code path the application uses, lets the counterpart's syncs settle with realtime on and its chat
- * open, sends a message from the first and waits for the second to receive it over the socket. It is
- * the one check
+ * open, sends a message from the first, waits for the second to receive it over the socket, has the
+ * second answer and checks the first receives that answer the same way. It is the one check
  * that proves the packaged client's stack — SDK, session cookie, encrypted cache, realtime and FXML
  * shell — works against a running service, in both directions, without clicking anything.
  *
@@ -78,10 +78,11 @@ class RealServerUserSmokeFxTest {
             System.out.println("SMOKE direct conversation " + direct.getId() + " with " + peerName);
 
             String message = "smoke ping " + suffix;
+            String reply = "smoke pong " + suffix;
             System.out.println("SMOKE signing in as " + peerUsername
                     + " with realtime and opening the chat");
             try (Client receiver = new Client(origin, peerUsername, Theme.DARK, 1000, 700, true);
-                 Client sender = new Client(origin, username, Theme.LIGHT, 1180, 760, false)) {
+                 Client sender = new Client(origin, username, Theme.LIGHT, 1180, 760, true)) {
                 // With realtime on, the connected status is written from the socket's afterConnect
                 // callback, so waiting for it means the push channel is open before anything is sent.
                 receiver.awaitConnected();
@@ -100,14 +101,8 @@ class RealServerUserSmokeFxTest {
                 assertThat(onFx(() -> sender.shell.lookupAll(".list-view")))
                         .as("the conversation list renders").isNotEmpty();
                 waitForFx(() -> selectFirstConversation(sender.shell), Duration.ofSeconds(20));
-                waitForFx(() -> sender.shell.lookup("#composeField") instanceof TextField field
-                        && field.isVisible() && !field.isDisabled(), Duration.ofSeconds(10));
-
-                onFx(() -> {
-                    ((TextField) sender.shell.lookup("#composeField")).setText(message);
-                    ((Button) sender.shell.lookup("#sendButton")).fire();
-                    return true;
-                });
+                sender.awaitComposer();
+                sendFrom(sender, message);
                 // A queued message renders at once with a "pending" bubble; the delivered one is the
                 // same text without that marker, so this waits for the server to acknowledge the send.
                 waitForFx(() -> bubbleState(sender.shell, message).equals("sent"),
@@ -129,6 +124,27 @@ class RealServerUserSmokeFxTest {
                         .as("the receiver renders the sender's message, not its own")
                         .contains("theirs").doesNotContain("mine");
                 System.out.println("SMOKE peer received by realtime push: " + message);
+
+                // The same proof the other way round: the peer answers in its own shell and the
+                // sender, whose chat has been open the whole time, must see it arrive by push.
+                receiver.awaitComposer();
+                sendFrom(receiver, reply);
+                waitForFx(() -> bubbleState(receiver.shell, reply).equals("sent"),
+                        Duration.ofSeconds(60));
+                assertThat(bubbleClass(receiver.shell, reply))
+                        .as("the peer's own reply renders as its own message on its side")
+                        .contains("mine").doesNotContain("theirs");
+                System.out.println("SMOKE peer replied: " + reply);
+
+                waitForFx(() -> bubbleState(sender.shell, reply).equals("sent"),
+                        Duration.ofSeconds(60));
+                assertThat(bubbleClass(sender.shell, reply))
+                        .as("the sender receives the reply as the counterpart's message")
+                        .contains("theirs").doesNotContain("mine");
+                assertThat(session.api().getMessages(direct.getId(), null, 50).getItems())
+                        .extracting(Message::getContent)
+                        .as("both messages are on the server").contains(message, reply);
+                System.out.println("SMOKE sender received the reply by realtime push: " + reply);
 
                 onFx(() -> {
                     sender.theme.setTheme(Theme.DARK);
@@ -178,6 +194,11 @@ class RealServerUserSmokeFxTest {
                     && i18n.get("shell.connected").equals(status.getText()), Duration.ofSeconds(30));
         }
 
+        void awaitComposer() {
+            waitForFx(() -> shell.lookup("#composeField") instanceof TextField field
+                    && field.isVisible() && !field.isDisabled(), Duration.ofSeconds(10));
+        }
+
         /**
          * Waits until the shell stopped talking to the server. Every sync it runs — the startup ones
          * and the history fetch an opened chat starts — goes through one network thread, so a no-op
@@ -215,6 +236,14 @@ class RealServerUserSmokeFxTest {
         session.api().getCsrfToken();
         session.api().login(new Login().username(username).password(PASSWORD));
         return profile;
+    }
+
+    private static void sendFrom(Client client, String text) {
+        onFx(() -> {
+            ((TextField) client.shell.lookup("#composeField")).setText(text);
+            ((Button) client.shell.lookup("#sendButton")).fire();
+            return true;
+        });
     }
 
     /** A direct chat is only allowed between friends, so the counterpart accepts before it is created. */

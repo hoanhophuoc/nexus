@@ -81,9 +81,10 @@ checks the message is in the server's history. The second account is already sig
 client window with realtime enabled and sitting in the same chat. Its background syncs are allowed
 to finish and the chat is asserted empty, so the text can only appear there by the server pushing it
 over the socket; the test waits for that push and asserts the bubble is the counterpart's, not its
-own — the receive side of the round trip. Finally it switches LIGHT → DARK → LIGHT on the live shell.
-A green run covers the SDK, the session cookie, the encrypted cache, sending, realtime receiving and
-the shell together.
+own. The counterpart then answers in its own shell, and the first client — whose chat has been open
+the whole time — has to receive that answer the same way, which proves both directions of the push.
+Finally the shell switches LIGHT → DARK → LIGHT. A green run covers the SDK, the session cookie, the
+encrypted cache, sending, realtime receiving and the shell together.
 
 Everything the script creates — both containers, the server and its Gradle daemon — is removed on
 exit, including on failure or Ctrl-C. Its log is `build/smoke/server.log`;
