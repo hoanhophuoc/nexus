@@ -158,10 +158,27 @@ Use a consistent spacing scale derived from 4px increments. Preferred steps are 
 ### 4.4 Real-time chat experience
 
 - The message timeline and conversation list are the primary visual hierarchy. Do not let decorative dashboard-style cards compete with them.
-- Use virtualized JavaFX controls for potentially large conversation/message collections; do not create an unbounded scene graph of nodes for message history. The shell still renders the open conversation as a `ScrollPane` over a `VBox`; a realistic-history benchmark and the virtualization decision remain outstanding.
+- Use virtualized JavaFX controls for potentially large conversation/message collections; do not create an unbounded scene graph of nodes for message history. The chat timeline is a `ListView<TimelineItem>` (`Day`, `Bubble`, `Pending`) whose cell factory builds row nodes on demand, so the scene graph stays bounded however long the history is. `ScrollPane` over a `VBox` was measured and rejected: at 1,000 messages it held 13,021 row nodes, appended at p95 1,969 ms and rebuilt at p95 2,111 ms, and the 5,000-message run exhausted the test JVM.
 - Prefer public JavaFX APIs such as `ListView` with a carefully designed `cellFactory` when they satisfy variable message heights, grouping, selection, accessibility and scroll anchoring. Do not import internal implementation classes such as `com.sun.javafx.scene.control.skin.VirtualFlow`; internal APIs are not a stable extension point.
 - Preserve scroll position when older messages load. Auto-scroll only when the user is already at the bottom or explicitly requests it.
-- The implemented timeline contract: an update that only appends to the end of the loaded history adds rows without touching the ones above them; an update that rewrites or reorders the history rebuilds it and restores the message, and its offset, that sat at the top of the viewport; the newest row is followed only when the reader was already there or when the row is one the user just sent. A revealed search hit is positioned from the hit's own bounds, never from its index in the timeline.
+- The implemented timeline contract: an update that only appends to the end of the loaded history adds rows without touching the ones above them; an update that rewrites or reorders the history rebuilds it and restores the message that sat at the top of the viewport, by message id; the newest row is followed only when the reader was already there (read from the list's scroll position, not from a recycled cell's bounds) or when the row is one the user just sent. A revealed search hit is positioned by its row index in the list, with one row of room above it.
+
+**Timeline budget and measured result (2026-11-22).** `:desktop-user:fxTest --tests
+*TimelineBenchmarkFxTest` writes `desktop-user/build/timeline-benchmark.md` and fails the build when
+the 5,000-message budgets are missed: initial render ≤ 800 ms, append (row painted) p95 ≤ 50 ms,
+rebuild p95 ≤ 900 ms, resize p95 ≤ 150 ms. On this machine (Linux, JDK 27.0.1, JavaFX 27.0.1,
+Xvfb 1280x1024):
+
+| messages | render ms | append p95 ms | delivery p95 ms | rebuild p95 ms | resize p95 ms | row nodes | scene nodes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 100 | 114 | 29 | 47 | 60 | 68 | 7 | 304 |
+| 500 | 96 | 21 | 39 | 43 | 65 | 7 | 307 |
+| 1,000 | 95 | 23 | 53 | 49 | 67 | 8 | 321 |
+| 5,000 | 112 | 17 | 60 | 73 | 62 | 7 | 307 |
+
+`delivery p95` is the part before the timeline: the socket round trip plus the encrypted cache's
+whole-file persist. It is reported, not budgeted, because it is a data-layer cost; the append
+budget measures the timeline's own work from the row entering the model to it being painted.
 - Make pending, sent, failed, retrying and incoming states distinguishable without confusing them with encryption or delivery guarantees.
 - Keep composer focus, keyboard send behavior, multiline entry, attachments and error recovery predictable.
 - Presence and unread indicators must not rely on color alone.
@@ -195,6 +212,7 @@ Guidelines:
 - Test motion while messages arrive quickly, while a user scrolls and while a window is resized.
 - If multiple screens need the same motion behavior, centralize it in a small `MotionPresets` helper in `desktop-shared`; do not create an animation framework for one transition. Suggested starting ranges are 110–160ms for micro-feedback and 180–260ms for meaningful panel/view transitions. `Interpolator.SPLINE(0.22, 1.0, 0.36, 1.0)` may be evaluated as an ease-out curve, but timings and easing are hypotheses to review on the real app—not universal rules.
 - Provide a central `nexus.ui.animations.enabled=false` switch for deterministic FX tests and a reduced-motion preference for users. When disabled, complete the state change synchronously rather than leaving a transition half-finished. Make transitions cancellable and restore node state on completion, cancellation and disposal.
+- **Motion decision (2026-11-18):** the shipped desktop UI currently contains no JavaFX animation — no `Transition`, `Timeline` or animated property in `desktop-shared`, `desktop-user` or `desktop-admin`. Every state change (theme flip, timeline update, badge, status, dialog) is applied synchronously, so there is no motion to reduce and no `MotionPresets` helper or animation switch has been added for a single unused transition. The guidance above stays the contract for the first transition that is introduced; at that point it must ship with the reduced-motion switch and the motion tests, not before.
 - Do not promise 60fps from a preset. Measure frame pacing and input responsiveness on the supported OS/hardware matrix.
 - Do not automatically set `Node.cache=true` and `CacheHint.SPEED` for every animation. JavaFX documents that `SPEED` favors cached-bitmap rendering and may reduce visual quality. Use it only for an expensive node after a measured improvement; restore its previous cache hint in every completion/cancellation path. See the [JavaFX 27 CacheHint API](https://openjfx.io/javadoc/27/javafx.graphics/javafx/scene/CacheHint.html).
 

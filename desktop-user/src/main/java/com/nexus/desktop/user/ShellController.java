@@ -15,8 +15,10 @@ import com.nexus.sdk.model.MyProfile;
 import com.nexus.sdk.model.User;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
 import javafx.fxml.FXML;
 import javafx.geometry.Bounds;
+import javafx.geometry.Orientation;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.Parent;
@@ -31,11 +33,12 @@ import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
 import javafx.scene.control.MenuButton;
 import javafx.scene.control.MenuItem;
-import javafx.scene.control.ScrollPane;
+import javafx.scene.control.ScrollBar;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.input.ScrollEvent;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -52,11 +55,8 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.FormatStyle;
 import java.util.ArrayList;
 import java.util.EnumSet;
-import java.util.HashMap;
 import java.util.HashSet;
-import java.util.IdentityHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -66,19 +66,22 @@ public final class ShellController {
     /** Keys that move the viewport; pressing one ends the follow intent, like a wheel scroll does. */
     private static final Set<KeyCode> SCROLL_KEYS = EnumSet.of(
             KeyCode.UP, KeyCode.DOWN, KeyCode.PAGE_UP, KeyCode.PAGE_DOWN, KeyCode.HOME, KeyCode.END);
+    /** How long a follow may keep re-applying while the list measures the rows it just gained. */
+    private static final long FOLLOW_BUDGET_NANOS = 3_000_000_000L;
 
     private final UserAppContext context;
     private final I18n i18n;
     private final Runnable onSignedOut;
     private final DateTimeFormatter messageTime;
     private final DateTimeFormatter dayFormat;
-    private final Map<UUID, Node> messageNodes = new HashMap<>();
-    /** Reverse of {@link #messageNodes}: a repaint finds the message a row shows from the row. */
-    private final Map<Node, UUID> messageIdByNode = new IdentityHashMap<>();
+    /** The rows the list renders; only the ones it shows become scene-graph nodes. */
+    private final ObservableList<TimelineItem> timelineItems = FXCollections.observableArrayList();
     /** Ids in the order the rows show them, which is what makes an append-only update detectable. */
     private final List<UUID> renderedMessageIds = new ArrayList<>();
     private int renderedPendingCount;
     private LocalDate lastRenderedDay;
+    /** The search hit to mark; a cell reads it, so recycling a cell cannot lose it. */
+    private UUID revealedMessageId;
     /** True while the timeline is meant to show the newest row: recomputed on every repaint. */
     private boolean followTail;
     private Conversation activeConversation;
@@ -103,8 +106,7 @@ public final class ShellController {
     @FXML private Button groupSettingsButton;
     @FXML private Button clearHistoryButton;
     @FXML private Button recoveryButton;
-    @FXML private ScrollPane messageScroll;
-    @FXML private VBox messageRows;
+    @FXML private ListView<TimelineItem> messageList;
     @FXML private TextField composeField;
     @FXML private Button sendButton;
     @FXML private Circle statusDot;
@@ -187,24 +189,25 @@ public final class ShellController {
         signOutButton.setOnAction(event -> signOut());
         themeButton.setOnAction(event -> toggleTheme());
 
-        // A reader who scrolls away from the newest row is no longer following it. Without this the
-        // height listener below would pull them back to the bottom on the next resize, when the rows
-        // re-wrap and the content grows. The keyboard moves the viewport too, and it fires no
-        // ScrollEvent, so both inputs have to clear the same intent.
-        messageScroll.addEventFilter(ScrollEvent.SCROLL, event -> followTail = false);
-        messageScroll.addEventFilter(KeyEvent.KEY_PRESSED, event -> {
-            if (SCROLL_KEYS.contains(event.getCode())) followTail = false;
-        });
+        messageList.setItems(timelineItems);
+        messageList.setCellFactory(ignored -> new TimelineCell());
+        messageList.setPlaceholder(UiComponents.emptyState(
+                i18n.get("shell.noMessages"), i18n.get("shell.noMessagesHint"), null, null));
 
-        // The scroll skin re-derives vvalue whenever the content height changes, which drops the
-        // viewport off the newest row as soon as a message is appended. Re-applying the intent on the
-        // height change is what keeps a reader who is following the chat at the bottom.
-        messageRows.heightProperty().addListener((observable, previous, next) -> {
-            if (!followTail || previous.doubleValue() <= 0
-                    || next.doubleValue() <= previous.doubleValue()) {
-                return;
-            }
-            messageScroll.setVvalue(1.0);
+        // A reader who scrolls away from the newest row is no longer following it. A wheel scroll,
+        // a pressed scrollbar thumb or track and a keyboard move are all started by the reader, so
+        // each clears the same intent; a programmatic scroll fires none of them.
+        messageList.addEventFilter(ScrollEvent.SCROLL, event -> followTail = false);
+        messageList.addEventFilter(MouseEvent.MOUSE_PRESSED, event -> followTail = false);
+        messageList.addEventFilter(KeyEvent.KEY_PRESSED, event -> {
+            if (!SCROLL_KEYS.contains(event.getCode())) return;
+            followTail = false;
+            scrollByKey(event.getCode());
+            event.consume();
+        });
+        // A narrower window re-wraps every visible cell, so a reader at the newest row stays there.
+        messageList.widthProperty().addListener((observable, previous, next) -> {
+            if (followTail) scrollToLatestAfterLayout();
         });
 
         statusDot.getStyleClass().setAll("presence-dot", "offline");
@@ -306,7 +309,8 @@ public final class ShellController {
         showConversationHeader(conversation);
         int open = openGeneration.open();
         resetTimelineState();
-        messageRows.getChildren().setAll(UiComponents.loadingState(i18n.get("shell.loadingMessages")));
+        timelineItems.clear();
+        messageList.setPlaceholder(UiComponents.loadingState(i18n.get("shell.loadingMessages")));
         context.runAsync(() -> {
             if (conversation.getType() == Conversation.TypeEnum.GROUP) {
                 context.groups().syncGroup(conversation.getId());
@@ -317,7 +321,8 @@ public final class ShellController {
         }, ignored -> refreshIfStillOpen(open, messageToReveal), exception -> {
             showStatusError(exception);
             resetTimelineState();
-            messageRows.getChildren().setAll(UiComponents.errorState(
+            timelineItems.clear();
+            messageList.setPlaceholder(UiComponents.errorState(
                     i18n.get("error.title"),
                     UserErrors.statusMessage(exception, i18n),
                     i18n.get("shell.retry"),
@@ -336,6 +341,10 @@ public final class ShellController {
         reportButton.setDisable(group);
         groupSettingsButton.setDisable(!group);
         clearHistoryButton.setDisable(group);
+        // A direct chat has no membership to edit; the buttons say so instead of answering with a
+        // status line that a reader has to go and find.
+        addMemberButton.setDisable(!group);
+        removeMemberButton.setDisable(!group);
         String title = conversation.getName() == null || conversation.getName().isBlank()
                 ? i18n.get("shell.directChat") : conversation.getName();
         chatTitleLabel.setText(title);
@@ -390,43 +399,43 @@ public final class ShellController {
         refreshSearch(searchField.getText());
     }
 
+    /**
+     * Replaces the timeline content. The list builds a node only for the cells it shows and recycles
+     * them as the reader scrolls, so the scene graph stays bounded however long the history is.
+     */
     private void renderTimeline(List<CachedMessage> stored, List<PendingMessage> pending) {
         resetTimelineState();
-        messageRows.getChildren().clear();
+        timelineItems.clear();
         if (stored.isEmpty() && pending.isEmpty()) {
-            messageRows.getChildren().setAll(UiComponents.emptyState(
+            messageList.setPlaceholder(UiComponents.emptyState(
                     i18n.get("shell.noMessages"), i18n.get("shell.noMessagesHint"), null, null));
             return;
         }
-        for (CachedMessage message : stored) appendStoredRow(message);
+        messageList.setPlaceholder(null);
+        for (CachedMessage message : stored) appendStoredItem(message);
         for (PendingMessage pendingMessage : pending) {
-            messageRows.getChildren().add(pendingRow(pendingMessage));
+            timelineItems.add(new TimelineItem.Pending(pendingMessage));
         }
         renderedPendingCount = pending.size();
     }
 
     /** Drops what the timeline remembers about its rows, so no later repaint appends to them. */
     private void resetTimelineState() {
-        messageNodes.clear();
-        messageIdByNode.clear();
         renderedMessageIds.clear();
         renderedPendingCount = 0;
         lastRenderedDay = null;
     }
 
-    private void appendStoredRow(CachedMessage message) {
+    private void appendStoredItem(CachedMessage message) {
         LocalDate day = LocalDate.ofInstant(message.createdAt(), ZoneId.systemDefault());
         if (!day.equals(lastRenderedDay)) {
-            messageRows.getChildren().add(daySeparator(day));
+            timelineItems.add(new TimelineItem.Day(day));
             lastRenderedDay = day;
         }
         boolean mine = context.userId() != null && context.userId().equals(message.senderId());
-        boolean deleted = message.deletedForEveryoneAt() != null;
-        Node row = messageRow(message, mine, deleted);
-        messageNodes.put(message.id(), row);
-        messageIdByNode.put(row, message.id());
+        timelineItems.add(new TimelineItem.Bubble(message, mine,
+                message.deletedForEveryoneAt() != null));
         renderedMessageIds.add(message.id());
-        messageRows.getChildren().add(row);
     }
 
     /**
@@ -443,83 +452,177 @@ public final class ShellController {
             if (!renderedMessageIds.get(index).equals(stored.get(index).id())) return false;
         }
         for (int index = renderedMessageIds.size(); index < stored.size(); index++) {
-            appendStoredRow(stored.get(index));
+            appendStoredItem(stored.get(index));
         }
         return true;
     }
 
     /** The message nearest the top of the viewport, and how far below that top it sat. */
-    private record TimelineAnchor(UUID messageId, double offset) { }
+    /** The message at the top of the viewport; the list builds nodes only for visible cells. */
+    private record TimelineAnchor(UUID messageId) { }
 
     private TimelineAnchor captureTimelineAnchor() {
-        if (messageIdByNode.isEmpty()) return null;
-        double top = timelineTop();
-        for (Node row : messageRows.getChildren()) {
-            UUID id = messageIdByNode.get(row);
-            if (id == null) continue;
-            Bounds bounds = row.getBoundsInParent();
-            if (bounds.getMaxY() <= top) continue;
-            return new TimelineAnchor(id, bounds.getMinY() - top);
+        for (Node cell : messageList.lookupAll(".timeline-cell")) {
+            if (!(cell instanceof ListCell<?> listCell) || listCell.isEmpty()) continue;
+            Bounds bounds = messageList.sceneToLocal(cell.localToScene(cell.getBoundsInLocal()));
+            if (bounds.getMaxY() <= 0) continue;
+            if (listCell.getItem() instanceof TimelineItem.Bubble bubble) {
+                return new TimelineAnchor(bubble.message().id());
+            }
         }
         return null;
     }
 
     private void restoreTimelineAnchor(TimelineAnchor anchor) {
-        Node row = anchor == null ? null : messageNodes.get(anchor.messageId());
-        if (row == null) return;
-        layoutTimeline();
-        double range = timelineRange();
-        if (range <= 0) return;
-        double top = row.getBoundsInParent().getMinY() - anchor.offset();
-        messageScroll.setVvalue(Math.clamp(top / range, 0.0, 1.0));
+        if (anchor == null) return;
+        int index = indexOfMessage(anchor.messageId());
+        if (index < 0) return;
+        messageList.scrollTo(index);
     }
 
-    /** Brings a revealed message into view by its own position; an index is not a scroll fraction. */
+    /** Brings a revealed message into view; the list addresses rows by index, not by fraction. */
     private void revealMessage(UUID messageId) {
-        Node row = messageNodes.get(messageId);
-        if (row == null) return;
+        int index = indexOfMessage(messageId);
+        if (index < 0) return;
+        revealedMessageId = messageId;
         // Revealing is the opposite of following: the reader asked for this row, not the newest one.
         followTail = false;
-        layoutTimeline();
-        double range = timelineRange();
-        if (range > 0) {
-            // A little room above the hit, so the match is not stuck against the header.
-            double top = row.getBoundsInParent().getMinY() - 24;
-            messageScroll.setVvalue(Math.clamp(top / range, 0.0, 1.0));
-        }
-        row.getStyleClass().add("message-highlight");
+        // A little room above the hit, so the match is not stuck against the header.
+        messageList.scrollTo(Math.max(0, index - 1));
+        messageList.refresh();
     }
 
-    private void layoutTimeline() {
-        messageRows.applyCss();
-        messageRows.layout();
+    private int indexOfMessage(UUID messageId) {
+        for (int index = 0; index < timelineItems.size(); index++) {
+            if (timelineItems.get(index) instanceof TimelineItem.Bubble bubble
+                    && bubble.message().id().equals(messageId)) {
+                return index;
+            }
+        }
+        return -1;
     }
 
     /**
-     * Lands on the newest row once the new rows have been laid out. The scroll skin re-derives
-     * {@code vvalue} from the content height, so a value written before that pass still describes the
-     * old height; the write after the pulse is what actually shows the newest message.
+     * Lands on the newest row. A list does not move when an item is appended, so the follower is
+     * re-sent to the tail rather than relying on the content height to drag the viewport along.
      */
     private void scrollToLatestAfterLayout() {
         followTail = true;
-        layoutTimeline();
-        messageScroll.setVvalue(1.0);
+        followToLatest(System.nanoTime() + FOLLOW_BUDGET_NANOS);
     }
 
-    /** True when the newest row is visible, the only state that may follow an arriving message. */
+    /**
+     * Sends the viewport to the newest row, re-applying the move while the list catches up.
+     *
+     * <p>A list that has just gained rows measures them on its next layout pass. A scroll that runs
+     * before that pass computes its target from the previous content extent and stops short of the
+     * new row, so the move is repeated until the newest row is really inside the viewport. It stops
+     * on its own as soon as it lands, and gives up after a short budget rather than polling forever
+     * if the row can never fit (a message taller than the viewport). The follow flag is read again on
+     * every pulse: a reader who scrolled in between must not be dragged back.
+     */
+    private void followToLatest(long deadlineNanos) {
+        if (!followTail || timelineItems.isEmpty()) return;
+        messageList.scrollTo(timelineItems.size() - 1);
+        if (isTimelineAtBottom() || System.nanoTime() > deadlineNanos) return;
+        Platform.runLater(() -> followToLatest(deadlineNanos));
+    }
+
+    /**
+     * True when the newest row is on screen, the only state that may follow an arriving message.
+     *
+     * <p>The list's own scroll position is the statement to trust here: a recycled cell keeps the
+     * bounds it last had, so reading a cell's place in the viewport can call a reader at the top
+     * "at the bottom". The vertical scroll bar is read, never written: the skin owns that value.
+     */
     private boolean isTimelineAtBottom() {
-        if (messageScroll.getVvalue() >= 0.999) return true;
-        return timelineRange() <= 0.5;
+        if (timelineItems.isEmpty()) return true;
+        for (Node node : messageList.lookupAll(".scroll-bar")) {
+            if (!(node instanceof ScrollBar bar) || bar.getOrientation() != Orientation.VERTICAL) {
+                continue;
+            }
+            if (!bar.isVisible() || bar.getMax() <= 0) return true;
+            return bar.getValue() >= bar.getMax() - 1e-3;
+        }
+        return true;
     }
 
-    private double timelineRange() {
-        return messageRows.getBoundsInLocal().getHeight()
-                - messageScroll.getViewportBounds().getHeight();
+    /**
+     * Keyboard scrolling, so a keyboard-only reader never needs the pointer. It moves by rows via
+     * the list's public API rather than by writing the skin's scroll bar, which only owns the
+     * position the list itself set.
+     */
+    private void scrollByKey(KeyCode code) {
+        int last = timelineItems.size() - 1;
+        if (last < 0) return;
+        int top = firstVisibleRow();
+        int page = Math.max(1, visibleItemCount() - 1);
+        int target = switch (code) {
+            case UP -> top - 1;
+            case DOWN -> top + 1;
+            case PAGE_UP -> top - page;
+            case PAGE_DOWN -> top + page;
+            case HOME -> 0;
+            case END -> last;
+            default -> top;
+        };
+        messageList.scrollTo((int) Math.clamp((long) target, 0, last));
     }
 
-    private double timelineTop() {
-        double range = timelineRange();
-        return range <= 0 ? 0 : messageScroll.getVvalue() * range;
+    /** Index of the first row whose cell is on screen, top to bottom. */
+    private int firstVisibleRow() {
+        int first = -1;
+        for (Node node : messageList.lookupAll(".timeline-cell")) {
+            if (!(node instanceof ListCell<?> cell) || cell.isEmpty()) continue;
+            Bounds bounds = messageList.sceneToLocal(node.localToScene(node.getBoundsInLocal()));
+            if (bounds.getMaxY() <= 0) continue;
+            first = first < 0 ? cell.getIndex() : Math.min(first, cell.getIndex());
+        }
+        return Math.max(first, 0);
+    }
+
+    /** How many rows the viewport shows, which is what one page key should move. */
+    private int visibleItemCount() {
+        int count = 0;
+        for (Node node : messageList.lookupAll(".timeline-cell")) {
+            if (node instanceof ListCell<?> cell && !cell.isEmpty()) count++;
+        }
+        return count;
+    }
+
+    /** One row of the timeline list: a day separator, a stored message or a queued one. */
+    sealed interface TimelineItem
+            permits TimelineItem.Day, TimelineItem.Bubble, TimelineItem.Pending {
+        record Day(LocalDate day) implements TimelineItem { }
+
+        record Bubble(CachedMessage message, boolean mine, boolean deleted) implements TimelineItem { }
+
+        record Pending(PendingMessage pending) implements TimelineItem { }
+    }
+
+    /** Builds cell content on demand; the list recycles the cell, never the item. */
+    private final class TimelineCell extends ListCell<TimelineItem> {
+        TimelineCell() {
+            getStyleClass().add("timeline-cell");
+        }
+
+        @Override
+        protected void updateItem(TimelineItem item, boolean empty) {
+            super.updateItem(item, empty);
+            setText(null);
+            setGraphic(empty || item == null ? null : rowFor(item));
+        }
+
+        private Node rowFor(TimelineItem item) {
+            if (item instanceof TimelineItem.Day day) return daySeparator(day.day());
+            if (item instanceof TimelineItem.Pending pending) return pendingRow(pending.pending());
+            TimelineItem.Bubble bubble = (TimelineItem.Bubble) item;
+            Node row = messageRow(bubble.message(), bubble.mine(), bubble.deleted());
+            if (bubble.message().id().equals(revealedMessageId)) {
+                row.getStyleClass().add("message-highlight");
+            }
+            return row;
+        }
     }
 
     private Node messageRow(CachedMessage message, boolean mine, boolean deleted) {
@@ -529,7 +632,7 @@ public final class ShellController {
         meta.getStyleClass().add("message-meta");
         Label content = new Label(deleted ? i18n.get("shell.messageDeleted") : message.content());
         content.setWrapText(true);
-        content.setMaxWidth(560);
+        fitMessageText(content);
         HBox metaRow = new HBox(6, meta, UiComponents.spacer());
         metaRow.setAlignment(Pos.CENTER_LEFT);
         if (activeConversation != null
@@ -590,7 +693,7 @@ public final class ShellController {
         meta.getStyleClass().add("message-meta");
         Label content = new Label(pending.content());
         content.setWrapText(true);
-        content.setMaxWidth(560);
+        fitMessageText(content);
         VBox bubble = new VBox(3, meta, content);
         bubble.getStyleClass().addAll("message-bubble", "mine", "pending");
         bubble.setMaxWidth(600);
@@ -598,6 +701,15 @@ public final class ShellController {
         row.getStyleClass().add("message-row");
         row.setAlignment(Pos.CENTER_RIGHT);
         return row;
+    }
+
+    /**
+     * Keeps a message body inside the timeline. A bubble is drawn at its preferred width, so a fixed
+     * cap would let a narrow window clip the text instead of wrapping it; the cap follows the list.
+     */
+    private void fitMessageText(Label content) {
+        content.maxWidthProperty().bind(
+                javafx.beans.binding.Bindings.min(560.0, messageList.widthProperty().subtract(120)));
     }
 
     private Node daySeparator(LocalDate day) {
@@ -996,6 +1108,8 @@ public final class ShellController {
         reportButton.setDisable(disabled);
         groupSettingsButton.setDisable(disabled);
         clearHistoryButton.setDisable(disabled);
+        addMemberButton.setDisable(disabled);
+        removeMemberButton.setDisable(disabled);
     }
 
     private void refreshProfileHeader() {
@@ -1105,7 +1219,8 @@ public final class ShellController {
         chatTitleLabel.setText(i18n.get("shell.noConversationTitle"));
         chatSubtitleLabel.setText(i18n.get("shell.noConversationHint"));
         resetTimelineState();
-        messageRows.getChildren().setAll(UiComponents.emptyState(
+        timelineItems.clear();
+        messageList.setPlaceholder(UiComponents.emptyState(
                 i18n.get("shell.noConversationTitle"),
                 i18n.get("shell.noConversationHint"), null, null));
     }

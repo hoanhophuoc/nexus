@@ -4,7 +4,6 @@
 <?import javafx.scene.control.Button?>
 <?import javafx.scene.control.Label?>
 <?import javafx.scene.control.ListView?>
-<?import javafx.scene.control.ScrollPane?>
 <?import javafx.scene.control.TextField?>
 <?import javafx.scene.layout.BorderPane?>
 <?import javafx.scene.layout.HBox?>
@@ -77,10 +76,7 @@
             </top>
             <center>
                 <VBox spacing="0">
-                    <ScrollPane fx:id="messageScroll" fitToWidth="true" hbarPolicy="NEVER"
-                                VBox.vgrow="ALWAYS" styleClass="message-scroll">
-                        <VBox fx:id="messageRows" spacing="8" styleClass="message-list"/>
-                    </ScrollPane>
+                    <ListView fx:id="messageList" VBox.vgrow="ALWAYS" styleClass="message-list"/>
                     <HBox spacing="10" alignment="CENTER_LEFT" styleClass="composer">
                         <TextField fx:id="composeField" promptText="%shell.composePrompt"
                                    styleClass="composer-field" HBox.hgrow="ALWAYS"/>

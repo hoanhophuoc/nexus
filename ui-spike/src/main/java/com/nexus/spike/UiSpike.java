@@ -112,7 +112,7 @@ public final class UiSpike extends Application {
             check(variant + ": the Nexus tokens win the cascade over AtlantaFX",
                     () -> nexusSheet(stage, theme, variant));
         }
-        check("the ComboBox and DatePicker popups are skinned", UiSpike::popups);
+        check("the ComboBox and DatePicker popup scenes carry the Nexus theme", UiSpike::popups);
         check("a FontIcon loads from FXML with its font", UiSpike::fxmlIcon);
         check("admin.css layers over the shared tokens", UiSpike::adminCss);
         check("the AtlantaFX extras build and skin next to the tokens", UiSpike::atlantaControls);
@@ -204,7 +204,11 @@ public final class UiSpike extends Application {
                         + "field-contrast=%.2f%n", variant, surface, bodyContrast, fieldContrast);
     }
 
-    private static void popups() {
+    /**
+     * The popup scenes are separate scenes, so "it has a skin" proves nothing about the theme:
+     * each one must carry the Nexus stylesheet and theme class and paint the semantic token.
+     */
+    private static void popups() throws Exception {
         Application.setUserAgentStylesheet(new PrimerLight().getUserAgentStylesheet());
         Stage stage = new Stage();
         ComboBox<String> combo = new ComboBox<>(
@@ -214,6 +218,9 @@ public final class UiSpike extends Application {
         VBox root = new VBox(10, combo, date);
         root.setPadding(new Insets(16));
         Scene scene = new Scene(root, 420, 260);
+        ThemeManager manager = new ThemeManager();
+        manager.setTheme(com.nexus.desktop.shared.ui.Theme.LIGHT);
+        manager.apply(scene);
         stage.setScene(scene);
         stage.show();
         try {
@@ -221,22 +228,43 @@ public final class UiSpike extends Application {
             root.layout();
 
             combo.show();
-            Parent comboPopup = popupRoot();
-            require(comboPopup != null, "the ComboBox opened no popup");
-            comboPopup.applyCss();
-            comboPopup.layout();
-            Node list = comboPopup.lookup(".list-view");
-            require(list instanceof Region, "the ComboBox popup has no skinned list");
-            require(backgroundOf((Region) list) != null,
-                    "the ComboBox popup list has no background");
-            System.out.printf("[spike]   combo popup stylesheets=%s%n",
-                    comboPopup.getScene().getStylesheets().stream()
-                            .map(url -> url.substring(url.lastIndexOf('/') + 1)).toList());
+            requireStyled(popupRoot(), "light");
+            requireSurface(popupRoot(), "light");
             combo.hide();
+
+            // Hidden and opened again: the popup scene keeps its styling.
+            combo.show();
+            requireStyled(popupRoot(), "light");
+            requireSurface(popupRoot(), "light");
+
+            // The theme changes while the popup is open: the class must flip immediately. The
+            // popup's rendered colours are asserted after the reopen below, because this spike
+            // runs on the FX thread and cannot wait for the CSS pulse that repaints descendants;
+            // PopupThemeFxTest asserts the live repaint from the test thread instead.
+            manager.setTheme(com.nexus.desktop.shared.ui.Theme.DARK);
+            requireStyled(popupRoot(), "dark");
+            combo.hide();
+
+            // A control built after the change opens in the new theme on its first CSS pass.
+            ComboBox<String> later = new ComboBox<>(
+                    FXCollections.observableArrayList("Direct chat", "Group chat"));
+            later.getSelectionModel().selectFirst();
+            root.getChildren().add(later);
+            root.applyCss();
+            root.layout();
+            later.show();
+            Parent afterFlip = popupRoot();
+            requireStyled(afterFlip, "dark");
+            requireSurface(afterFlip, "dark");
+            System.out.printf("[spike]   combo popup stylesheets=%s surface=%s%n",
+                    afterFlip.getScene().getStylesheets().stream()
+                            .map(url -> url.substring(url.lastIndexOf('/') + 1)).toList(),
+                    backgroundOf((Region) afterFlip.lookup(".list-view")));
+            later.hide();
 
             date.show();
             Parent datePopup = popupRoot();
-            require(datePopup != null, "the DatePicker opened no popup");
+            requireStyled(datePopup, "dark");
             datePopup.applyCss();
             datePopup.layout();
             require(!datePopup.lookupAll(".label").isEmpty(),
@@ -248,6 +276,32 @@ public final class UiSpike extends Application {
         } finally {
             stage.close();
         }
+    }
+
+    /** theme.css reaches the popup scene and the theme class sits on its root. */
+    private static void requireStyled(Parent popup, String variant) {
+        require(popup != null, "the popup did not open");
+        Scene scene = popup.getScene();
+        require(scene != null, "the popup has no scene");
+        require(scene.getStylesheets().stream().anyMatch(ThemeManager.stylesheetUrl()::equals),
+                "the popup scene did not receive theme.css: " + scene.getStylesheets());
+        String expected = "dark".equals(variant) ? "theme-dark" : "theme-light";
+        require(popup.getStyleClass().contains(expected),
+                "the popup root is missing " + expected + ": " + popup.getStyleClass());
+    }
+
+    /** The rendered popup list paints -color-surface, not a stock skin colour. */
+    private static void requireSurface(Parent popup, String variant) {
+        popup.applyCss();
+        popup.layout();
+        Node list = popup.lookup(".list-view");
+        require(list instanceof Region, "the ComboBox popup has no skinned list");
+        Color surface = colour(backgroundOf((Region) list));
+        Color expected = Color.web("dark".equals(variant) ? "#151C26" : "#FFFFFF");
+        require(expected.equals(surface),
+                "the popup list paints " + surface + " instead of -color-surface " + expected
+                        + " (root=" + popup.getStyleClass() + " list=" + list.getStyleClass()
+                        + " sheets=" + popup.getScene().getStylesheets().size() + ")");
     }
 
     private static void fxmlIcon() throws Exception {

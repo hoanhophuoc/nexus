@@ -231,6 +231,42 @@ class UserGoldenScreenshotFxTest {
     }
 
     /**
+     * The sign-in screen in Vietnamese, which is the first screen of the product and the one whose
+     * longest labels ("Đăng nhập", "Quên mật khẩu?") are not exercised by the English baseline.
+     */
+    @Test
+    void vietnameseLoginMatchesGoldensInLightAndDark(@TempDir Path home) throws Exception {
+        String previousHome = System.getProperty("user.home");
+        TimeZone previousZone = TimeZone.getDefault();
+        System.setProperty("user.home", home.toString());
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+        try (FakeChatServer server = new FakeChatServer()) {
+            Stage stage = onFx(Stage::new);
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            I18n i18n = new I18n(BASE, Locale.forLanguageTag("vi"));
+            UserAppContext context = new UserAppContext(stage, server.origin().toString(), false,
+                    null, theme, i18n);
+            try {
+                Parent login = onFx(() -> mount(stage, theme,
+                        ViewLoader.load(ViewLoader.LOGIN, new LoginController(context, profile -> { }),
+                                i18n), 520, 640));
+                snapshot(stage, login, "login-vi-light.png", "login-vi-dark.png", theme, null, i18n);
+            } finally {
+                onFx(() -> {
+                    stage.close();
+                    context.close();
+                    return true;
+                });
+            }
+        } finally {
+            TimeZone.setDefault(previousZone);
+            if (previousHome == null) System.clearProperty("user.home");
+            else System.setProperty("user.home", previousHome);
+        }
+    }
+
+    /**
      * The same chat shell in Vietnamese. Text is the only intended difference from the English
      * baseline; longer strings that clip, wrap unexpectedly or push the composer out of the window
      * are exactly what a string-only assertion cannot catch.

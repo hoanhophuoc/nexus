@@ -92,12 +92,37 @@ Passing checks, each one an assertion that fails the build:
   `-color-surface`; `SegmentedControl`, `ToggleSwitch`, `Notification` and `ModalPane` build and
   skin; one `ThemeManager` round-trips SYSTEM/LIGHT/DARK through its preferences store.
 
-Still open before production adoption:
-- A popup's `Scene` carries no application stylesheets (the check prints `stylesheets=[]`), so Nexus
-  tokens do not reach ComboBox/DatePicker popups by themselves. Adoption must apply the shared
-  stylesheet to popup scenes and prove it on a rendered control.
-- Focus, keyboard and accessibility behaviour of the AtlantaFX-only controls inside real Nexus
-  screens, and the 5,000-message timeline benchmark that decides on virtualization.
+The popup gap the spike originally printed (`combo popup stylesheets=[]`) is closed: `ThemeManager`
+now styles an owner-bound popup's `Scene` with `theme.css` and the active theme class through
+`PopupThemes`, and the spike asserts the popup scene stylesheet, the theme class and the Nexus
+surface token (`0xffffff` LIGHT, `0x151c26` DARK) on a rendered ComboBox popup. The same contract is
+covered for DatePicker, `MenuButton` context menus, tooltips and `ConfirmDialog` by
+`PopupThemeFxTest`, including reopen, a live theme flip, and that closing an owner stops its popup
+being tracked: the closed owner's popup keeps the theme it was shown under while a live owner's
+popup in the same run follows the switch.
+
+A popup's content hangs off its scene root through JavaFX's internal `CSSBridge`, and a looked-up
+colour on that content is resolved from the scene on the far side of the bridge, not from the popup
+root. The class on the popup root alone therefore does not survive a flip, a reopen or a lost CSS
+pass: `ThemeManager.styleWindow` repeats `theme-light`/`theme-dark` on every node of a popup's
+content and then runs the CSS pass unconditionally, even when the class was already right. Without
+that stamping the ComboBox list and the tooltip label intermittently kept the palette they were
+built under (roughly one run in three) while the popup root itself was correct. Application scenes
+are deliberately not stamped: their tokens resolve from their own root, and stamping a scene's
+descendants changes what the screens render, which the goldens caught.
+
+**Decision (2026-11-18): retain AtlantaFX isolated in `ui-spike`; do not adopt it in the product
+modules.** The evidence:
+- Nexus `theme.css` already wins the cascade for every shipped control, in both themes, on real
+  screens and in the rendered-control contrast checks. Primer contributes no token the product
+  needs.
+- The one gap that made adoption attractive was popup theming, and it is now solved in
+  `desktop-shared` without a second stylesheet layer.
+- Adopting Primer would add a second CSS layer plus third-party control skins to track across
+  JavaFX upgrades, while the product keeps its own measured contrast, golden baselines and
+  accessibility tests.
+- The spike stays in the build as the standing proof that a new UI dependency has to clear the
+  compatibility, licence and packaging gates before touching production modules.
 
 The check runs in the `fx-test` CI job; its screenshots are uploaded as the `ui-spike` artifact.
 

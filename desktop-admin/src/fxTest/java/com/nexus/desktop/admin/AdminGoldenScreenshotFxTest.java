@@ -255,6 +255,124 @@ class AdminGoldenScreenshotFxTest {
         }
     }
 
+    /**
+     * The administrator screens in Vietnamese. The translated toolbar, table headers and detail
+     * titles are the longest strings the layout has to hold, so they get their own baseline rather
+     * than being assumed safe because the English one fits.
+     */
+    @Test
+    void vietnameseAdminScreensMatchGoldensInLightAndDark() throws Exception {
+        TimeZone previousZone = TimeZone.getDefault();
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+        try (FakeAdminServer server = new FakeAdminServer()) {
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            I18n vietnamese = new I18n(BASE, Locale.forLanguageTag("vi"));
+            AtomicReference<Stage> stageReference = new AtomicReference<>();
+            AdminAppContext context = onFx(() -> {
+                Stage ownStage = new Stage();
+                stageReference.set(ownStage);
+                return new AdminAppContext(ownStage, server.origin().toString(), theme, vietnamese);
+            });
+            Stage stage = stageReference.get();
+            try {
+                Parent login = onFx(() -> {
+                    Parent root = AdminViewLoader.load(AdminViewLoader.LOGIN,
+                            new AdminLoginController(context, profile -> { }), vietnamese);
+                    mount(stage, theme, root);
+                    return root;
+                });
+                GoldenPointer.capture(login,
+                        () -> assertGolden(snapshot(stage), "login-vi-light.png"));
+                onFx(() -> {
+                    theme.setTheme(Theme.DARK);
+                    theme.apply(stage.getScene());
+                    login.applyCss();
+                    login.layout();
+                    return true;
+                });
+                GoldenPointer.capture(login,
+                        () -> assertGolden(snapshot(stage), "login-vi-dark.png"));
+
+                context.activate(context.signIn("admin", "correct horse battery staple".toCharArray()));
+                AtomicReference<Parent> shellReference = new AtomicReference<>();
+                onFx(() -> {
+                    theme.setTheme(Theme.LIGHT);
+                    Parent root = AdminViewLoader.load(AdminViewLoader.SHELL,
+                            new AdminShellController(context, () -> { }), vietnamese);
+                    mount(stage, theme, root);
+                    shellReference.set(root);
+                    return true;
+                });
+                waitForFx(() -> tableRows(stage, 0) > 1 && !loadingDetails(stage, vietnamese),
+                        Duration.ofSeconds(10));
+                onFx(() -> {
+                    shellReference.get().applyCss();
+                    shellReference.get().layout();
+                    clearFocus(shellReference.get());
+                    return true;
+                });
+                GoldenPointer.capture(shellReference.get(), () -> {
+                    selectPrimaryRow(stage, vietnamese, "#accountsTable");
+                    assertGolden(snapshot(stage), "shell-vi-light.png");
+                });
+                onFx(() -> {
+                    theme.setTheme(Theme.DARK);
+                    theme.apply(stage.getScene());
+                    shellReference.get().applyCss();
+                    shellReference.get().layout();
+                    return true;
+                });
+                GoldenPointer.capture(shellReference.get(), () -> {
+                    selectPrimaryRow(stage, vietnamese, "#accountsTable");
+                    assertGolden(snapshot(stage), "shell-vi-dark.png");
+                });
+
+                AtomicReference<Parent> reportsRoot = new AtomicReference<>();
+                onFx(() -> {
+                    theme.setTheme(Theme.LIGHT);
+                    Parent reports = AdminViewLoader.load(AdminViewLoader.REPORTS,
+                            new ReportsController(context), vietnamese);
+                    Scene scene = new Scene(reports, WIDTH, HEIGHT);
+                    theme.apply(scene);
+                    AdminViewLoader.applyStylesheet(scene);
+                    stage.setScene(scene);
+                    stage.show();
+                    reports.applyCss();
+                    reports.layout();
+                    clearFocus(reports);
+                    reportsRoot.set(reports);
+                    return true;
+                });
+                waitForFx(() -> tableRows(stage, 0) > 0 && tableRows(stage, 1) > 0,
+                        Duration.ofSeconds(10));
+                GoldenPointer.capture(reportsRoot.get(), () -> {
+                    selectPrimaryRow(stage, vietnamese, "#reportsTable");
+                    assertGolden(snapshot(stage), "reports-vi-light.png");
+                });
+                onFx(() -> {
+                    theme.setTheme(Theme.DARK);
+                    theme.apply(stage.getScene());
+                    reportsRoot.get().applyCss();
+                    reportsRoot.get().layout();
+                    return true;
+                });
+                GoldenPointer.capture(reportsRoot.get(), () -> {
+                    selectPrimaryRow(stage, vietnamese, "#reportsTable");
+                    assertGolden(snapshot(stage), "reports-vi-dark.png");
+                });
+            } finally {
+                onFx(() -> {
+                    stage.close();
+                    context.close();
+                    return true;
+                });
+            }
+        } finally {
+            TimeZone.setDefault(previousZone);
+        }
+    }
+
     private static void mount(Stage stage, ThemeManager theme, Parent root) {
         Scene scene = new Scene(root, WIDTH, HEIGHT);
         theme.apply(scene);

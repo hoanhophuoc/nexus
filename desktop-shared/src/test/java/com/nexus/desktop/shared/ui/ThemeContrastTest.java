@@ -102,7 +102,10 @@ class ThemeContrastTest {
             assertThat(stream).as("theme stylesheet resource").isNotNull();
             css = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
         }
-        Matcher block = Pattern.compile(Pattern.quote(selector) + "\\s*\\{([^}]*)}")
+        // The light palette is declared on a selector list (`.root, .theme-light`) so a popup root
+        // that carries the theme class but is not the scene root still resolves its tokens; the
+        // block is the same one, whatever else shares the selector.
+        Matcher block = Pattern.compile(Pattern.quote(selector) + "[^{]*\\{([^}]*)}")
                 .matcher(css);
         assertThat(block.find()).as("CSS block %s", selector).isTrue();
         Matcher token = Pattern.compile(

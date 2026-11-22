@@ -56,6 +56,9 @@ public final class ConfirmDialog {
         }
         Node cancelFocus = cancelButton;
         dialog.setOnShown(event -> {
+            // The dialog owns its own scene, which no application scene styles; styling it here
+            // also covers a dialog opened without an owner window.
+            if (theme != null) theme.apply(dialog.getDialogPane().getScene());
             if (cancelFocus != null) cancelFocus.requestFocus();
         });
         dialog.setOnHidden(event -> {
