@@ -163,7 +163,7 @@ class UserGoldenScreenshotFxTest {
                 ComboBox<?> gender = (ComboBox<?>) onFx(() -> account.lookup("#profileGenderField"));
                 assertThat(gender).as("the account gender choice").isNotNull();
                 Parent comboPopup = openPopup(gender::show, ".list-view");
-                capturePopup(comboPopup, "popup-combo-light.png"); // TEMPORARY: collects mismatches to regenerate the ci baselines
+                capturePopup(comboPopup, "popup-combo-light.png");
 
                 onFx(() -> {
                     theme.setTheme(Theme.DARK);
@@ -198,8 +198,6 @@ class UserGoldenScreenshotFxTest {
                 waitForFx(() -> menuPopup.getStyleClass().contains("theme-light"),
                         Duration.ofSeconds(10));
                 capturePopup(menuPopup, "popup-menu-light.png");
-                // TEMPORARY: one run has to write all four actuals before it fails.
-                if (!POPUP_MISMATCHES.isEmpty()) throw new AssertionError(POPUP_MISMATCHES.getFirst());
             } finally {
                 onFx(() -> {
                     stage.close();
@@ -465,15 +463,8 @@ class UserGoldenScreenshotFxTest {
             popup.layout();
             return popup.snapshot(new SnapshotParameters(), null);
         });
-        try {
-            assertGolden(image, name);
-        } catch (AssertionError mismatch) {
-            // TEMPORARY: keep going so the remaining popups are captured too.
-            POPUP_MISMATCHES.add(mismatch);
-        }
+        assertGolden(image, name);
     }
-
-    private static final java.util.List<Throwable> POPUP_MISMATCHES = new java.util.ArrayList<>();
 
     /** Selects a conversation by name once the shell's own refresh has listed it. */
     private static boolean openConversationNamed(Parent root, String name) {
