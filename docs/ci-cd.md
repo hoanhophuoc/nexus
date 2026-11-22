@@ -31,16 +31,21 @@ Without that data the module reports were empty, SonarQube counted both UI modul
 and the project sat at 38%. With it they measure 85.12% and 84.78% of lines, and the project reports
 74.0% coverage. Across the four product modules and both desktop suites the
 aggregate report — the one the bundle floor is checked against — measures 85.56% of lines and 61.11%
-of branches, above both bundle floors (83% and 58%). Summing the four per-module reports
-instead gives 76.46% and 54.16%, because a module's report only credits its own suites:
-`com.nexus.desktop.shared/ui` reads as 11 covered lines of 191 in the shared report but 175 of 191 in
-the aggregate, since the desktop FX suites are what exercise it. The package floors are rounded down
-the same way.
+of branches, above both bundle floors (83% and 58%). Summing the four per-module reports instead
+reads lower, because a module's report only credits the suites it names. The shared module is the one
+the difference used to hide the most: the theme manager and the popup theme propagation only run with
+a toolkit, so the suites that exercise `com.nexus.desktop.shared/ui` are the two clients' JavaFX
+suites. Its own report now reads both clients' `fxTest.exec` files when the artifact is present, so
+SonarQube credits that code from the module it lives in and not only from the aggregate. The package
+floors are rounded down the same way.
 
 SonarQube measures the same four product modules as `coverageModules`: `ui-spike`, the AtlantaFX
 proof of concept no product module references, and `fx-test-support`, the harness the JavaFX suites
 run on, are excluded from its coverage through `sonar.coverage.exclusions`. Counting them measured
-the tooling rather than the product and held the quality gate at 65% of new code.
+the tooling rather than the product and held the quality gate at 65% of new code. The shared module's
+own report has to include the clients' JavaFX exec data for the same reason: without it, every new
+line in `PopupThemes`, `ThemeManager` or `ConfirmDialog` was judged uncovered new code even though
+the JavaFX suites run it.
 
 Both `coverageReport` and the gate depend on `coverageDataCheck`, which refuses the measurement when
 an exec file is missing, older than the sources of the module it covers, or written by a suite that

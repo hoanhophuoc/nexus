@@ -597,7 +597,7 @@ public final class ShellController {
             if (bounds.getMaxY() <= 0) continue;
             first = first < 0 ? cell.getIndex() : Math.min(first, cell.getIndex());
         }
-        return Math.max(first, 0);
+        return first < 0 ? 0 : first;
     }
 
     /** How many rows the viewport shows, which is what one page key should move. */
