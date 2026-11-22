@@ -50,7 +50,7 @@ scripts/                gates, live journey, packaging helpers
 | `./scripts/check-ga-pins.sh` | Fails on a pre-release action SHA, image tag or base image |
 | `./scripts/check-image-pins.sh` | Fails on a floating or untagged container image |
 | `./gradlew :server:bootRun` | Runs the API and WebSocket on `NEXUS_SERVER_PORT` |
-| `./scripts/smoke-desktop.sh` | Starts throwaway PostgreSQL and Redis, runs the server, signs in and renders the user shell against it, then cleans up |
+| `./scripts/smoke-desktop.sh` | Starts throwaway PostgreSQL and Redis, runs the server, sends and receives a message between two real clients, then cleans up |
 | `./gradlew :desktop-user:run` / `:desktop-admin:run` | Runs a desktop client |
 | `./gradlew :desktop-user:packageClient` / `:desktop-admin:packageAdmin` | Builds a native installer |
 | `./gradlew :client-sdk:openApiGenerate` | Regenerates the SDK from `api/v1/openapi.yaml` |
@@ -77,9 +77,11 @@ and creates a direct conversation through the API, signs in as the first through
 `UserAppContext.signIn` the client uses, renders `shell.fxml` in a real `Stage`, waits for the
 connected status, opens that conversation, types into the composer and sends. It then waits for the
 bubble to lose its `pending` marker, which happens only after the queued message was accepted, and
-checks the message is in the server's history — one real conversation round trip. Finally it
-switches LIGHT → DARK → LIGHT on the live shell. A green run covers the SDK, the session cookie,
-the encrypted cache, sending and the shell together.
+checks the message is in the server's history. Then it signs the second account in to its own client
+window, opens the same chat and waits for that text to arrive as the counterpart's message rather
+than its own — the receive side of the round trip. Finally it switches LIGHT → DARK → LIGHT on the
+live shell. A green run covers the SDK, the session cookie, the encrypted cache, sending, receiving
+and the shell together.
 
 Everything the script creates — both containers, the server and its Gradle daemon — is removed on
 exit, including on failure or Ctrl-C. Its log is `build/smoke/server.log`;

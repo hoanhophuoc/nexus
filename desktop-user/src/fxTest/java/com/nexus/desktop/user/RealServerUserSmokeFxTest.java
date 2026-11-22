@@ -37,11 +37,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Opt-in smoke test of the user client against a real server. It creates its own two accounts and a
- * friendship between them through the API, signs in through the same code path the client uses,
- * renders the shell, sends a message in a real conversation, waits for the delivered bubble, then
- * moves the shell between themes. It is the one check that proves the packaged client's stack — SDK,
- * session cookie, MLS group, encrypted cache and FXML shell — works against a running service,
- * without clicking anything.
+ * friendship between them through the API, signs both into their own client windows through the same
+ * code path the application uses, sends a message from the first, waits for the second to receive it,
+ * and moves the shell between themes. It is the one check that proves the packaged client's stack —
+ * SDK, session cookie, encrypted cache and FXML shell — works against a running service, in both
+ * directions, without clicking anything.
  *
  * <pre>
  * NEXUS_REAL_SERVER=true ./gradlew :desktop-user:fxTest --tests '*RealServerUserSmokeFxTest'
@@ -57,90 +57,125 @@ class RealServerUserSmokeFxTest {
     private static final String PASSWORD = "correct horse battery staple";
 
     @Test
-    void sendsAMessageAndRendersTheShellAgainstARealServer(@TempDir Path home) throws Exception {
+    void sendsAMessageAndRendersItForTheOtherSide(@TempDir Path home) throws Exception {
         String previousHome = System.getProperty("user.home");
         System.setProperty("user.home", home.toString());
         String origin = env("NEXUS_REAL_SERVER_ORIGIN", "http://127.0.0.1:8080");
         String suffix = UUID.randomUUID().toString().substring(0, 8);
         String username = "smoke_" + suffix;
+        String peerUsername = "smoke_peer_" + suffix;
         String peerName = "Smoke Peer " + suffix;
         try {
             System.out.println("SMOKE registering " + username + " and its counterpart at " + origin);
             SessionApi session = new SessionApi(URI.create(origin));
             MyProfile self = register(session, username, "Smoke Client");
-            SessionApi peer = new SessionApi(URI.create(origin));
-            MyProfile counterpart = register(peer, "smoke_peer_" + suffix, peerName);
-            Conversation direct = befriend(session, peer, self, counterpart);
+            SessionApi peerApi = new SessionApi(URI.create(origin));
+            MyProfile counterpart = register(peerApi, peerUsername, peerName);
+            Conversation direct = befriend(session, peerApi, self, counterpart);
             System.out.println("SMOKE direct conversation " + direct.getId() + " with " + peerName);
 
-            Stage stage = onFx(Stage::new);
-            ThemeManager theme = new ThemeManager();
-            theme.setTheme(Theme.LIGHT);
-            I18n i18n = new I18n(BASE, Locale.ENGLISH);
-            UserAppContext context = new UserAppContext(stage, origin, false, null, theme, i18n);
-            try {
-                System.out.println("SMOKE signing in");
-                context.activate(context.signIn(username, PASSWORD.toCharArray()));
-
-                Parent shell = onFx(() -> mount(stage, theme,
-                        ViewLoader.load(ViewLoader.SHELL, new ShellController(context, () -> { }), i18n),
-                        1180, 760));
+            System.out.println("SMOKE signing in as " + username);
+            try (Client sender = new Client(origin, username, Theme.LIGHT, 1180, 760)) {
                 // Connected is written last by the shell's load, so waiting for it means the server
                 // round trip, the profile and the conversation list all finished.
-                waitForFx(() -> shell.lookup("#statusLabel") instanceof Label status
-                        && i18n.get("shell.connected").equals(status.getText()),
-                        Duration.ofSeconds(30));
-                assertThat(onFx(() -> shell.lookupAll(".list-view")))
+                sender.awaitConnected();
+                assertThat(onFx(() -> sender.shell.lookupAll(".list-view")))
                         .as("the conversation list renders").isNotEmpty();
                 System.out.println("SMOKE shell connected");
 
                 // Both accounts are new, so the shell's list holds exactly one conversation; its
                 // server-side name is null for a direct chat, so the single row is selected directly.
-                waitForFx(() -> selectFirstConversation(shell), Duration.ofSeconds(20));
-                waitForFx(() -> shell.lookup("#composeField") instanceof TextField field
+                waitForFx(() -> selectFirstConversation(sender.shell), Duration.ofSeconds(20));
+                waitForFx(() -> sender.shell.lookup("#composeField") instanceof TextField field
                         && field.isVisible() && !field.isDisabled(), Duration.ofSeconds(10));
 
                 String message = "smoke ping " + suffix;
                 onFx(() -> {
-                    ((TextField) shell.lookup("#composeField")).setText(message);
-                    ((Button) shell.lookup("#sendButton")).fire();
+                    ((TextField) sender.shell.lookup("#composeField")).setText(message);
+                    ((Button) sender.shell.lookup("#sendButton")).fire();
                     return true;
                 });
                 // A queued message renders at once with a "pending" bubble; the delivered one is the
                 // same text without that marker, so this waits for the server to acknowledge the send.
-                waitForFx(() -> bubbleState(shell, message).equals("sent"), Duration.ofSeconds(60));
-                assertThat(bubbleState(shell, message))
+                waitForFx(() -> bubbleState(sender.shell, message).equals("sent"),
+                        Duration.ofSeconds(60));
+                assertThat(bubbleState(sender.shell, message))
                         .as("the sent message renders as a delivered bubble").isEqualTo("sent");
-                System.out.println("SMOKE message delivered: " + message);
                 // The bubble stops being pending only once the queued message was uploaded, so the
                 // server's own history is the other half of the round trip.
                 assertThat(session.api().getMessages(direct.getId(), null, 50).getItems())
                         .extracting(Message::getContent)
                         .as("the server stored the message").contains(message);
+                System.out.println("SMOKE message delivered to the sender: " + message);
+
+                System.out.println("SMOKE signing in as " + peerUsername + " to receive it");
+                try (Client receiver = new Client(origin, peerUsername, Theme.DARK, 1000, 700)) {
+                    receiver.awaitConnected();
+                    waitForFx(() -> selectFirstConversation(receiver.shell), Duration.ofSeconds(20));
+                    // Opening the chat fetches the conversation's history from the server, so this is
+                    // the receive path: the other account's message arriving in its own client.
+                    waitForFx(() -> bubbleState(receiver.shell, message).equals("sent"),
+                            Duration.ofSeconds(60));
+                    assertThat(bubbleClass(receiver.shell, message))
+                            .as("the receiver renders the sender's message, not its own")
+                            .contains("theirs").doesNotContain("mine");
+                    System.out.println("SMOKE peer received: " + message);
+                }
 
                 onFx(() -> {
-                    theme.setTheme(Theme.DARK);
+                    sender.theme.setTheme(Theme.DARK);
                     return true;
                 });
-                waitForFx(() -> shell.getStyleClass().contains("theme-dark"), Duration.ofSeconds(10));
-                assertThat(theme.isDark()).as("the client reports the dark theme").isTrue();
+                waitForFx(() -> sender.shell.getStyleClass().contains("theme-dark"),
+                        Duration.ofSeconds(10));
+                assertThat(sender.theme.isDark()).as("the client reports the dark theme").isTrue();
 
                 onFx(() -> {
-                    theme.setTheme(Theme.LIGHT);
+                    sender.theme.setTheme(Theme.LIGHT);
                     return true;
                 });
-                waitForFx(() -> shell.getStyleClass().contains("theme-light"), Duration.ofSeconds(10));
+                waitForFx(() -> sender.shell.getStyleClass().contains("theme-light"),
+                        Duration.ofSeconds(10));
                 System.out.println("SMOKE theme switched light -> dark -> light");
-            } finally {
-                onFx(() -> {
-                    stage.close();
-                    context.close();
-                    return true;
-                });
             }
         } finally {
             if (previousHome == null) System.clearProperty("user.home");
             else System.setProperty("user.home", previousHome);
+        }
+    }
+
+    /** One signed-in client window: its own session, cache, theme and shell, as the application builds them. */
+    private static final class Client implements AutoCloseable {
+        final Stage stage;
+        final ThemeManager theme;
+        final I18n i18n;
+        final UserAppContext context;
+        final Parent shell;
+
+        Client(String origin, String username, Theme start, int width, int height) throws Exception {
+            stage = onFx(Stage::new);
+            theme = new ThemeManager();
+            theme.setTheme(start);
+            i18n = new I18n(BASE, Locale.ENGLISH);
+            context = new UserAppContext(stage, origin, false, null, theme, i18n);
+            context.activate(context.signIn(username, PASSWORD.toCharArray()));
+            shell = onFx(() -> mount(stage, theme,
+                    ViewLoader.load(ViewLoader.SHELL, new ShellController(context, () -> { }), i18n),
+                    width, height));
+        }
+
+        void awaitConnected() {
+            waitForFx(() -> shell.lookup("#statusLabel") instanceof Label status
+                    && i18n.get("shell.connected").equals(status.getText()), Duration.ofSeconds(30));
+        }
+
+        @Override
+        public void close() {
+            onFx(() -> {
+                stage.close();
+                context.close();
+                return true;
+            });
         }
     }
 
@@ -184,14 +219,25 @@ class RealServerUserSmokeFxTest {
 
     /** {@code "absent"}, {@code "pending"} while queued, or {@code "sent"} once the server took it. */
     private static String bubbleState(Parent shell, String text) {
+        Node bubble = bubbleShowing(shell, text);
+        if (bubble == null) return "absent";
+        return bubble.getStyleClass().contains("pending") ? "pending" : "sent";
+    }
+
+    /** The bubble's own classes, which say whose message the reader sees and whether it is queued. */
+    private static java.util.List<String> bubbleClass(Parent shell, String text) {
+        Node bubble = bubbleShowing(shell, text);
+        return bubble == null ? java.util.List.of() : java.util.List.copyOf(bubble.getStyleClass());
+    }
+
+    private static Node bubbleShowing(Parent shell, String text) {
         for (Node bubble : shell.lookupAll(".message-bubble")) {
             boolean shows = bubble.lookupAll(".label").stream()
                     .filter(Label.class::isInstance).map(Label.class::cast)
                     .anyMatch(label -> text.equals(label.getText()));
-            if (!shows) continue;
-            return bubble.getStyleClass().contains("pending") ? "pending" : "sent";
+            if (shows) return bubble;
         }
-        return "absent";
+        return null;
     }
 
     private static Parent mount(Stage stage, ThemeManager theme, Parent root, int width, int height) {
