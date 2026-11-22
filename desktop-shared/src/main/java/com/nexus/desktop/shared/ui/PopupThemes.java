@@ -4,6 +4,9 @@ import javafx.collections.ListChangeListener;
 import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
+import javafx.scene.control.ListView;
+import javafx.scene.control.TableView;
+import javafx.scene.control.TreeView;
 import javafx.stage.Window;
 
 import java.lang.ref.WeakReference;
@@ -95,10 +98,16 @@ final class PopupThemes {
 
     private static void stamp(ThemeManager manager, Parent parent) {
         for (Node child : parent.getChildrenUnmodifiable()) {
-            if (child instanceof Parent content) {
-                manager.setThemeClass(content);
-                stamp(manager, content);
+            if (!(child instanceof Parent content)) continue;
+            manager.setThemeClass(content);
+            // A virtualized control builds its rows on demand and every row inherits the tokens of
+            // the control that holds it, so the walk stops there: a ComboBox popup over a long
+            // history costs the bridge and the list, not one visit per realised row.
+            if (content instanceof ListView<?> || content instanceof TableView<?>
+                    || content instanceof TreeView<?>) {
+                continue;
             }
+            stamp(manager, content);
         }
     }
 

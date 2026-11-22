@@ -110,8 +110,11 @@ these baselines while every screen golden still matches.
 A popup's content hangs off its scene root through JavaFX's internal `CSSBridge`, and a looked-up
 colour on that content is resolved from the scene on the far side of the bridge, not from the popup
 root. The class on the popup root alone therefore does not survive a flip, a reopen or a lost CSS
-pass: `PopupThemes` repeats `theme-light`/`theme-dark` on every node of a popup's content and then
-runs the CSS pass unconditionally, even when the class was already right. `ThemeManager` routes a
+pass: `PopupThemes` repeats `theme-light`/`theme-dark` down the popup's content and then runs the CSS
+pass unconditionally, even when the class was already right. The walk stops at a virtualized control
+(`ListView`, `TableView`, `TreeView`): its rows are built on demand and inherit the tokens of the
+control that holds them, so a ComboBox popup over a long history costs the bridge and the list, not
+one visit per realised row — `PopupThemeFxTest` pins that with 2,000 items. `ThemeManager` routes a
 popup window to it and keeps only the scene-level work, so the popup rules live with the class that
 discovers popups. Without
 that stamping the ComboBox list and the tooltip label intermittently kept the palette they were

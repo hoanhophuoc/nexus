@@ -143,6 +143,43 @@ class PopupThemeFxTest {
         }
     }
 
+    /**
+     * The content walk has to stop at the control that owns virtualized rows: a popup over a long
+     * history is styled by stamping the list it holds, not by visiting every realised row each time
+     * the popup is shown or the theme moves.
+     */
+    @Test
+    void aLongPopupIsStyledWithoutStampingEveryRow() throws Exception {
+        ThemeManager theme = new ThemeManager();
+        theme.setTheme(Theme.DARK);
+        Stage stage = onFx(Stage::new);
+        ComboBox<String> combo = onFx(() -> {
+            javafx.collections.ObservableList<String> items = FXCollections.observableArrayList();
+            for (int index = 0; index < 2_000; index++) items.add("Conversation " + index);
+            ComboBox<String> box = new ComboBox<>(items);
+            box.getSelectionModel().selectFirst();
+            return box;
+        });
+        mount(stage, theme, combo);
+        try {
+            Parent popup = open(".list-view", combo::show);
+            assertTheme(popup, DARK);
+            awaitToken(popup, ".list-view", DARK_SURFACE);
+
+            int realisedRows = onFx(() -> popup.lookupAll(".list-cell").size());
+            int stamped = onFx(() -> popup.lookupAll("." + DARK).size());
+            assertThat(realisedRows).as("rows the popup actually built").isGreaterThan(5);
+            assertThat(stamped).as("nodes carrying the theme class, walk bounded at the list")
+                    .isLessThan(10);
+        } finally {
+            onFx(() -> {
+                combo.hide();
+                stage.close();
+                return true;
+            });
+        }
+    }
+
     @Test
     void aTooltipTakesTheTokensAndFollowsTheTheme() throws Exception {
         ThemeManager theme = new ThemeManager();
