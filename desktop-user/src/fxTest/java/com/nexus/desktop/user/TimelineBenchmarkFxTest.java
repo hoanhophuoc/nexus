@@ -4,6 +4,7 @@ import com.nexus.desktop.shared.cache.CachedMessage;
 import com.nexus.desktop.shared.ui.I18n;
 import com.nexus.desktop.shared.ui.Theme;
 import com.nexus.desktop.shared.ui.ThemeManager;
+import javafx.animation.AnimationTimer;
 import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
@@ -50,19 +51,28 @@ class TimelineBenchmarkFxTest {
     private static final long BUDGET_APPEND_MS = 50;
     private static final long BUDGET_REBUILD_MS = 900;
     private static final long BUDGET_RESIZE_MS = 150;
+    private static final long BUDGET_PULSE_P95_MS = 100;
+    private static final long BUDGET_PULSE_MAX_MS = 500;
+    /** Queued rows in the fixture: a send the server has not answered yet. */
+    private static final int PENDING_ROWS = 3;
+    /** Seeded messages per day, so the timeline builds a date separator every this many rows. */
+    private static final int MESSAGES_PER_DAY = 30;
 
     private record Measurement(int messages, List<Long> initial, List<Long> append,
                                List<Long> delivery, List<Long> rebuild, List<Long> resize,
-                               List<Long> reveal, int rowNodes, int sceneNodes, long heapMb) {
+                               List<Long> reveal, List<Long> pulses, int rowNodes, int sceneNodes,
+                               long heapMb) {
         static String header() {
             return "| messages | render ms | append p95 ms | delivery p95 ms | rebuild p95 ms "
-                    + "| resize p95 ms | reveal ms | row nodes | scene nodes | heap MB |";
+                    + "| resize p95 ms | reveal ms | pulse p95 ms | pulse max ms | row nodes "
+                    + "| scene nodes | heap MB |";
         }
 
         String row() {
             return "| " + messages + " | " + percentile(initial, 50) + " | " + percentile(append, 95)
                     + " | " + percentile(delivery, 95) + " | " + percentile(rebuild, 95)
                     + " | " + percentile(resize, 95) + " | " + percentile(reveal, 50)
+                    + " | " + percentile(pulses, 95) + " | " + worst(pulses)
                     + " | " + rowNodes + " | " + sceneNodes + " | " + heapMb + " |";
         }
     }
@@ -83,7 +93,7 @@ class TimelineBenchmarkFxTest {
                 .append(System.getProperty("java.version"))
                 .append(", JavaFX 27.0.1, Xvfb 1280x1024. Times are milliseconds.\n\n")
                 .append(Measurement.header()).append("\n")
-                .append("| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n");
+                .append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n");
         List<Measurement> results = new ArrayList<>();
         for (int size : SIZES) {
             Measurement result = measure(size, home.resolve("history-" + size));
@@ -96,11 +106,18 @@ class TimelineBenchmarkFxTest {
         markdown.append("\nAppend is the timeline's own cost: from the row entering the list model ")
                 .append("to the row being painted. Delivery is the part before that — the socket ")
                 .append("round trip and the encrypted cache's whole-file persist — and is reported ")
-                .append("but not budgeted here.\n\nBudget at 5,000 messages: render <= ")
+                .append("but not budgeted here. Pulse gaps are the spacing between animation pulses ")
+                .append("while ten arrivals land one after another, so a gap is how long the reader ")
+                .append("saw the previous frame: p95 and the worst gap are budgeted, recorded across ")
+                .append("the whole run rather than one burst. The fixture also carries ")
+                .append(PENDING_ROWS).append(" queued rows that stay pending through the measured ")
+                .append("phases.\n\nBudget at 5,000 messages: render <= ")
                 .append(BUDGET_INITIAL_MS)
                 .append(" ms, append p95 <= ").append(BUDGET_APPEND_MS)
                 .append(" ms, rebuild p95 <= ").append(BUDGET_REBUILD_MS)
-                .append(" ms, resize p95 <= ").append(BUDGET_RESIZE_MS).append(" ms.\n");
+                .append(" ms, resize p95 <= ").append(BUDGET_RESIZE_MS)
+                .append(" ms, pulse gap p95 <= ").append(BUDGET_PULSE_P95_MS)
+                .append(" ms, worst pulse gap <= ").append(BUDGET_PULSE_MAX_MS).append(" ms.\n");
         Files.writeString(report, markdown.toString());
 
         Measurement largest = results.getLast();
@@ -112,6 +129,10 @@ class TimelineBenchmarkFxTest {
                 .isLessThanOrEqualTo(BUDGET_REBUILD_MS);
         assertThat(percentile(largest.resize(), 95)).as("resize re-wrap p95 at 5,000 messages")
                 .isLessThanOrEqualTo(BUDGET_RESIZE_MS);
+        assertThat(percentile(largest.pulses(), 95)).as("pulse gap p95 across the run at 5,000 messages")
+                .isLessThanOrEqualTo(BUDGET_PULSE_P95_MS);
+        assertThat(worst(largest.pulses())).as("worst pulse gap across the run at 5,000 messages")
+                .isLessThanOrEqualTo(BUDGET_PULSE_MAX_MS);
     }
 
     private static Measurement measure(int size, Path home) throws Exception {
@@ -122,6 +143,7 @@ class TimelineBenchmarkFxTest {
         List<Long> rebuild = new ArrayList<>();
         List<Long> resize = new ArrayList<>();
         List<Long> reveal = new ArrayList<>();
+        List<Long> pulses = new ArrayList<>();
         int rowNodes = 0;
         int sceneNodes = 0;
         long heapMb = 0;
@@ -133,13 +155,18 @@ class TimelineBenchmarkFxTest {
                 rowNodes = root.lookupAll(".message-bubble").size();
                 sceneNodes = count(root);
                 initial.add(shell.renderMs());
+                // Recorded across every measured phase, not just the burst: the gaps during the
+                // socket waits are the baseline a stall stands out against, and one burst alone can
+                // finish inside a single frame at small sizes.
+                PulseGaps gaps = new PulseGaps();
+                gaps.startRecording();
 
                 for (int index = 0; index < 5; index++) {
                     int before = onFx(() -> messages(root));
                     String marker = "arrival " + index;
                     long appendStart = System.nanoTime();
                     realtime.sendText(messageCreated(UUID.randomUUID(), FakeChatServer.FRIEND_ID,
-                            marker, FIRST.plusSeconds(60L * (size + 10 + index))));
+                            marker, afterHistory(size, 60L * index)));
                     // Two phases, because only the second one belongs to the timeline: the row is
                     // delivered through the socket and the encrypted cache by then, and what is
                     // left is the list turning it into a painted cell.
@@ -147,6 +174,13 @@ class TimelineBenchmarkFxTest {
                     delivery.add((modelAt - appendStart) / 1_000_000);
                     append.add(awaitPainted(root, marker, modelAt));
                 }
+
+                // Queued rows join the fixture after the append loop, so the append number above
+                // stays the incremental path; from here on every arrival rebuilds the timeline,
+                // which is what the rebuild, resize and pulse numbers measure.
+                seedPending(shell, realtime, root, size);
+                assertThat(pendingBubbles(root)).as("queued rows rendered at %d messages", size)
+                        .isEqualTo(PENDING_ROWS);
 
                 for (int index = 0; index < 3; index++) {
                     int before = onFx(() -> messages(root));
@@ -195,11 +229,23 @@ class TimelineBenchmarkFxTest {
                 waitForFx(() -> hits != null && hits.getItems().size() == 1, Duration.ofSeconds(30));
                 reveal.add(elapsed(searchStart));
 
+                // Ten arrivals back to back on a live scene: they force the worst frame pacing of
+                // the run, so a stall shows up here as a number rather than as a feeling.
+                long burstStart = System.nanoTime();
+                String last = "burst 0";
+                for (int index = 0; index < 10; index++) {
+                    last = "burst " + index;
+                    realtime.sendText(messageCreated(UUID.randomUUID(), FakeChatServer.CAROL_ID,
+                            last, afterHistory(size, 3_600L + index)));
+                }
+                awaitPainted(root, last, burstStart);
+                pulses.addAll(gaps.stopRecording());
+
                 heapMb = usedHeapMb();
             }
         }
-        return new Measurement(size, initial, append, delivery, rebuild, resize, reveal, rowNodes,
-                sceneNodes, heapMb);
+        return new Measurement(size, initial, append, delivery, rebuild, resize, reveal, pulses,
+                rowNodes, sceneNodes, heapMb);
     }
 
     // -------------------------------------------------------------------------- fixture
@@ -257,8 +303,9 @@ class TimelineBenchmarkFxTest {
 
     /**
      * Varied history: alternating senders (so both bubble sides render), long and short bodies, and
-     * a day separator every 30 messages. Written through {@code upsertAll} because the cache
-     * re-encrypts the whole file per write, which is a property of the cache, not of the timeline.
+     * a date separator every {@value #MESSAGES_PER_DAY} messages. Written through
+     * {@code upsertAll} because the cache re-encrypts the whole file per write, which is a property
+     * of the cache, not of the timeline.
      */
     private static void seedHistory(UserAppContext context, int size) throws Exception {
         List<CachedMessage> seeded = new ArrayList<>(size);
@@ -267,11 +314,82 @@ class TimelineBenchmarkFxTest {
                     ? LONG.repeat(1 + index % 3) + "message " + index
                     : "message " + index + " with a normal body";
             UUID sender = index % 3 == 0 ? FakeChatServer.USER_ID : FakeChatServer.FRIEND_ID;
+            // A day holds MESSAGES_PER_DAY rows, so the separator is a fixed part of the data
+            // rather than an accident of how far apart the timestamps happen to be.
+            Instant createdAt = FIRST.plusSeconds(
+                    (index / MESSAGES_PER_DAY) * 86_400L + (index % MESSAGES_PER_DAY) * 60L);
             seeded.add(new CachedMessage(UUID.randomUUID(), FakeChatServer.CONVERSATION_ID,
-                    sender, index % 3 == 0 ? "Alice" : "Bob", content,
-                    FIRST.plusSeconds(60L * index)));
+                    sender, index % 3 == 0 ? "Alice" : "Bob", content, createdAt));
         }
         context.cache().upsertAll(seeded);
+    }
+
+    /**
+     * Queues rows the server has not answered yet. The shell flushes the queue once when the socket
+     * connects, so this waits for that sync to finish and only then enqueues: nothing sends
+     * afterwards, so the rows stay pending through the measured phases. The push at the end is the
+     * cheapest event that makes the shell repaint from the cache, which is what puts them on screen.
+     */
+    private static void seedPending(Shell shell, FakeWebSocketServer realtime, Parent root, int size)
+            throws Exception {
+        shell.context().network().submit(() -> { }).get(30, TimeUnit.SECONDS);
+        for (int index = 0; index < PENDING_ROWS; index++) {
+            shell.context().cache().enqueue(FakeChatServer.CONVERSATION_ID, "queued " + index);
+        }
+        realtime.sendText(messageCreated(UUID.randomUUID(), FakeChatServer.FRIEND_ID,
+                "queued-visible", afterHistory(size, 10L)));
+        long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+        while (onFx(() -> {
+            root.applyCss();
+            root.layout();
+            return pendingBubbles(root);
+        }) < PENDING_ROWS) {
+            if (System.nanoTime() > deadline) {
+                throw new AssertionError("The queued rows were never painted.");
+            }
+            Thread.sleep(1);
+        }
+    }
+
+    /**
+     * A moment after the whole seeded history. A message dated before the newest row would be
+     * spliced into the middle of the timeline — off screen, and so never painted — instead of
+     * arriving at the end the way a push does.
+     */
+    private static Instant afterHistory(int size, long secondsLater) {
+        return FIRST.plusSeconds(86_400L * ((size / MESSAGES_PER_DAY) + 1) + secondsLater);
+    }
+
+    private static int pendingBubbles(Parent root) {
+        return root.lookupAll(".message-bubble.pending").size();
+    }
+
+    /** Frame pacing while rows land: the gap between two animation pulses, in milliseconds. */
+    private static final class PulseGaps extends AnimationTimer {
+        private final List<Long> gaps = new ArrayList<>();
+        private long previous;
+
+        void startRecording() {
+            onFx(() -> {
+                gaps.clear();
+                previous = 0;
+                start();
+                return true;
+            });
+        }
+
+        List<Long> stopRecording() {
+            return onFx(() -> {
+                stop();
+                return new ArrayList<>(gaps);
+            });
+        }
+
+        @Override
+        public void handle(long now) {
+            if (previous != 0) gaps.add((now - previous) / 1_000_000);
+            previous = now;
+        }
     }
 
     private static String messageCreated(UUID id, UUID sender, String content, Instant createdAt) {
@@ -353,6 +471,10 @@ class TimelineBenchmarkFxTest {
     private static long usedHeapMb() {
         Runtime runtime = Runtime.getRuntime();
         return (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024);
+    }
+
+    private static long worst(List<Long> values) {
+        return values.stream().mapToLong(Long::longValue).max().orElse(0);
     }
 
     private static long percentile(List<Long> values, int percentile) {

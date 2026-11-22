@@ -166,19 +166,26 @@ Use a consistent spacing scale derived from 4px increments. Preferred steps are 
 **Timeline budget and measured result (2026-11-22).** `:desktop-user:fxTest --tests
 *TimelineBenchmarkFxTest` writes `desktop-user/build/timeline-benchmark.md` and fails the build when
 the 5,000-message budgets are missed: initial render ≤ 800 ms, append (row painted) p95 ≤ 50 ms,
-rebuild p95 ≤ 900 ms, resize p95 ≤ 150 ms. On this machine (Linux, JDK 27.0.1, JavaFX 27.0.1,
-Xvfb 1280x1024):
+rebuild p95 ≤ 900 ms, resize p95 ≤ 150 ms, pulse gap p95 ≤ 100 ms and worst pulse gap ≤ 500 ms. The
+fixture carries alternating senders, long and short bodies, a date separator every 30 messages and
+three queued rows that stay pending through the measured phases. On this machine (Linux, JDK
+27.0.1, JavaFX 27.0.1, Xvfb 1280x1024), from one run — the numbers move between runs, most of all
+the 100-message size, which absorbs JIT warm-up; the budgets above are the contract:
 
-| messages | render ms | append p95 ms | delivery p95 ms | rebuild p95 ms | resize p95 ms | row nodes | scene nodes |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| 100 | 114 | 29 | 47 | 60 | 68 | 7 | 304 |
-| 500 | 96 | 21 | 39 | 43 | 65 | 7 | 307 |
-| 1,000 | 95 | 23 | 53 | 49 | 67 | 8 | 321 |
-| 5,000 | 112 | 17 | 60 | 73 | 62 | 7 | 307 |
+| messages | render ms | append p95 ms | delivery p95 ms | rebuild p95 ms | resize p95 ms | reveal ms | pulse p95 ms | pulse max ms | row nodes | scene nodes | heap MB |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 100 | 90 | 26 | 32 | 46 | 70 | 4 | 31 | 113 | 7 | 307 | 170 |
+| 500 | 67 | 17 | 23 | 36 | 63 | 0 | 54 | 96 | 8 | 317 | 128 |
+| 1,000 | 96 | 17 | 12 | 29 | 95 | 0 | 66 | 97 | 8 | 317 | 177 |
+| 5,000 | 98 | 16 | 37 | 52 | 63 | 1 | 72 | 180 | 8 | 317 | 105 |
 
 `delivery p95` is the part before the timeline: the socket round trip plus the encrypted cache's
 whole-file persist. It is reported, not budgeted, because it is a data-layer cost; the append
 budget measures the timeline's own work from the row entering the model to it being painted.
+`pulse p95` and `pulse max` are the gaps between animation pulses recorded across the whole measured
+run — a gap is how long the reader kept seeing the previous frame — and they are what a stall shows
+up as: a burst of arrivals that each rebuild the list, as ten back-to-back pushes do here, is the
+current worst case at 5,000 messages.
 - Make pending, sent, failed, retrying and incoming states distinguishable without confusing them with encryption or delivery guarantees.
 - Keep composer focus, keyboard send behavior, multiline entry, attachments and error recovery predictable.
 - Presence and unread indicators must not rely on color alone.
