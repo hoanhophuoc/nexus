@@ -99,7 +99,13 @@ surface token (`0xffffff` LIGHT, `0x151c26` DARK) on a rendered ComboBox popup. 
 covered for DatePicker, `MenuButton` context menus, tooltips and `ConfirmDialog` by
 `PopupThemeFxTest`, including reopen, a live theme flip, and that closing an owner stops its popup
 being tracked: the closed owner's popup keeps the theme it was shown under while a live owner's
-popup in the same run follows the switch.
+popup in the same run follows the switch. `UserGoldenScreenshotFxTest` keeps four pixel baselines
+for the same contract — `popup-combo-light/dark.png` and `popup-menu-light/dark.png` — captured from
+the live popup window itself, since a popup is not part of the stage capture, with the theme changed
+while it is open. They are regenerated like the screens, scoped to that one test:
+`USER_UPDATE_GOLDENS=true ./gradlew :desktop-user:fxTest --tests '*UserGoldenScreenshotFxTest.openPopupsKeepTheirThemeAcrossAFlip'`
+(and the same with `GOLDEN_BASELINE=ci` for `golden-ci`). Removing the popup class stamping fails
+these baselines while every screen golden still matches.
 
 A popup's content hangs off its scene root through JavaFX's internal `CSSBridge`, and a looked-up
 colour on that content is resolved from the scene on the far side of the bridge, not from the popup
