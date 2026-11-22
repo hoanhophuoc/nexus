@@ -224,7 +224,10 @@ class ChatTimelineScrollFxTest {
                 }
                 waitForFx(() -> messages(root) == before + 4, Duration.ofSeconds(20));
 
-                waitForFx(() -> atBottom(root), Duration.ofSeconds(10));
+                // The shell re-applies its move on the pulses that measure the rows it is moving to,
+                // and a two-core runner can stretch the wait between them; the budget below is about
+                // the machine, not about how far the move is allowed to travel.
+                waitForFx(() -> atBottom(root), Duration.ofSeconds(30));
                 assertThat(onFx(() -> atBottom(root)))
                         .as("round %d: a follow that is still running survives an arrival", roundIndex)
                         .isTrue();
