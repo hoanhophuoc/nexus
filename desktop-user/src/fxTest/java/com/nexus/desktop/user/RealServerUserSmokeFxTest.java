@@ -28,7 +28,9 @@ import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.TimeUnit;
 import java.util.UUID;
 
 import static com.nexus.desktop.shared.testing.FxThread.onFx;
@@ -38,10 +40,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Opt-in smoke test of the user client against a real server. It creates its own two accounts and a
  * friendship between them through the API, signs both into their own client windows through the same
- * code path the application uses, sends a message from the first, waits for the second to receive it,
- * and moves the shell between themes. It is the one check that proves the packaged client's stack —
- * SDK, session cookie, encrypted cache and FXML shell — works against a running service, in both
- * directions, without clicking anything.
+ * code path the application uses, lets the counterpart's syncs settle with realtime on and its chat
+ * open, sends a message from the first and waits for the second to receive it over the socket. It is
+ * the one check
+ * that proves the packaged client's stack — SDK, session cookie, encrypted cache, realtime and FXML
+ * shell — works against a running service, in both directions, without clicking anything.
  *
  * <pre>
  * NEXUS_REAL_SERVER=true ./gradlew :desktop-user:fxTest --tests '*RealServerUserSmokeFxTest'
@@ -74,22 +77,32 @@ class RealServerUserSmokeFxTest {
             Conversation direct = befriend(session, peerApi, self, counterpart);
             System.out.println("SMOKE direct conversation " + direct.getId() + " with " + peerName);
 
-            System.out.println("SMOKE signing in as " + username);
-            try (Client sender = new Client(origin, username, Theme.LIGHT, 1180, 760)) {
-                // Connected is written last by the shell's load, so waiting for it means the server
-                // round trip, the profile and the conversation list all finished.
+            String message = "smoke ping " + suffix;
+            System.out.println("SMOKE signing in as " + peerUsername
+                    + " with realtime and opening the chat");
+            try (Client receiver = new Client(origin, peerUsername, Theme.DARK, 1000, 700, true);
+                 Client sender = new Client(origin, username, Theme.LIGHT, 1180, 760, false)) {
+                // With realtime on, the connected status is written from the socket's afterConnect
+                // callback, so waiting for it means the push channel is open before anything is sent.
+                receiver.awaitConnected();
+                waitForFx(() -> selectFirstConversation(receiver.shell), Duration.ofSeconds(20));
+                // Opening the chat starts its own history sync, so let that and the shell's startup
+                // syncs drain before the empty check: with nothing left in flight, the timeline can
+                // stay empty only because the server has nothing to give it.
+                receiver.awaitSynced(Duration.ofSeconds(30));
+                assertThat(onFx(() -> bubbleState(receiver.shell, message)))
+                        .as("the receiver's chat is empty before the send").isEqualTo("absent");
+                System.out.println("SMOKE receiver is waiting in the chat with realtime connected");
+
+                // Both accounts are new, so each shell's list holds exactly one conversation; its
+                // server-side name is null for a direct chat, so the single row is selected directly.
                 sender.awaitConnected();
                 assertThat(onFx(() -> sender.shell.lookupAll(".list-view")))
                         .as("the conversation list renders").isNotEmpty();
-                System.out.println("SMOKE shell connected");
-
-                // Both accounts are new, so the shell's list holds exactly one conversation; its
-                // server-side name is null for a direct chat, so the single row is selected directly.
                 waitForFx(() -> selectFirstConversation(sender.shell), Duration.ofSeconds(20));
                 waitForFx(() -> sender.shell.lookup("#composeField") instanceof TextField field
                         && field.isVisible() && !field.isDisabled(), Duration.ofSeconds(10));
 
-                String message = "smoke ping " + suffix;
                 onFx(() -> {
                     ((TextField) sender.shell.lookup("#composeField")).setText(message);
                     ((Button) sender.shell.lookup("#sendButton")).fire();
@@ -108,19 +121,14 @@ class RealServerUserSmokeFxTest {
                         .as("the server stored the message").contains(message);
                 System.out.println("SMOKE message delivered to the sender: " + message);
 
-                System.out.println("SMOKE signing in as " + peerUsername + " to receive it");
-                try (Client receiver = new Client(origin, peerUsername, Theme.DARK, 1000, 700)) {
-                    receiver.awaitConnected();
-                    waitForFx(() -> selectFirstConversation(receiver.shell), Duration.ofSeconds(20));
-                    // Opening the chat fetches the conversation's history from the server, so this is
-                    // the receive path: the other account's message arriving in its own client.
-                    waitForFx(() -> bubbleState(receiver.shell, message).equals("sent"),
-                            Duration.ofSeconds(60));
-                    assertThat(bubbleClass(receiver.shell, message))
-                            .as("the receiver renders the sender's message, not its own")
-                            .contains("theirs").doesNotContain("mine");
-                    System.out.println("SMOKE peer received: " + message);
-                }
+                // The receiver's chat was opened before the send and is never reopened, so a bubble
+                // appearing here can only come from the server pushing the message over the socket.
+                waitForFx(() -> bubbleState(receiver.shell, message).equals("sent"),
+                        Duration.ofSeconds(60));
+                assertThat(bubbleClass(receiver.shell, message))
+                        .as("the receiver renders the sender's message, not its own")
+                        .contains("theirs").doesNotContain("mine");
+                System.out.println("SMOKE peer received by realtime push: " + message);
 
                 onFx(() -> {
                     sender.theme.setTheme(Theme.DARK);
@@ -144,7 +152,7 @@ class RealServerUserSmokeFxTest {
         }
     }
 
-    /** One signed-in client window: its own session, cache, theme and shell, as the application builds them. */
+    /** One signed-in client window: its own session, cache, theme and shell, as the app builds them. */
     private static final class Client implements AutoCloseable {
         final Stage stage;
         final ThemeManager theme;
@@ -152,12 +160,13 @@ class RealServerUserSmokeFxTest {
         final UserAppContext context;
         final Parent shell;
 
-        Client(String origin, String username, Theme start, int width, int height) throws Exception {
+        Client(String origin, String username, Theme start, int width, int height, boolean realtime)
+                throws Exception {
             stage = onFx(Stage::new);
             theme = new ThemeManager();
             theme.setTheme(start);
             i18n = new I18n(BASE, Locale.ENGLISH);
-            context = new UserAppContext(stage, origin, false, null, theme, i18n);
+            context = new UserAppContext(stage, origin, realtime, null, theme, i18n);
             context.activate(context.signIn(username, PASSWORD.toCharArray()));
             shell = onFx(() -> mount(stage, theme,
                     ViewLoader.load(ViewLoader.SHELL, new ShellController(context, () -> { }), i18n),
@@ -167,6 +176,18 @@ class RealServerUserSmokeFxTest {
         void awaitConnected() {
             waitForFx(() -> shell.lookup("#statusLabel") instanceof Label status
                     && i18n.get("shell.connected").equals(status.getText()), Duration.ofSeconds(30));
+        }
+
+        /**
+         * Waits until the shell stopped talking to the server. Every sync it runs — the startup ones
+         * and the history fetch an opened chat starts — goes through one network thread, so a no-op
+         * queued behind them can only run once they are done; a JavaFX round trip after it then runs
+         * behind the repaints they posted.
+         */
+        void awaitSynced(Duration timeout) throws Exception {
+            context.network().submit(() -> { }).get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+            onFx(() -> true);
+            onFx(() -> true);
         }
 
         @Override
@@ -207,10 +228,12 @@ class RealServerUserSmokeFxTest {
                 new CreateDirectConversationRequest().participantId(counterpart.getId()));
     }
 
+    /** Selects the only conversation once; re-selecting would reopen it and refetch its history. */
     private static boolean selectFirstConversation(Parent shell) {
         for (Node node : shell.lookupAll(".list-view")) {
             if (!(node instanceof ListView<?> list) || list.getItems().isEmpty()) continue;
             if (!(list.getItems().getFirst() instanceof Conversation)) continue;
+            if (list.getSelectionModel().getSelectedIndex() == 0) return true;
             list.getSelectionModel().clearAndSelect(0);
             return true;
         }
@@ -225,9 +248,9 @@ class RealServerUserSmokeFxTest {
     }
 
     /** The bubble's own classes, which say whose message the reader sees and whether it is queued. */
-    private static java.util.List<String> bubbleClass(Parent shell, String text) {
+    private static List<String> bubbleClass(Parent shell, String text) {
         Node bubble = bubbleShowing(shell, text);
-        return bubble == null ? java.util.List.of() : java.util.List.copyOf(bubble.getStyleClass());
+        return bubble == null ? List.of() : List.copyOf(bubble.getStyleClass());
     }
 
     private static Node bubbleShowing(Parent shell, String text) {
