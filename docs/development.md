@@ -50,6 +50,7 @@ scripts/                gates, live journey, packaging helpers
 | `./scripts/check-ga-pins.sh` | Fails on a pre-release action SHA, image tag or base image |
 | `./scripts/check-image-pins.sh` | Fails on a floating or untagged container image |
 | `./gradlew :server:bootRun` | Runs the API and WebSocket on `NEXUS_SERVER_PORT` |
+| `./scripts/smoke-desktop.sh` | Starts throwaway PostgreSQL and Redis, runs the server, signs in and renders the user shell against it, then cleans up |
 | `./gradlew :desktop-user:run` / `:desktop-admin:run` | Runs a desktop client |
 | `./gradlew :desktop-user:packageClient` / `:desktop-admin:packageAdmin` | Builds a native installer |
 | `./gradlew :client-sdk:openApiGenerate` | Regenerates the SDK from `api/v1/openapi.yaml` |
@@ -57,6 +58,29 @@ scripts/                gates, live journey, packaging helpers
 Integration tests need a Docker daemon. They start throwaway `postgres:18-alpine` and
 `redis:8.10-alpine` containers, never a shared database. `fxTest` needs a display; the CI job
 installs Xvfb.
+
+## Desktop smoke
+
+`./scripts/smoke-desktop.sh` answers "does the client work against a real server?" without
+clicking anything. It starts throwaway `postgres:18-alpine` and `redis:8.10-alpine` containers on
+ephemeral host ports (so a database already running on 5432 is untouched), starts
+`:server:bootRun` on a free port with `NEXUS_SECURE_COOKIE=false`, waits for
+`/actuator/health` to report `UP`, then runs the user client's opt-in test under Xvfb:
+
+```
+NEXUS_REAL_SERVER=true./gradlew :desktop-user:fxTest --tests '*RealServerUserSmokeFxTest' --rerun-tasks
+```
+
+`RealServerUserSmokeFxTest` is skipped unless `NEXUS_REAL_SERVER=true`, so `fullTest` never needs a
+server. When it runs it registers its own unique account through `/auth/register`, signs in through
+the same `UserAppContext.signIn` the client uses, renders `shell.fxml` in a real `Stage`, waits for
+the connected status, and switches LIGHT → DARK → LIGHT on the live shell. A green run covers the
+SDK, the session cookie, the encrypted cache and the shell together.
+
+Everything the script creates — both containers, the server and its Gradle daemon — is removed on
+exit, including on failure or Ctrl-C. Its log is `build/smoke/server.log`;
+`NEXUS_SMOKE_KEEP=true` leaves the stack running for inspection and `NEXUS_SMOKE_NO_XVFB=true` uses
+the current display.
 
 ## Tests
 
