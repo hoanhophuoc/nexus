@@ -81,14 +81,14 @@ mkdir -p "$LOG_DIR"
 PORT="${NEXUS_SMOKE_PORT:-$(free_port)}"
 ORIGIN="http://127.0.0.1:$PORT"
 
+# The Redis password is generated per run rather than written here: the container is throwaway, but
+# a literal password in the script is a secrets-scanner finding on every scan of the file.
+REDIS_PASSWORD="$(od -An -tx1 -N24 /dev/urandom | tr -d ' \n')"
+
 echo "== starting throwaway PostgreSQL and Redis"
 docker run -d --rm --name "$DB_CONTAINER" \
     -e POSTGRES_DB=nexus -e POSTGRES_USER=nexus -e POSTGRES_PASSWORD=nexus \
     -p 127.0.0.1::5432 postgres:18-alpine >/dev/null
-# The Redis password is generated per run rather than written here: the container is
-# throwaway, but a literal password in the script is a secret-scanner finding.
-REDIS_PASSWORD="$(od -An -tx1 -N24 /dev/urandom | tr -d ' \n')"
-
 docker run -d --rm --name "$REDIS_CONTAINER" \
     -p 127.0.0.1::6379 \
     redis:8.10-alpine redis-server --requirepass "$REDIS_PASSWORD" --appendonly no >/dev/null
