@@ -67,6 +67,7 @@ final class FakeChatServer implements AutoCloseable {
     private volatile int reportsWithEvidence;
     private volatile int passwordChanges;
     private volatile int passwordResetRequests;
+    private volatile boolean messageSendsFail;
     private volatile int clearedHistories;
     private volatile int friendRemovals;
     private volatile int blockedRequestAttempts;
@@ -174,6 +175,16 @@ final class FakeChatServer implements AutoCloseable {
     /** Makes the group conversation exist without driving the create-group dialog. */
     void groupExists() {
         groupCreated = true;
+    }
+
+    /**
+     * Refuses every message send, so a queued row stays queued for the rest of the fixture. The
+     * shell flushes its queue when the socket connects, and that flush is scheduled on the network
+     * thread at a moment the test cannot order itself against; a refused send is what makes "this
+     * row is still waiting" a fact rather than a race won by a fast machine.
+     */
+    void failMessageSends() {
+        messageSendsFail = true;
     }
 
     void hideDirectConversation() {
@@ -450,6 +461,10 @@ final class FakeChatServer implements AutoCloseable {
         String content = jsonText(readText(exchange), "content");
         if (content == null || content.isBlank()) {
             respondJson(exchange, 400, "{}");
+            return;
+        }
+        if (messageSendsFail) {
+            respondJson(exchange, 503, "{}");
             return;
         }
         sentContents.add(content);

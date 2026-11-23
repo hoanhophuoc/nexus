@@ -183,7 +183,7 @@ class TimelineBenchmarkFxTest {
                 // Queued rows join the fixture after the append loop, so the append number above
                 // stays the incremental path; from here on every arrival rebuilds the timeline,
                 // which is what the rebuild, resize and pulse numbers measure.
-                seedPending(shell, realtime, root, size);
+                seedPending(shell, server, realtime, root, size);
                 assertThat(pendingBubbles(root)).as("queued rows rendered at %d messages", size)
                         .isEqualTo(PENDING_ROWS);
 
@@ -338,8 +338,13 @@ class TimelineBenchmarkFxTest {
      * afterwards, so the rows stay pending through the measured phases. The push at the end is the
      * cheapest event that makes the shell repaint from the cache, which is what puts them on screen.
      */
-    private static void seedPending(Shell shell, FakeWebSocketServer realtime, Parent root, int size)
-            throws Exception {
+    private static void seedPending(Shell shell, FakeChatServer server, FakeWebSocketServer realtime,
+                                    Parent root, int size) throws Exception {
+        // Nothing may send these rows afterwards. The shell flushes its queue from the socket's
+        // connect callback, which runs on the network thread at a moment this test cannot order
+        // itself against: a no-op task on that thread proves it was idle once, not that the flush is
+        // done. Refusing sends makes the queue unflushable, so the rows stay queued by construction.
+        server.failMessageSends();
         shell.context().network().submit(() -> { }).get(30, TimeUnit.SECONDS);
         for (int index = 0; index < PENDING_ROWS; index++) {
             shell.context().cache().enqueue(FakeChatServer.CONVERSATION_ID, "queued " + index);
