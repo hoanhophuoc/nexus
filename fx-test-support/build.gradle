@@ -22,12 +22,11 @@ javafx {
 
 dependencies {
     // The contrast helpers name the Theme a measurement belongs to, so the suites read one report
-    // format per theme. desktop-shared does not depend on this module, so the project graph stays
-    // acyclic.
-    api project(':desktop-shared')
-    // The helpers assert with AssertJ, as the suites that use them do; the same version is declared
-    // by every desktop module so no second copy can reach a test classpath.
-    api 'org.assertj:assertj-core:3.27.7'
+    // format per theme. Both are implementation: the suites that call the helpers already declare
+    // desktop-shared and AssertJ themselves, so this module adds no API of its own to their
+    // compile classpath. desktop-shared does not depend on this module, so the graph stays acyclic.
+    implementation project(':desktop-shared')
+    implementation 'org.assertj:assertj-core:3.27.7'
 }
 
 tasks.withType(JavaCompile).configureEach {

@@ -61,10 +61,6 @@ public final class RenderedContrast {
         return fallback;
     }
 
-    public static Color effectiveBackground(Node node, Color fallback) {
-        return node instanceof Region region ? effectiveBackground(region, fallback) : fallback;
-    }
-
     /** Asserts the pair reaches {@code minimum} and reports the ratio, so a drifting pair is visible. */
     public static void measure(Theme theme, String label, Color foreground, Color background,
                                double minimum) {
@@ -89,7 +85,7 @@ public final class RenderedContrast {
                 .isEqualTo(expected);
     }
 
-    public static double contrast(Color first, Color second) {
+    private static double contrast(Color first, Color second) {
         double lighter = Math.max(luminance(first), luminance(second));
         double darker = Math.min(luminance(first), luminance(second));
         return (lighter + 0.05) / (darker + 0.05);
