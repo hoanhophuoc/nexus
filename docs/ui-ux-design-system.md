@@ -176,10 +176,10 @@ the 100-message size, which absorbs JIT warm-up; the budgets above are the contr
 
 | messages | render ms | append p95 ms | delivery p95 ms | rebuild p95 ms | resize p95 ms | reveal ms | pulse p95 ms | pulse max ms | row nodes | scene nodes | heap MB |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 100 | 80 | 20 | 24 | 28 | 63 | 1 | 39 | 61 | 7 | 307 | 101 |
-| 500 | 78 | 16 | 12 | 27 | 61 | 1 | 36 | 66 | 8 | 314 | 146 |
-| 1,000 | 65 | 16 | 22 | 28 | 62 | 11 | 37 | 65 | 8 | 317 | 194 |
-| 5,000 | 83 | 11 | 29 | 35 | 60 | 1 | 61 | 100 | 8 | 317 | 127 |
+| 100 | 85 | 32 | 48 | 37 | 64 | 1 | 40 | 92 | 7 | 304 | 107 |
+| 500 | 62 | 14 | 11 | 25 | 64 | 0 | 45 | 85 | 8 | 317 | 125 |
+| 1,000 | 69 | 13 | 10 | 17 | 61 | 1 | 63 | 69 | 8 | 317 | 176 |
+| 5,000 | 81 | 18 | 38 | 41 | 64 | 1 | 64 | 107 | 7 | 303 | 145 |
 
 `delivery p95` is the part before the timeline: the socket round trip plus the encrypted cache's
 whole-file persist. It is reported, not budgeted, because it is a data-layer cost; the append
