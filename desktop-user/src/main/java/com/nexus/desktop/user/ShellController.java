@@ -66,8 +66,13 @@ public final class ShellController {
     /** Keys that move the viewport; pressing one ends the follow intent, like a wheel scroll does. */
     private static final Set<KeyCode> SCROLL_KEYS = EnumSet.of(
             KeyCode.UP, KeyCode.DOWN, KeyCode.PAGE_UP, KeyCode.PAGE_DOWN, KeyCode.HOME, KeyCode.END);
-    /** How long a follow may keep re-applying while the list measures the rows it just gained. */
-    private static final long FOLLOW_BUDGET_NANOS = 3_000_000_000L;
+    /**
+     * How many times a viewport move may re-apply itself while the list measures the rows it just
+     * gained. Counted in passes, not in wall time: what the move waits for is the layout the list
+     * still has to do, and a loaded machine stretches that layout without changing it, so a time
+     * budget makes the shell give up mid-move on a slow runner and never land on the row.
+     */
+    private static final int VIEWPORT_PASS_LIMIT = 60;
 
     private final UserAppContext context;
     private final I18n i18n;
@@ -84,8 +89,10 @@ public final class ShellController {
     private UUID revealedMessageId;
     /** True while the timeline is meant to show the newest row: recomputed on every repaint. */
     private boolean followTail;
-    /** When the follow currently being re-applied gives up, in {@link System#nanoTime()} terms. */
-    private long followInFlightUntil;
+    /** True while a follow is still re-applying itself, so an arrival there counts as at the bottom. */
+    private boolean followInFlight;
+    /** Bumped whenever the reader takes the viewport over, so a move in flight stops fighting them. */
+    private int viewportMoveGeneration;
     private Conversation activeConversation;
     private final OpenGeneration openGeneration = new OpenGeneration();
 
@@ -384,7 +391,7 @@ public final class ShellController {
         // arrival lands between the passes of a move that is still re-applying, and reading the scroll
         // bar mid-move would say the reader left and stop following for good. Once the move lands or
         // gives up, the scroll bar is the truth again.
-        boolean wasAtBottom = isTimelineAtBottom() || System.nanoTime() < followInFlightUntil;
+        boolean wasAtBottom = isTimelineAtBottom() || followInFlight;
         TimelineAnchor anchor = messageToReveal == null && !followLatest
                 ? captureTimelineAnchor() : null;
         boolean follow = followLatest || wasAtBottom || anchor == null;
@@ -483,7 +490,25 @@ public final class ShellController {
         if (anchor == null) return;
         int index = indexOfMessage(anchor.messageId());
         if (index < 0) return;
+        scrollToRowAfterLayout(index, viewportMoveGeneration, VIEWPORT_PASS_LIMIT);
+    }
+
+    /**
+     * Puts a row at the top of the viewport, re-applying the move while the list measures the rows
+     * it was just rebuilt with. A scroll that runs before that pass computes its target from the
+     * previous rows, lands on the wrong one, and a single call is never retried: the reader ends up
+     * beside the message they were reading. The move stops as soon as the row is at the top, when
+     * the list is already as far down as it goes, when the reader takes the viewport over, or after
+     * {@link #VIEWPORT_PASS_LIMIT} passes.
+     */
+    private void scrollToRowAfterLayout(int index, int generation, int passesLeft) {
+        if (generation != viewportMoveGeneration || passesLeft <= 0) return;
         messageList.scrollTo(index);
+        if (firstVisibleRow() >= index || isTimelineAtBottom()) return;
+        Platform.runLater(() -> {
+            measureTimeline();
+            scrollToRowAfterLayout(index, generation, passesLeft - 1);
+        });
     }
 
     /** Brings a revealed message into view; the list addresses rows by index, not by fraction. */
@@ -514,14 +539,15 @@ public final class ShellController {
      */
     private void scrollToLatestAfterLayout() {
         followTail = true;
-        followInFlightUntil = System.nanoTime() + FOLLOW_BUDGET_NANOS;
-        followToLatest(followInFlightUntil);
+        followInFlight = true;
+        followToLatest(VIEWPORT_PASS_LIMIT);
     }
 
     /** The reader took over: no follow runs and none is treated as in flight. */
     private void stopFollowing() {
         followTail = false;
-        followInFlightUntil = 0;
+        followInFlight = false;
+        viewportMoveGeneration++;
     }
 
     /**
@@ -530,21 +556,58 @@ public final class ShellController {
      * <p>A list that has just gained rows measures them on its next layout pass. A scroll that runs
      * before that pass computes its target from the previous content extent and stops short of the
      * new row, so the move is repeated until the newest row is really inside the viewport. It stops
-     * on its own as soon as it lands, and gives up after a short budget rather than polling forever
-     * if the row can never fit (a message taller than the viewport). The follow flag is read again on
-     * every pulse: a reader who scrolled in between must not be dragged back.
+     * on its own as soon as it lands, and gives up after {@link #VIEWPORT_PASS_LIMIT} passes rather
+     * than polling forever if the row can never fit (a message taller than the viewport). The follow
+     * flag is read again on every pulse: a reader who scrolled in between must not be dragged back.
      */
-    private void followToLatest(long deadlineNanos) {
-        if (!followTail || timelineItems.isEmpty()) {
-            followInFlightUntil = 0;
+    private void followToLatest(int passesLeft) {
+        if (!followTail || timelineItems.isEmpty() || passesLeft <= 0) {
+            followInFlight = false;
             return;
         }
         messageList.scrollTo(timelineItems.size() - 1);
-        if (isTimelineAtBottom() || System.nanoTime() > deadlineNanos) {
-            followInFlightUntil = 0;
+        if (landedOnNewestRow()) {
+            followInFlight = false;
             return;
         }
-        Platform.runLater(() -> followToLatest(deadlineNanos));
+        Platform.runLater(() -> {
+            measureTimeline();
+            followToLatest(passesLeft - 1);
+        });
+    }
+
+    /**
+     * True when the move to the newest row has really landed.
+     *
+     * <p>{@link #isTimelineAtBottom()} answers the reader's question and reads a list with no scroll
+     * bar as "everything fits", which is right for a short history. A list that has just been rebuilt
+     * also has no scroll bar and almost no cells yet, so that answer would end the move before the
+     * list measured the rows it was given; the next repaint then finds the viewport at the top, reads
+     * it as the reader having left, and stops following for good. Landing therefore also requires the
+     * newest row to be the rendered last row, and the move keeps re-applying until it is.
+     */
+    private boolean landedOnNewestRow() {
+        if (!isTimelineAtBottom()) return false;
+        if (timelineItems.isEmpty()) return true;
+        int newest = timelineItems.size() - 1;
+        for (Node node : messageList.lookupAll(".timeline-cell")) {
+            if (node instanceof ListCell<?> cell && !cell.isEmpty() && cell.getIndex() == newest) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Measures the rows the list has just been given. The rows a scroll addresses are placed by a
+     * layout pass, so a move that only queues another scroll is racing pulses it does not control: on
+     * a loaded machine the queued passes can all run between two passes and give up on a viewport
+     * that never had the chance to grow. Asking for the pass is the same rule the rest of the shell
+     * follows — measure what you are about to decide on.
+     */
+    private void measureTimeline() {
+        messageList.applyCss();
+        messageList.layout();
     }
 
     /**
