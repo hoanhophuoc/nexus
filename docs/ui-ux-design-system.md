@@ -325,8 +325,10 @@ The repository already maintains `golden` and `golden-ci` PNG baselines and FX s
 Current known FX test classes include:
 - `desktop-user/.../DesignSystemFxTest.java`
 - `desktop-user/.../RenderedControlContrastFxTest.java`
+- `desktop-user/.../PopupKeyboardFxTest.java`
 - `desktop-user/.../UserGoldenScreenshotFxTest.java`
 - `desktop-admin/.../AdminDesignSystemFxTest.java`
+- `desktop-admin/.../AdminKeyboardFxTest.java`
 - `desktop-admin/.../RenderedAdminContrastFxTest.java`
 - `desktop-admin/.../AdminGoldenScreenshotFxTest.java`
 
