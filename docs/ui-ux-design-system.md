@@ -163,7 +163,7 @@ Use a consistent spacing scale derived from 4px increments. Preferred steps are 
 - Preserve scroll position when older messages load. Auto-scroll only when the user is already at the bottom or explicitly requests it.
 - The implemented timeline contract: an update that only appends to the end of the loaded history adds rows without touching the ones above them; an update that rewrites or reorders the history rebuilds it and restores the message that sat at the top of the viewport, by message id; the newest row is followed only when the reader was already there (read from the list's scroll position, not from a recycled cell's bounds) or when the row is one the user just sent, and a follow the shell already started is not cancelled by an arrival that lands while the move to the newest row is still being re-applied — the scroll bar read mid-move is not the reader leaving the bottom. A revealed search hit is positioned by its row index in the list, with one row of room above it.
 
-**Timeline budget and measured result (2026-11-22).** `:desktop-user:fxTest --tests
+**Timeline budget and measured result (2026-11-23).** `:desktop-user:fxTest --tests
 *TimelineBenchmarkFxTest` writes `desktop-user/build/timeline-benchmark.md` and fails the build when
 the 5,000-message budgets are missed: initial render ≤ 800 ms, append (row painted) p95 ≤ 50 ms,
 rebuild p95 ≤ 900 ms, resize p95 ≤ 150 ms, pulse gap p95 ≤ 150 ms and worst pulse gap ≤ 500 ms. The
@@ -176,10 +176,10 @@ the 100-message size, which absorbs JIT warm-up; the budgets above are the contr
 
 | messages | render ms | append p95 ms | delivery p95 ms | rebuild p95 ms | resize p95 ms | reveal ms | pulse p95 ms | pulse max ms | row nodes | scene nodes | heap MB |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 100 | 83 | 44 | 46 | 28 | 66 | 3 | 51 | 79 | 7 | 304 | 101 |
-| 500 | 62 | 17 | 15 | 23 | 61 | 0 | 47 | 60 | 8 | 317 | 129 |
-| 1,000 | 76 | 18 | 20 | 24 | 61 | 11 | 44 | 59 | 8 | 317 | 171 |
-| 5,000 | 82 | 14 | 28 | 39 | 59 | 1 | 80 | 109 | 8 | 317 | 100 |
+| 100 | 80 | 20 | 24 | 28 | 63 | 1 | 39 | 61 | 7 | 307 | 101 |
+| 500 | 78 | 16 | 12 | 27 | 61 | 1 | 36 | 66 | 8 | 314 | 146 |
+| 1,000 | 65 | 16 | 22 | 28 | 62 | 11 | 37 | 65 | 8 | 317 | 194 |
+| 5,000 | 83 | 11 | 29 | 35 | 60 | 1 | 61 | 100 | 8 | 317 | 127 |
 
 `delivery p95` is the part before the timeline: the socket round trip plus the encrypted cache's
 whole-file persist. It is reported, not budgeted, because it is a data-layer cost; the append
