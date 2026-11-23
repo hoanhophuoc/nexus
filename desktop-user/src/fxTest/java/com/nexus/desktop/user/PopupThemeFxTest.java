@@ -305,6 +305,65 @@ class PopupThemeFxTest {
     }
 
     /**
+     * The popup listener is one for the whole JVM, so several managers share it. A popup belongs to
+     * the manager that owns its owner window: a theme flip in the other manager must not stamp it,
+     * and the same flip must still reach that other manager's own window. Without the owner check,
+     * whichever manager changed theme last would repaint every popup on the machine.
+     */
+    @Test
+    void oneManagerNeverRestylesAnotherManagersPopup() throws Exception {
+        ThemeManager first = new ThemeManager();
+        ThemeManager second = new ThemeManager();
+        // Both start dark, and the first flips to light: a cross-manager stamp would be visible as
+        // a light popup where a dark one is expected, not as two managers agreeing by luck.
+        first.setTheme(Theme.DARK);
+        second.setTheme(Theme.DARK);
+        Stage firstStage = onFx(Stage::new);
+        Stage secondStage = onFx(Stage::new);
+        ComboBox<String> firstBox = mount(firstStage, first,
+                new ComboBox<>(FXCollections.observableArrayList("One", "Two")));
+        ComboBox<String> secondBox = mount(secondStage, second,
+                new ComboBox<>(FXCollections.observableArrayList("One", "Two")));
+        try {
+            Parent popup = open(".list-view", secondBox::show);
+            assertTheme(popup, DARK);
+            assertToken(popup, ".list-view", DARK_SURFACE);
+
+            onFx(() -> {
+                first.setTheme(Theme.LIGHT);
+                return true;
+            });
+
+            assertThat(popup.getStyleClass())
+                    .as("theme class of the other manager's popup")
+                    .contains(DARK).doesNotContain(LIGHT);
+            assertThat(onFx(() -> popup.lookupAll("." + LIGHT)))
+                    .as("nodes the other manager stamped inside this popup")
+                    .isEmpty();
+            assertToken(popup, ".list-view", DARK_SURFACE);
+            assertThat(onFx(() -> firstStage.getScene().getRoot().getStyleClass()))
+                    .as("the manager's own window followed its theme")
+                    .contains(LIGHT);
+
+            onFx(() -> {
+                secondBox.hide();
+                return true;
+            });
+            Parent own = open(".list-view", firstBox::show);
+            assertTheme(own, LIGHT);
+            assertToken(own, ".list-view", LIGHT_SURFACE);
+        } finally {
+            onFx(() -> {
+                secondBox.hide();
+                firstBox.hide();
+                secondStage.close();
+                firstStage.close();
+                return true;
+            });
+        }
+    }
+
+    /**
      * A closed owner takes its tracked popup with it: nothing on it is restyled once the window is
      * gone, so a popup that outlives its owner cannot be pulled onto a theme it is no longer shown
      * under. The live stage in the same run is the control — it does restyle.
