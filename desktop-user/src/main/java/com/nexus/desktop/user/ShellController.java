@@ -474,16 +474,27 @@ public final class ShellController {
     /** The message at the top of the viewport; the list builds nodes only for visible cells. */
     private record TimelineAnchor(UUID messageId) { }
 
+    /**
+     * The message at the top of the viewport.
+     *
+     * <p>{@code lookupAll} returns its cells in no particular order, so the first bubble in that set
+     * is an arbitrary visible message rather than the topmost one; anchoring on it would restore the
+     * reader to a message they were not reading. The lowest index is the row to keep.
+     */
     private TimelineAnchor captureTimelineAnchor() {
+        int top = Integer.MAX_VALUE;
+        UUID anchorId = null;
         for (Node cell : messageList.lookupAll(".timeline-cell")) {
             if (!(cell instanceof ListCell<?> listCell) || listCell.isEmpty()) continue;
             Bounds bounds = messageList.sceneToLocal(cell.localToScene(cell.getBoundsInLocal()));
             if (bounds.getMaxY() <= 0) continue;
-            if (listCell.getItem() instanceof TimelineItem.Bubble bubble) {
-                return new TimelineAnchor(bubble.message().id());
+            if (!(listCell.getItem() instanceof TimelineItem.Bubble bubble)) continue;
+            if (listCell.getIndex() < top) {
+                top = listCell.getIndex();
+                anchorId = bubble.message().id();
             }
         }
-        return null;
+        return anchorId == null ? null : new TimelineAnchor(anchorId);
     }
 
     private void restoreTimelineAnchor(TimelineAnchor anchor) {
@@ -499,12 +510,14 @@ public final class ShellController {
      * previous rows, lands on the wrong one, and a single call is never retried: the reader ends up
      * beside the message they were reading. The move stops as soon as the row is at the top, when
      * the list is already as far down as it goes, when the reader takes the viewport over, or after
-     * {@link #VIEWPORT_PASS_LIMIT} passes.
+     * {@link #VIEWPORT_PASS_LIMIT} passes. "As far down as it goes" is only trusted once the list has
+     * a measured scroll bar: a list that was just rebuilt has none yet, and {@link #isTimelineAtBottom()}
+     * reads that as the end of a history that fits.
      */
     private void scrollToRowAfterLayout(int index, int generation, int passesLeft) {
         if (generation != viewportMoveGeneration || passesLeft <= 0) return;
         messageList.scrollTo(index);
-        if (firstVisibleRow() >= index || isTimelineAtBottom()) return;
+        if (firstVisibleRow() >= index || (timelineIsMeasured() && isTimelineAtBottom())) return;
         Platform.runLater(() -> {
             measureTimeline();
             scrollToRowAfterLayout(index, generation, passesLeft - 1);
@@ -608,6 +621,16 @@ public final class ShellController {
     private void measureTimeline() {
         messageList.applyCss();
         messageList.layout();
+    }
+
+    /** True when the list has a scroll bar that measured its content, so "at the bottom" is real. */
+    private boolean timelineIsMeasured() {
+        for (Node node : messageList.lookupAll(".scroll-bar")) {
+            if (node instanceof ScrollBar bar && bar.getOrientation() == Orientation.VERTICAL) {
+                return bar.getMax() > 0;
+            }
+        }
+        return false;
     }
 
     /**

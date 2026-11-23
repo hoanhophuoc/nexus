@@ -524,16 +524,23 @@ class ChatTimelineScrollFxTest {
         });
     }
 
-    /** The text of the message cell nearest the top of the viewport, top to bottom. */
+    /**
+     * The text of the message cell nearest the top of the viewport.
+     *
+     * <p>{@code lookupAll} hands its cells back in no particular order, so "the first visible cell"
+     * in that set is an arbitrary row and two reads of the same viewport can disagree. The topmost
+     * row is the one with the lowest index.
+     */
     private static String firstVisibleText(Parent root) {
+        ListCell<?> top = null;
         for (Node cell : root.lookupAll(".timeline-cell")) {
             if (!(cell instanceof ListCell<?> listCell) || listCell.isEmpty()) continue;
             Bounds inList = timeline(root).sceneToLocal(cell.localToScene(cell.getBoundsInLocal()));
             if (inList.getMaxY() <= 0) continue;
-            String text = textOf(cell);
-            if (!text.isBlank()) return text.trim();
+            if (top == null || listCell.getIndex() < top.getIndex()) top = listCell;
         }
-        return "";
+        String text = top == null ? "" : textOf(top);
+        return text.isBlank() ? "" : text.trim();
     }
 
     private static boolean labelsContain(Parent root, String text) {
