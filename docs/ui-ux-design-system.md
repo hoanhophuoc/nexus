@@ -166,7 +166,9 @@ Use a consistent spacing scale derived from 4px increments. Preferred steps are 
 **Timeline budget and measured result (2026-11-23).** `:desktop-user:fxTest --tests
 *TimelineBenchmarkFxTest` writes `desktop-user/build/timeline-benchmark.md` and fails the build when
 the 5,000-message budgets are missed: initial render ≤ 800 ms, append (row painted) p95 ≤ 50 ms,
-rebuild p95 ≤ 900 ms, resize p95 ≤ 150 ms, pulse gap p95 ≤ 150 ms and worst pulse gap ≤ 500 ms. The
+rebuild p95 ≤ 900 ms, resize p95 ≤ 150 ms, pulse gap p95 ≤ 150 ms, worst pulse gap ≤ 500 ms,
+60 message rows and 500 scene nodes. The node budgets are what fails if the timeline goes back to
+building one node per message; the timing budgets alone could pass by luck on a fast run. The
 pulse budget is set above the measured spread rather than at it: nine runs put the 5,000-message p95
 between 58 and 113 ms, so a 100 ms ceiling failed on healthy runs. The
 fixture carries alternating senders, long and short bodies, a date separator every 30 messages and

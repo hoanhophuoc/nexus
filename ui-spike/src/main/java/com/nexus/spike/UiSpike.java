@@ -204,6 +204,9 @@ public final class UiSpike extends Application {
                         + "field-contrast=%.2f%n", variant, surface, bodyContrast, fieldContrast);
     }
 
+    /** Counted so deleting the popup assertions fails the spike instead of shrinking it. */
+    private static int popupChecks;
+
     /**
      * The popup scenes are separate scenes, so "it has a skin" proves nothing about the theme:
      * each one must carry the Nexus stylesheet and theme class and paint the semantic token.
@@ -273,6 +276,8 @@ public final class UiSpike extends Application {
 
             require(combo.getSkin() != null && date.getSkin() != null,
                     "a popup control lost its skin");
+            require(popupChecks >= 8,
+                    "the popup audit ran only " + popupChecks + " of its 8 stamping checks");
         } finally {
             stage.close();
         }
@@ -280,6 +285,7 @@ public final class UiSpike extends Application {
 
     /** theme.css reaches the popup scene and the theme class sits on its root. */
     private static void requireStyled(Parent popup, String variant) {
+        popupChecks++;
         require(popup != null, "the popup did not open");
         Scene scene = popup.getScene();
         require(scene != null, "the popup has no scene");
@@ -292,6 +298,7 @@ public final class UiSpike extends Application {
 
     /** The rendered popup list paints -color-surface, not a stock skin colour. */
     private static void requireSurface(Parent popup, String variant) {
+        popupChecks++;
         popup.applyCss();
         popup.layout();
         Node list = popup.lookup(".list-view");

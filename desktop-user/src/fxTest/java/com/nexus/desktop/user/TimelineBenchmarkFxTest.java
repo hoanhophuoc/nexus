@@ -58,6 +58,12 @@ class TimelineBenchmarkFxTest {
      */
     private static final long BUDGET_PULSE_P95_MS = 150;
     private static final long BUDGET_PULSE_MAX_MS = 500;
+    /*
+     * The budget that fails if the timeline goes back to one node per message: the timings depend
+     * on the machine and can pass by luck, the scene graph does not.
+     */
+    private static final int BUDGET_ROW_NODES = 60;
+    private static final int BUDGET_SCENE_NODES = 500;
     /** Queued rows in the fixture: a send the server has not answered yet. */
     private static final int PENDING_ROWS = 3;
     /** Seeded messages per day, so the timeline builds a date separator every this many rows. */
@@ -122,9 +128,12 @@ class TimelineBenchmarkFxTest {
                 .append(" ms, rebuild p95 <= ").append(BUDGET_REBUILD_MS)
                 .append(" ms, resize p95 <= ").append(BUDGET_RESIZE_MS)
                 .append(" ms, pulse gap p95 <= ").append(BUDGET_PULSE_P95_MS)
-                .append(" ms, worst pulse gap <= ").append(BUDGET_PULSE_MAX_MS).append(" ms.\n");
+                .append(" ms, worst pulse gap <= ").append(BUDGET_PULSE_MAX_MS)
+                .append(" ms, message rows <= ").append(BUDGET_ROW_NODES)
+                .append(" and scene nodes <= ").append(BUDGET_SCENE_NODES).append(".\n");
         Files.writeString(report, markdown.toString());
 
+        assertThat(results).as("a measurement row per history size").hasSize(SIZES.length);
         Measurement largest = results.getLast();
         assertThat(percentile(largest.initial(), 50)).as("initial render of 5,000 messages")
                 .isLessThanOrEqualTo(BUDGET_INITIAL_MS);
@@ -138,6 +147,10 @@ class TimelineBenchmarkFxTest {
                 .isLessThanOrEqualTo(BUDGET_PULSE_P95_MS);
         assertThat(worst(largest.pulses())).as("worst pulse gap across the run at 5,000 messages")
                 .isLessThanOrEqualTo(BUDGET_PULSE_MAX_MS);
+        assertThat(largest.rowNodes()).as("message rows in the scene at 5,000 messages")
+                .isLessThanOrEqualTo(BUDGET_ROW_NODES);
+        assertThat(largest.sceneNodes()).as("scene nodes at 5,000 messages")
+                .isLessThanOrEqualTo(BUDGET_SCENE_NODES);
     }
 
     private static Measurement measure(int size, Path home) throws Exception {
