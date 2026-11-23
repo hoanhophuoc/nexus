@@ -327,6 +327,7 @@ Current known FX test classes include:
 - `desktop-user/.../RenderedControlContrastFxTest.java`
 - `desktop-user/.../UserGoldenScreenshotFxTest.java`
 - `desktop-admin/.../AdminDesignSystemFxTest.java`
+- `desktop-admin/.../RenderedAdminContrastFxTest.java`
 - `desktop-admin/.../AdminGoldenScreenshotFxTest.java`
 
 Always inspect the current test tree before relying on this list; it will evolve.

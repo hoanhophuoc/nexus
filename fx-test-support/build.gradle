@@ -20,6 +20,16 @@ javafx {
     modules = ['javafx.controls']
 }
 
+dependencies {
+    // The contrast helpers name the Theme a measurement belongs to, so the suites read one report
+    // format per theme. desktop-shared does not depend on this module, so the project graph stays
+    // acyclic.
+    api project(':desktop-shared')
+    // The helpers assert with AssertJ, as the suites that use them do; the same version is declared
+    // by every desktop module so no second copy can reach a test classpath.
+    api 'org.assertj:assertj-core:3.27.7'
+}
+
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
     options.release = 27
