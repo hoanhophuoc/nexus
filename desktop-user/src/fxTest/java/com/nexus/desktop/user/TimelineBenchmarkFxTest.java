@@ -141,7 +141,11 @@ class TimelineBenchmarkFxTest {
     }
 
     private static Measurement measure(int size, Path home) throws Exception {
-        int runs = size >= 5_000 ? 2 : 3;
+        // Four runs at the largest size: the append budget is a p95, and ten samples make a p95 the
+        // single worst sample, so one garbage-collection pause under a loaded runner failed a build
+        // that was healthy. Twenty samples leave that one pause out while a real regression, which
+        // moves the whole distribution, still breaches the budget.
+        int runs = size >= 5_000 ? 4 : 3;
         List<Long> initial = new ArrayList<>();
         List<Long> append = new ArrayList<>();
         List<Long> delivery = new ArrayList<>();
