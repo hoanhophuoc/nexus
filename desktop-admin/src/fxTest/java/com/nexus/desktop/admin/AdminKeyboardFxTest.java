@@ -1,10 +1,13 @@
 package com.nexus.desktop.admin;
 
+import com.nexus.sdk.model.AdminUser;
 import com.nexus.sdk.model.MyProfile;
 import javafx.scene.Node;
 import javafx.scene.Parent;
+import javafx.scene.control.Button;
 import javafx.scene.control.ListView;
 import javafx.scene.control.PasswordField;
+import javafx.scene.control.TableView;
 import javafx.scene.control.TextField;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
@@ -94,6 +97,89 @@ class AdminKeyboardFxTest {
                 return content != null && content.lookup("#reportsTable") != null;
             }, Duration.ofSeconds(10));
         }
+    }
+
+    @Test
+    void arrowKeysInTheAccountsTableFillTheDetailPane() throws Exception {
+        try (FakeAdminServer server = new FakeAdminServer();
+             AdminSessions.Session session = AdminSessions.signedIn(server)) {
+            Parent root = session.show(AdminViewLoader.ACCOUNTS,
+                    () -> new AccountsController(session.context()), 1280, 720);
+            TableView<?> accounts = table(root, "#accountsTable");
+            waitForFx(() -> accounts.getItems().size() >= 2, Duration.ofSeconds(20));
+            TextField detailUsername = (TextField) root.lookup("#usernameField");
+            int selected = onFx(() -> accounts.getSelectionModel().getSelectedIndex());
+
+            onFx(() -> {
+                accounts.requestFocus();
+                press(accounts, KeyCode.DOWN);
+                return true;
+            });
+
+            assertThat(onFx(() -> accounts.getSelectionModel().getSelectedIndex()))
+                    .as("the arrow moved the selection on").isEqualTo(selected + 1);
+            // The detail pane is what the operator works in; a selection alone would be a colour.
+            assertThat(onFx(() -> detailUsername.getText()))
+                    .as("the detail pane follows the keyboard selection")
+                    .isEqualTo(onFx(() -> ((AdminUser) accounts.getSelectionModel()
+                            .getSelectedItem()).getUsername()));
+        }
+    }
+
+    @Test
+    void aRowDecisionOpensItsConfirmationAndCancelReturnsFocus() throws Exception {
+        try (FakeAdminServer server = new FakeAdminServer();
+             AdminSessions.Session session = AdminSessions.signedIn(server)) {
+            Parent root = session.show(AdminViewLoader.REPORTS,
+                    () -> new ReportsController(session.context()), 1280, 720);
+            TableView<?> reports = table(root, "#reportsTable");
+            waitForFx(() -> !reports.getItems().isEmpty(), Duration.ofSeconds(20));
+            // The row cells are built during a layout pass, which the data arrives after.
+            onFx(() -> {
+                reports.applyCss();
+                reports.layout();
+                return true;
+            });
+            Button uphold = rowButton(reports, ".danger-button");
+            Node confirm = root.lookup("#confirmDecisionButton");
+            Node cancel = root.lookup("#cancelDecisionButton");
+            Node box = root.lookup("#decisionConfirmBox");
+
+            onFx(() -> {
+                uphold.requestFocus();
+                press(uphold, KeyCode.SPACE);
+                return true;
+            });
+
+            assertThat(onFx(box::isVisible)).as("Space opened the confirmation").isTrue();
+            // The controller focuses the button the operator just chose, so a second Space would
+            // submit rather than silently do nothing; the check follows what the screen does.
+            assertThat(onFx(() -> session.scene().getFocusOwner()))
+                    .as("the confirmation takes focus").isSameAs(confirm);
+
+            onFx(() -> {
+                press(cancel, KeyCode.SPACE);
+                return true;
+            });
+
+            assertThat(onFx(box::isVisible)).as("cancel closes the confirmation").isFalse();
+            assertThat(onFx(() -> session.scene().getFocusOwner()))
+                    .as("cancel gives focus back to the row action").isSameAs(uphold);
+        }
+    }
+
+    private static TableView<?> table(Parent root, String id) {
+        TableView<?> table = (TableView<?>) root.lookup(id);
+        assertThat(table).as("the %s table", id).isNotNull();
+        return table;
+    }
+
+    /** The first realised row's action button, so the test drives a real row and not a prototype. */
+    private static Button rowButton(TableView<?> table, String selector) {
+        for (Node node : table.lookupAll(selector)) {
+            if (node instanceof Button button && button.getScene() != null) return button;
+        }
+        throw new AssertionError("No realised row builds a " + selector);
     }
 
     private static Node content(Parent shell) {
