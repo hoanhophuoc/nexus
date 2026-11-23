@@ -326,6 +326,8 @@ Current known FX test classes include:
 - `desktop-user/.../DesignSystemFxTest.java`
 - `desktop-user/.../RenderedControlContrastFxTest.java`
 - `desktop-user/.../PopupKeyboardFxTest.java`
+- `desktop-user/.../PopupThemeFxTest.java`
+- `desktop-user/.../TimelineBenchmarkFxTest.java`
 - `desktop-user/.../UserGoldenScreenshotFxTest.java`
 - `desktop-admin/.../AdminDesignSystemFxTest.java`
 - `desktop-admin/.../AdminKeyboardFxTest.java`
