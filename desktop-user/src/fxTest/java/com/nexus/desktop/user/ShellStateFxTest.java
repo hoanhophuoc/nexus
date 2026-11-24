@@ -156,11 +156,7 @@ class ShellStateFxTest {
                                     watchForLoadingPlaceholder(stage, LOADING_MESSAGES, timelineShowedLoading);
                                     Platform.runLater(() -> button(stage, "Group settings").fire());
                                     Window settings = awaitDialog("#nameField");
-                                    Platform.runLater(() -> {
-                                        ((TextField) settings.getScene().lookup("#nameField"))
-                                                .setText(RENAMED_GROUP);
-                                        primaryButton(settings).fire();
-                                    });
+                                    renameWhenReady(settings, RENAMED_GROUP);
                                 },
                                 () -> server.groupName().equals(RENAMED_GROUP)
                                         && titleIs(stage, RENAMED_GROUP)
@@ -505,6 +501,21 @@ class ShellStateFxTest {
     private static boolean dialogShowing(String lookupId) {
         return Window.getWindows().stream().anyMatch(window -> window.isShowing()
                 && window.getScene() != null && window.getScene().lookup(lookupId) != null);
+    }
+
+    /**
+     * Renames through the settings dialog once its rename button is enabled. The controller learns
+     * that the signed-in user is an admin from the member list and keeps the action disabled until
+     * then, so this waits for that state — the same readiness a person sees — instead of clicking a
+     * button whose action the dialog would refuse.
+     */
+    private static void renameWhenReady(Window settings, String name) {
+        waitForFx(() -> settings.getScene().lookup("#renameButton") instanceof Button rename
+                && !rename.isDisabled(), Duration.ofSeconds(10));
+        Platform.runLater(() -> {
+            ((TextField) settings.getScene().lookup("#nameField")).setText(name);
+            primaryButton(settings).fire();
+        });
     }
 
     /** A picker's confirm button is the styled primary one; its cancel is the ghost next to it. */

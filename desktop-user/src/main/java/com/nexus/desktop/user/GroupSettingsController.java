@@ -72,6 +72,13 @@ public final class GroupSettingsController {
         closeButton.setOnAction(event -> onClose.run());
         membersList.getSelectionModel().selectedItemProperty().addListener(
                 (observable, previous, selected) -> updateActions());
+        // Who is an admin, and therefore which member actions are allowed, arrives with the first
+        // member response. Until it does, no member action is clickable: a click that the guard then
+        // refuses would be a click the dialog silently dropped.
+        renameButton.setDisable(true);
+        promoteButton.setDisable(true);
+        demoteButton.setDisable(true);
+        removeButton.setDisable(true);
         loadMembers();
     }
 
