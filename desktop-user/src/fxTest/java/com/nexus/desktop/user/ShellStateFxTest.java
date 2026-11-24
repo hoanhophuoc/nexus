@@ -396,12 +396,19 @@ class ShellStateFxTest {
                                 () -> server.reports() == 1 && server.reportsWithEvidence() == 1));
 
                 for (Step step : table) {
-                    step.action().run();
+                    try {
+                        step.action().run();
+                    } catch (RuntimeException | AssertionError failed) {
+                        throw new AssertionError("step \"" + step.state() + "\" failed while acting: "
+                                + failed.getMessage() + " (shell: " + shellDiagnostics(stage) + ")",
+                                failed);
+                    }
                     try {
                         waitForFx(step.settled(), Duration.ofSeconds(10));
                     } catch (AssertionError unmet) {
-                        throw new AssertionError(step.state() + ": " + unmet.getMessage()
-                                + " (" + onFx(() -> diagnostics(stage)) + ")", unmet);
+                        throw new AssertionError("step \"" + step.state() + "\" did not settle: "
+                                + unmet.getMessage() + " (shell: " + shellDiagnostics(stage) + ")",
+                                unmet);
                     }
                 }
 
@@ -568,6 +575,19 @@ class ShellStateFxTest {
         return titleOf(stage) + ", status "
                 + (stage.getScene().lookup("#statusLabel") instanceof Label status ? status.getText() : null)
                 + ", rows " + rowsOf(stage);
+    }
+
+    /**
+     * The shell's state for a failure report, or why it could not be read. A run that fails because
+     * the FX thread is stuck cannot answer a diagnostic read either, and losing the failed step to a
+     * second timeout is worse than reporting the step without the shell's labels.
+     */
+    private static String shellDiagnostics(Stage stage) {
+        try {
+            return onFx(() -> diagnostics(stage));
+        } catch (AssertionError fxThreadStuck) {
+            return "unavailable, the FX thread did not answer: " + fxThreadStuck.getMessage();
+        }
     }
 
     private static String rowsOf(Stage stage) {
