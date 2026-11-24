@@ -440,6 +440,74 @@ class UserGoldenScreenshotFxTest {
     }
 
     /**
+     * The account, registration, report and group-settings screens in Vietnamese. These are the
+     * forms whose labels are longest, and none of them had a translated baseline: a clipped button,
+     * a wrapped helper line or a field pushed out of its column is exactly what the English capture
+     * cannot show.
+     */
+    @Test
+    void vietnameseUserScreensMatchGoldensInLightAndDark(@TempDir Path home) throws Exception {
+        String previousHome = System.getProperty("user.home");
+        TimeZone previousZone = TimeZone.getDefault();
+        System.setProperty("user.home", home.toString());
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+        try (FakeChatServer server = new FakeChatServer()) {
+            Stage stage = onFx(Stage::new);
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            I18n i18n = new I18n(BASE, Locale.forLanguageTag("vi"));
+            UserAppContext context = new UserAppContext(stage, server.origin().toString(), false,
+                    null, theme, i18n);
+            context.activate(context.signIn("alice", PASSWORD.toCharArray()));
+            try {
+                Parent account = onFx(() -> mount(stage, theme,
+                        ViewLoader.load(ViewLoader.ACCOUNT, new AccountController(context,
+                                id -> { }, user -> { }, () -> { }, () -> { }), i18n),
+                        960, 720));
+                waitForFx(() -> account.lookup("#friendsList") instanceof ListView<?> list
+                        && !list.getItems().isEmpty(), Duration.ofSeconds(10));
+                snapshot(stage, account, "account-vi-light.png", "account-vi-dark.png", theme, null, i18n);
+
+                Parent register = onFx(() -> mount(stage, theme,
+                        ViewLoader.load(ViewLoader.REGISTER, new RegisterController(context,
+                                username -> { }, () -> { }), i18n), 560, 780));
+                snapshot(stage, register, "register-vi-light.png", "register-vi-dark.png", theme,
+                        null, i18n);
+
+                User target = new User().id(FakeChatServer.FRIEND_ID).username("bob").fullName("Bob");
+                CachedMessage evidence = new CachedMessage(UUID.fromString(
+                        "44444444-4444-4444-8444-444444444444"), FakeChatServer.CONVERSATION_ID,
+                        FakeChatServer.FRIEND_ID, "", "the reported message",
+                        Instant.parse("2026-11-09T10:15:30Z"));
+                Parent report = onFx(() -> mount(stage, theme,
+                        ViewLoader.load(ViewLoader.REPORT, new ReportController(context, target,
+                                List.of(evidence), () -> { }), i18n), 560, 620));
+                snapshot(stage, report, "report-vi-light.png", "report-vi-dark.png", theme, null, i18n);
+
+                Conversation group = context.groups().createGroup("Team",
+                        List.of(FakeChatServer.FRIEND_ID));
+                Parent groupSettings = onFx(() -> mount(stage, theme,
+                        ViewLoader.load(ViewLoader.GROUP_SETTINGS, new GroupSettingsController(context,
+                                group, () -> { }, () -> { }, () -> { }), i18n), 640, 600));
+                waitForFx(() -> groupSettings.lookup("#membersList") instanceof ListView<?> list
+                        && list.getItems().size() == 2, Duration.ofSeconds(10));
+                snapshot(stage, groupSettings, "group-vi-light.png", "group-vi-dark.png", theme,
+                        null, i18n);
+            } finally {
+                onFx(() -> {
+                    stage.close();
+                    context.close();
+                    return true;
+                });
+            }
+        } finally {
+            TimeZone.setDefault(previousZone);
+            if (previousHome == null) System.clearProperty("user.home");
+            else System.setProperty("user.home", previousHome);
+        }
+    }
+
+    /**
      * The chat shell before any conversation exists: the conversation list's empty state and the empty
      * chat header. Every other shell baseline opens a chat, so this is the only one that shows them.
      */

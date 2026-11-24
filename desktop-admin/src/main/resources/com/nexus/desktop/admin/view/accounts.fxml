@@ -30,15 +30,19 @@
             <Label fx:id="statusLabel" styleClass="admin-status" text="%admin.accounts.loading"/>
             <TableView fx:id="accountsTable" styleClass="admin-table" VBox.vgrow="ALWAYS">
                 <columns>
-                    <TableColumn fx:id="usernameColumn" minWidth="88" prefWidth="105"
+                    <!-- The minimums fit this table into the shell's narrower content area; there the
+                         headers wrap rather than ellipsize, and the row actions are icons so they
+                         always stay inside the column. The preferred widths are what the full-width
+                         workspace gives them. -->
+                    <TableColumn fx:id="usernameColumn" minWidth="92" prefWidth="124"
                                  text="%admin.accounts.username"/>
-                    <TableColumn fx:id="fullNameColumn" minWidth="140" prefWidth="170"
+                    <TableColumn fx:id="fullNameColumn" minWidth="85" prefWidth="135"
                                  text="%admin.accounts.fullName"/>
-                    <TableColumn fx:id="emailColumn" minWidth="175" prefWidth="200"
+                    <TableColumn fx:id="emailColumn" minWidth="100" prefWidth="165"
                                  text="%admin.accounts.email"/>
-                    <TableColumn fx:id="statusColumn" minWidth="65" prefWidth="80"
+                    <TableColumn fx:id="statusColumn" minWidth="92" prefWidth="92"
                                  text="%admin.accounts.status"/>
-                    <TableColumn fx:id="actionColumn" minWidth="170" prefWidth="180"
+                    <TableColumn fx:id="actionColumn" minWidth="105" prefWidth="180"
                                  text="%admin.accounts.action"/>
                 </columns>
             </TableView>
@@ -118,9 +122,11 @@
                        wrapText="true"/>
                 <TableView fx:id="friendsTable" prefHeight="150" styleClass="admin-table">
                     <columns>
+                        <!-- The username header is the longest of the three in Vietnamese, and this
+                             table shares the narrower detail pane. -->
                         <TableColumn fx:id="friendUsernameColumn" prefWidth="150" text="%admin.accounts.username"/>
-                        <TableColumn fx:id="friendFullNameColumn" prefWidth="180" text="%admin.accounts.fullName"/>
-                        <TableColumn fx:id="friendAddressColumn" prefWidth="180" text="%admin.accounts.address"/>
+                        <TableColumn fx:id="friendFullNameColumn" prefWidth="120" text="%admin.accounts.fullName"/>
+                        <TableColumn fx:id="friendAddressColumn" prefWidth="120" text="%admin.accounts.address"/>
                     </columns>
                 </TableView>
             </VBox>

@@ -4,6 +4,7 @@ import com.nexus.desktop.shared.ui.I18n;
 import com.nexus.desktop.shared.ui.UiComponents;
 import com.nexus.sdk.model.GroupMember;
 import javafx.beans.property.SimpleStringProperty;
+import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.chart.BarChart;
 import javafx.scene.chart.CategoryAxis;
@@ -14,6 +15,7 @@ import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.text.TextAlignment;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -36,6 +38,26 @@ final class AdminUi {
         TableColumn<T, String> column = new TableColumn<>();
         bind(column, value);
         return column;
+    }
+
+    /**
+     * Lets a column header wrap instead of ending in an ellipsis when the table is narrower than its
+     * copy. Vietnamese headers are the wider case ("Tên đăng nhập" against "Username"), and the same
+     * screen is shown both full width and inside the shell's narrower content area, so a header that
+     * only fits one of them would hide which column the reader is looking at.
+     */
+    static void wrapHeader(TableColumn<?, ?> column) {
+        if (column.getText() == null || column.getText().isBlank()) return;
+        Label label = new Label(column.getText());
+        label.getStyleClass().add("header-wrap");
+        label.setWrapText(true);
+        label.setAlignment(Pos.CENTER);
+        label.setTextAlignment(TextAlignment.CENTER);
+        // The header lays the graphic out at its preferred width unless it is told how much room it
+        // has; without this the label stays one line and is clipped by the column.
+        label.maxWidthProperty().bind(column.widthProperty().subtract(8));
+        column.setGraphic(label);
+        column.setText(null);
     }
 
     static <T> void bindAction(TableColumn<T, String> column, Function<T, Node> graphic) {

@@ -378,6 +378,107 @@ class AdminGoldenScreenshotFxTest {
     }
 
     /**
+     * The remaining admin workspaces in Vietnamese: accounts, analytics, audit, groups and
+     * registrations. Their toolbars, table headers and detail titles are the longest strings the
+     * layout has to hold, so each gets a translated baseline of its own rather than being assumed
+     * safe because the English capture fits.
+     */
+    @Test
+    void vietnameseWorkspacesMatchGoldensInLightAndDark() throws Exception {
+        TimeZone previousZone = TimeZone.getDefault();
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+        try (FakeAdminServer server = new FakeAdminServer()) {
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            I18n vietnamese = new I18n(BASE, Locale.forLanguageTag("vi"));
+            AtomicReference<Stage> stageReference = new AtomicReference<>();
+            AdminAppContext context = onFx(() -> {
+                Stage ownStage = new Stage();
+                stageReference.set(ownStage);
+                return new AdminAppContext(ownStage, server.origin().toString(), theme, vietnamese);
+            });
+            context.activate(context.signIn("admin", "correct horse battery staple".toCharArray()));
+            Stage stage = stageReference.get();
+            try {
+                Parent accounts = onFx(() -> AdminViewLoader.load(AdminViewLoader.ACCOUNTS,
+                        new AccountsController(context), vietnamese));
+                onFx(() -> {
+                    mount(stage, theme, accounts);
+                    return true;
+                });
+                waitForFx(() -> tableRows(stage, 0) > 1 && tableRows(stage, 1) > 0 && tableRows(stage, 2) > 0
+                                && !loadingDetails(stage, vietnamese),
+                        Duration.ofSeconds(10));
+                selectPrimaryRow(stage, vietnamese, "#accountsTable");
+                captureLightAndDark(stage, theme, accounts, "accounts-vi");
+
+                Parent analytics = onFx(() -> AdminViewLoader.load(AdminViewLoader.ANALYTICS,
+                        new AnalyticsController(context), vietnamese));
+                // Analytics is the one admin screen taller than the working window, so it is
+                // captured at the height the English baseline uses.
+                onFx(() -> {
+                    mount(stage, theme, analytics, WIDTH, 1120);
+                    return true;
+                });
+                onFx(() -> {
+                    ((TextField) analytics.lookup("#yearField")).setText("2026");
+                    ((DatePicker) analytics.lookup("#activityFrom")).setValue(LocalDate.of(2026, 11, 1));
+                    ((DatePicker) analytics.lookup("#activityTo")).setValue(LocalDate.of(2026, 11, 30));
+                    ((Button) analytics.lookup("#loadChartsButton")).fire();
+                    ((Button) analytics.lookup("#loadActivityButton")).fire();
+                    ((Button) analytics.lookup("#loadFriendsButton")).fire();
+                    return true;
+                });
+                waitForFx(() -> tableRows(stage, 0) > 0 && tableRows(stage, 1) > 0
+                                && labelContaining(stage, vietnamese.get("admin.analytics.chartsLoaded")),
+                        Duration.ofSeconds(10));
+                captureLightAndDark(stage, theme, analytics, "analytics-vi");
+
+                Parent audit = onFx(() -> AdminViewLoader.load(AdminViewLoader.AUDIT,
+                        new AuditController(context), vietnamese));
+                onFx(() -> {
+                    mount(stage, theme, audit);
+                    return true;
+                });
+                waitForFx(() -> tableRows(stage, 0) > 0, Duration.ofSeconds(10));
+                captureLightAndDark(stage, theme, audit, "audit-vi");
+
+                Parent groups = onFx(() -> AdminViewLoader.load(AdminViewLoader.GROUPS,
+                        new GroupsController(context), vietnamese));
+                onFx(() -> {
+                    mount(stage, theme, groups);
+                    return true;
+                });
+                waitForFx(() -> tableRows(stage, 0) > 0 && tableRows(stage, 1) > 0, Duration.ofSeconds(10));
+                captureLightAndDark(stage, theme, groups, "groups-vi");
+
+                Parent registrations = onFx(() -> AdminViewLoader.load(AdminViewLoader.REGISTRATIONS,
+                        new RegistrationsController(context), vietnamese));
+                onFx(() -> {
+                    mount(stage, theme, registrations);
+                    return true;
+                });
+                onFx(() -> {
+                    ((DatePicker) registrations.lookup("#fromDate")).setValue(LocalDate.of(2026, 11, 1));
+                    ((DatePicker) registrations.lookup("#toDate")).setValue(LocalDate.of(2026, 11, 30));
+                    ((Button) registrations.lookup("#applyButton")).fire();
+                    return true;
+                });
+                waitForFx(() -> tableRows(stage, 0) > 0, Duration.ofSeconds(10));
+                captureLightAndDark(stage, theme, registrations, "registrations-vi");
+            } finally {
+                onFx(() -> {
+                    stage.close();
+                    context.close();
+                    return true;
+                });
+            }
+        } finally {
+            TimeZone.setDefault(previousZone);
+        }
+    }
+
+    /**
      * The four admin workspaces that had no baseline: analytics, audit, groups and registrations.
      * Both date-bounded screens open on today's date, so the test pins their date fields before the
      * capture — a baseline that moved with the calendar would fail the next day's run.

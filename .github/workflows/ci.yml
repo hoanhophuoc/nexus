@@ -136,6 +136,18 @@ jobs:
           xvfb-run -a -s "-screen 0 1280x1024x24"
           ./gradlew --no-daemon :desktop-user:fxTest :desktop-admin:fxTest
 
+      # The measured head, not the checked-in table: the benchmark rewrites this report on every
+      # run and fails the build when the 5,000-message budgets are missed, so a reviewer can read
+      # the numbers the tested commit produced.
+      - name: Upload timeline benchmark report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: timeline-benchmark
+          path: desktop-user/build/timeline-benchmark.md
+          if-no-files-found: warn
+          retention-days: 14
+
       # The proof of concept is a check, not a demo: a theme, popup, icon-font or preference
       # regression fails here instead of leaving a screenshot nobody asserts on.
       - name: Verify the AtlantaFX and Ikonli proof of concept
@@ -169,6 +181,7 @@ jobs:
           path: |
             desktop-user/build/reports/tests/fxTest
             desktop-user/build/test-results/fxTest
+            desktop-user/build/timeline-benchmark.md
             desktop-admin/build/reports/tests/fxTest
             desktop-admin/build/test-results/fxTest
             desktop-admin/build/golden-actual

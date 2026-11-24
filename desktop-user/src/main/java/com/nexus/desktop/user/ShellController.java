@@ -470,8 +470,22 @@ public final class ShellController {
         return true;
     }
 
-    /** The message nearest the top of the viewport, and how far below that top it sat. */
-    /** The message at the top of the viewport; the list builds nodes only for visible cells. */
+    /**
+     * The message the reader was at when the timeline was rebuilt, by id only.
+     *
+     * <p>It deliberately does not carry the message's pixel offset inside the viewport. A
+     * {@code ListView} addresses its content through {@code scrollTo(int)}, which places a row at the
+     * top of the viewport; the pixels between rows belong to the internal {@code VirtualFlow}, which
+     * is not a supported extension point and is therefore not used. Restoring the exact offset would
+     * mean measuring and re-driving that flow, which is the coupling this timeline avoids to stay
+     * virtualized.
+     *
+     * <p>The consequence is precise and accepted: after a rebuild the anchored message is at the top
+     * of the viewport, so the reader keeps the message they were reading, but if that row was taller
+     * than the remaining space and had already scrolled partly above the top edge, the part above
+     * the edge is scrolled back into view. {@code ChatTimelineScrollFxTest} asserts this with a long
+     * wrapped row. Appends never rebuild and therefore never move the anchor at all.
+     */
     private record TimelineAnchor(UUID messageId) { }
 
     /**

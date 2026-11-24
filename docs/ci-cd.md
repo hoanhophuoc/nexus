@@ -16,6 +16,12 @@ the commands below.
 The JavaFX job pins Xvfb's screen at 1280x1024, because the toolkit default is 640x480 and the
 goldens capture scenes up to 1184x784; pinned, the display is never the limit on a stage.
 
+The timeline benchmark rewrites `desktop-user/build/timeline-benchmark.md` on every run of that
+job, and the job uploads it as the `timeline-benchmark` artifact (also inside `fx-test-reports`).
+The report is therefore the measurement the tested commit produced, not a table copied into the
+design document: the suite fails the build when the 5,000-message budgets are missed, and the table
+in `docs/ui-ux-design-system.md` is verified against the same run.
+
 The shell-state table in `ShellStateFxTest` has an opt-in stress mode:
 `JAVA_TOOL_OPTIONS=-Dnexus.shellTable.repeat=600 xvfb-run -a ./gradlew :desktop-user:fxTest
 --tests '*ShellStateFxTest' --rerun` runs the table that many times in one JVM, each pass with a

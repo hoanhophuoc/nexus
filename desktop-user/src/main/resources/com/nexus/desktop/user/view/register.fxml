@@ -40,7 +40,9 @@
             <TextField fx:id="addressField" promptText="%register.addressPrompt"/>
         </VBox>
         <HBox spacing="10">
-            <VBox spacing="5" HBox.hgrow="ALWAYS">
+            <!-- The date needs only its own width; the gender list has to hold the longest label
+                 ("Không muốn tiết lộ") without truncating the selected value. -->
+            <VBox spacing="5" HBox.hgrow="NEVER" prefWidth="150">
                 <Label fx:id="birthDateLabel" text="%register.birthDate" styleClass="field-label"/>
                 <DatePicker fx:id="birthDateField" maxWidth="Infinity"/>
             </VBox>

@@ -17,6 +17,8 @@ import javafx.scene.control.ScrollBar;
 import javafx.scene.control.TextField;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
+import javafx.scene.input.MouseButton;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.input.ScrollEvent;
 import javafx.stage.Stage;
 import org.junit.jupiter.api.Test;
@@ -48,6 +50,11 @@ class ChatTimelineScrollFxTest {
     /** Long enough that a narrower window really re-wraps the rows and grows the timeline. */
     private static final String SEARCHED = "history line 7 with enough text to wrap across a "
             + "narrower window and keep wrapping";
+    /** Several wrapped lines tall, so it is only partially visible when it is the top row. */
+    private static final String LONG = "long wrapped line 21 with a body that spans several lines "
+            + "of the viewport so it can be clipped by the top edge and still be the message the "
+            + "reader was reading when the timeline is rebuilt underneath them";
+    private static final String LONG_MARKER = "long wrapped line 21";
 
     @Test
     void keepsTheReaderInPlaceAndFollowsOnlyAtTheNewestRow(@TempDir Path home) throws Exception {
@@ -238,6 +245,149 @@ class ChatTimelineScrollFxTest {
                 assertThat(onFx(() -> labelsContain(root, "arrival " + roundIndex + ".3 during the move")))
                         .as("round %d: the newest arrival is on screen", roundIndex).isTrue();
             }
+        }
+    }
+
+    /**
+     * A reader who drags the scrollbar thumb away from the newest row has left the tail, and an
+     * arrival must not pull them back; returning to the newest row resumes the follow.
+     *
+     * <p>The drag is a real one — press, move and release on the bar's own thumb node — so the
+     * skin's input handling decides the new position. Writing a value straight onto the bar would
+     * skip exactly the code a user exercises.
+     */
+    @Test
+    void draggingTheScrollbarThumbAwayFromTheTailStopsFollowing(@TempDir Path home) throws Exception {
+        try (FakeChatServer server = new FakeChatServer();
+             FakeWebSocketServer realtime = new FakeWebSocketServer();
+             Shell shell = openShell(home, server, realtime)) {
+            Parent root = shell.root();
+            waitForFx(() -> messages(root) >= HISTORY + 1, Duration.ofSeconds(10));
+            realtime.awaitClient(TimeUnit.SECONDS, 10);
+            waitForFx(() -> labelsContain(root, "Up to date"), Duration.ofSeconds(10));
+            settleTimeline(root);
+            scrollToBottom(root);
+
+            double before = onFx(() -> scrollBarValue(root));
+            dragThumbUp(root);
+            waitForFx(() -> scrollBarValue(root) < before - 1e-3, Duration.ofSeconds(5));
+            assertThat(onFx(() -> atBottom(root)))
+                    .as("dragging the thumb up moved the viewport off the newest row").isFalse();
+
+            realtime.sendText(messageCreated(UUID.randomUUID(), FakeChatServer.FRIEND_ID,
+                    "after the thumb drag", "2026-11-09T12:30:00Z"));
+            waitForFx(() -> messages(root) == HISTORY + 2, Duration.ofSeconds(10));
+            assertThat(onFx(() -> atBottom(root)))
+                    .as("an arrival must not follow the tail after a scrollbar drag").isFalse();
+
+            scrollToBottom(root);
+            realtime.sendText(messageCreated(UUID.randomUUID(), FakeChatServer.FRIEND_ID,
+                    "after returning to the tail", "2026-11-09T13:30:00Z"));
+            waitForFx(() -> messages(root) == HISTORY + 3, Duration.ofSeconds(10));
+            waitForFx(() -> atBottom(root), Duration.ofSeconds(5));
+            assertThat(onFx(() -> atBottom(root)))
+                    .as("a reader back at the newest row follows it again").isTrue();
+        }
+    }
+
+    /**
+     * The same rule for the scrollbar's track: pressing it away from the thumb moves the viewport by
+     * a page, and the arrival that follows must not snap the reader to the newest row. The press and
+     * release go to the track node, which is what a real click on the bar lands on.
+     */
+    @Test
+    void clickingTheScrollbarTrackAwayFromTheTailStopsFollowing(@TempDir Path home) throws Exception {
+        try (FakeChatServer server = new FakeChatServer();
+             FakeWebSocketServer realtime = new FakeWebSocketServer();
+             Shell shell = openShell(home, server, realtime)) {
+            Parent root = shell.root();
+            waitForFx(() -> messages(root) >= HISTORY + 1, Duration.ofSeconds(10));
+            realtime.awaitClient(TimeUnit.SECONDS, 10);
+            waitForFx(() -> labelsContain(root, "Up to date"), Duration.ofSeconds(10));
+            settleTimeline(root);
+            scrollToBottom(root);
+
+            double before = onFx(() -> scrollBarValue(root));
+            clickTrackAboveTheThumb(root);
+            waitForFx(() -> scrollBarValue(root) < before - 1e-3, Duration.ofSeconds(5));
+            assertThat(onFx(() -> atBottom(root)))
+                    .as("a track click moved the viewport off the newest row").isFalse();
+
+            realtime.sendText(messageCreated(UUID.randomUUID(), FakeChatServer.FRIEND_ID,
+                    "after the track click", "2026-11-09T12:45:00Z"));
+            waitForFx(() -> messages(root) == HISTORY + 2, Duration.ofSeconds(10));
+            assertThat(onFx(() -> atBottom(root)))
+                    .as("an arrival must not follow the tail after a track click").isFalse();
+
+            scrollToBottom(root);
+            realtime.sendText(messageCreated(UUID.randomUUID(), FakeChatServer.FRIEND_ID,
+                    "after the track click returned", "2026-11-09T13:45:00Z"));
+            waitForFx(() -> messages(root) == HISTORY + 3, Duration.ofSeconds(10));
+            waitForFx(() -> atBottom(root), Duration.ofSeconds(5));
+            assertThat(onFx(() -> atBottom(root)))
+                    .as("a reader back at the newest row follows it again").isTrue();
+        }
+    }
+
+    /**
+     * The anchor the shell restores after a rebuild is a message id, not a pixel offset: a
+     * {@code ListView} addresses rows with {@code scrollTo(index)} and the internal {@code VirtualFlow}
+     * that owns the pixels is off limits. So a rebuilt timeline puts the anchored row at the top of the
+     * viewport, which keeps the reader on the same message but drops the slice of a tall row that had
+     * scrolled above the edge.
+     *
+     * <p>This test states that trade-off instead of assuming it: a long wrapped row is left partially
+     * clipped by the top edge, a backfilled message forces a rebuild, and the row is still the top row
+     * afterwards — now flush with the edge.
+     */
+    @Test
+    void keepsATallAnchoredRowVisibleWhenTheTimelineIsRebuilt(@TempDir Path home) throws Exception {
+        try (FakeChatServer server = new FakeChatServer();
+             FakeWebSocketServer realtime = new FakeWebSocketServer();
+             Shell shell = openShell(home, server, realtime)) {
+            Parent root = shell.root();
+            waitForFx(() -> messages(root) >= HISTORY + 1, Duration.ofSeconds(10));
+            realtime.awaitClient(TimeUnit.SECONDS, 10);
+            waitForFx(() -> labelsContain(root, "Up to date"), Duration.ofSeconds(10));
+            settleTimeline(root);
+
+            // The tall row the test anchors on is a real arrival that lands in the middle of the
+            // history, so the shared fixture stays exactly what the other cases measure.
+            realtime.sendText(messageCreated(UUID.randomUUID(), FakeChatServer.FRIEND_ID, LONG,
+                    "2026-11-09T10:21:00Z"));
+            waitForFx(() -> messages(root) == HISTORY + 2, Duration.ofSeconds(10));
+            settleTimeline(root);
+
+            int index = messageIndex(root, LONG_MARKER);
+            assertThat(index).as("the long row the test anchors on").isGreaterThan(0);
+            onFx(() -> {
+                timeline(root).scrollTo(index);
+                return true;
+            });
+            waitForFx(() -> firstVisibleIndex(root) == index, Duration.ofSeconds(5));
+
+            // A short thumb drag down the bar clips the tall row's own text by a few pixels above the
+            // edge; the row stays the topmost visible one because it is several lines tall.
+            for (int attempt = 0; attempt < 20 && onFx(() -> topOfCellContaining(root, LONG_MARKER)) >= -1;
+                 attempt++) {
+                dragThumb(root, 6);
+                Thread.sleep(30);
+            }
+            assertThat(onFx(() -> topOfCellContaining(root, LONG_MARKER)))
+                    .as("the row is only partially visible before the rebuild").isLessThan(-1);
+            String anchorBefore = onFx(() -> firstVisibleText(root));
+            assertThat(anchorBefore).contains(LONG_MARKER);
+
+            realtime.sendText(messageCreated(UUID.randomUUID(), FakeChatServer.FRIEND_ID,
+                    "backfilled under the reader", "2026-11-01T07:00:00Z"));
+            waitForFx(() -> messages(root) == HISTORY + 3, Duration.ofSeconds(10));
+            waitForFx(() -> firstVisibleText(root).contains(LONG_MARKER), Duration.ofSeconds(5));
+            assertThat(onFx(() -> firstVisibleText(root)))
+                    .as("the same message is still the row at the top after the rebuild")
+                    .isEqualTo(anchorBefore);
+            assertThat(onFx(() -> topOfCellContaining(root, LONG_MARKER)))
+                    .as("the row is put back flush with the top: the exact pixel offset is not kept")
+                    .isGreaterThanOrEqualTo(-1);
         }
     }
 
@@ -530,6 +680,100 @@ class ChatTimelineScrollFxTest {
                     ScrollEvent.VerticalTextScrollUnits.NONE, 0, 0, null));
             return true;
         });
+    }
+
+    /** The index of the bubble whose content contains {@code marker}, or -1. */
+    private static int messageIndex(Parent root, String marker) {
+        ListView<?> list = timeline(root);
+        for (int index = 0; index < list.getItems().size(); index++) {
+            if (list.getItems().get(index) instanceof ShellController.TimelineItem.Bubble bubble
+                    && bubble.message().content().contains(marker)) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    /** How far below the list's top the row carrying {@code marker} starts; negative is clipped. */
+    private static double topOfCellContaining(Parent root, String marker) {
+        ListView<?> list = timeline(root);
+        for (Node cell : list.lookupAll(".timeline-cell")) {
+            if (!(cell instanceof ListCell<?> listCell) || listCell.isEmpty()) continue;
+            if (!textOf(cell).contains(marker)) continue;
+            Bounds inList = list.sceneToLocal(cell.localToScene(cell.getBoundsInLocal()));
+            return inList.getMinY();
+        }
+        return Double.NEGATIVE_INFINITY;
+    }
+
+    /** The timeline's own vertical scroll bar: the node a reader's drag and track clicks land on. */
+    private static ScrollBar verticalScrollBar(Parent root) {
+        for (Node node : timeline(root).lookupAll(".scroll-bar")) {
+            if (node instanceof ScrollBar bar && bar.getOrientation() == Orientation.VERTICAL) return bar;
+        }
+        throw new AssertionError("The timeline has no vertical scroll bar");
+    }
+
+    /**
+     * Presses the bar's thumb, drags it toward the oldest row and releases it. The events go to the
+     * skin's thumb node and bubble to the bar's own input handling, which is what a real drag does.
+     */
+    private static void dragThumbUp(Parent root) {
+        onFx(() -> {
+            ScrollBar bar = verticalScrollBar(root);
+            Node thumb = bar.lookup(".thumb");
+            assertThat(thumb).as("the scroll bar draws a thumb").isNotNull();
+            // Far enough to leave the tail by several rows, short enough to stay on the track.
+            dragThumbOnFx(thumb, -Math.min(thumb.getBoundsInLocal().getHeight(), 120));
+            return true;
+        });
+    }
+
+    /** A real thumb drag of {@code travel} pixels; positive moves toward the newest row. */
+    private static void dragThumb(Parent root, double travel) {
+        onFx(() -> {
+            Node thumb = verticalScrollBar(root).lookup(".thumb");
+            assertThat(thumb).as("the scroll bar draws a thumb").isNotNull();
+            dragThumbOnFx(thumb, travel);
+            return true;
+        });
+    }
+
+    private static void dragThumbOnFx(Node thumb, double travel) {
+        Bounds thumbBounds = thumb.getBoundsInLocal();
+        double x = thumbBounds.getMinX() + thumbBounds.getWidth() / 2;
+        double start = thumbBounds.getMinY() + thumbBounds.getHeight() / 2;
+        fireMouse(thumb, MouseEvent.MOUSE_PRESSED, x, start);
+        for (int step = 1; step <= 5; step++) {
+            fireMouse(thumb, MouseEvent.MOUSE_DRAGGED, x, start + travel * step / 5.0);
+        }
+        fireMouse(thumb, MouseEvent.MOUSE_RELEASED, x, start + travel);
+    }
+
+    /** Presses and releases the bar's track above the thumb, which is a page toward the oldest row. */
+    private static void clickTrackAboveTheThumb(Parent root) {
+        onFx(() -> {
+            ScrollBar bar = verticalScrollBar(root);
+            Node track = bar.lookup(".track");
+            Node thumb = bar.lookup(".thumb");
+            assertThat(track).as("the scroll bar draws a track").isNotNull();
+            Bounds trackBounds = track.getBoundsInLocal();
+            Bounds thumbInTrack = track.sceneToLocal(thumb.localToScene(thumb.getBoundsInLocal()));
+            double x = trackBounds.getMinX() + trackBounds.getWidth() / 2;
+            double y = Math.max(trackBounds.getMinY() + 1, thumbInTrack.getMinY() - 4);
+            fireMouse(track, MouseEvent.MOUSE_PRESSED, x, y);
+            fireMouse(track, MouseEvent.MOUSE_RELEASED, x, y);
+            return true;
+        });
+    }
+
+    /** One primary-button mouse event at a node-local point, as the skin's behaviour reads them. */
+    private static void fireMouse(Node target, javafx.event.EventType<MouseEvent> type,
+                                  double x, double y) {
+        Event.fireEvent(target, new MouseEvent(type, x, y, x, y, MouseButton.PRIMARY, 1,
+                false, false, false, false,
+                type != MouseEvent.MOUSE_RELEASED, false, false,
+                false, false, true, null));
     }
 
     /**
