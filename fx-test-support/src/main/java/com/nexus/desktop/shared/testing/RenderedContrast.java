@@ -10,6 +10,8 @@ import javafx.scene.layout.Region;
 import javafx.scene.paint.Color;
 import javafx.scene.text.Text;
 
+import java.util.function.ToDoubleFunction;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -22,6 +24,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * node, and a surface is pinned to its token as well as measured — so the rules live here once.</p>
  */
 public final class RenderedContrast {
+    /** The most a rendered surface may drift from its token: one unit per channel, with slack. */
+    private static final int RENDER_ROUNDING = 2;
+
     private RenderedContrast() {
     }
 
@@ -72,17 +77,32 @@ public final class RenderedContrast {
                 .isGreaterThanOrEqualTo(minimum);
     }
 
-    /** Pins a surface to the token it is supposed to carry, within font/render rounding. */
+    /**
+     * Pins a surface to the token it is supposed to carry, within font/render rounding.
+     *
+     * <p>Compared in 8-bit channel units rather than in doubles: a skin may round each channel by a
+     * unit, and an epsilon test on floating-point values reads as exact without being it.
+     */
     public static void assertEqualsColor(String label, Color actual, Color expected) {
         assertThat(actual).as(label)
-                .usingComparator((first, second) -> {
-                    if (first == null || second == null) return first == second ? 0 : 1;
-                    double delta = Math.abs(first.getRed() - second.getRed())
-                            + Math.abs(first.getGreen() - second.getGreen())
-                            + Math.abs(first.getBlue() - second.getBlue());
-                    return delta < 0.01 ? 0 : 1;
-                })
+                .usingComparator(RenderedContrast::channelDistance)
                 .isEqualTo(expected);
+    }
+
+    /** 0 when no 8-bit channel of the two colours differs by more than rounding. */
+    private static int channelDistance(Color first, Color second) {
+        if (first == null) return second == null ? 0 : 1;
+        if (second == null) return 1;
+        int delta = Math.max(
+                Math.abs(channel(first, Color::getRed) - channel(second, Color::getRed)),
+                Math.max(Math.abs(channel(first, Color::getGreen) - channel(second, Color::getGreen)),
+                        Math.abs(channel(first, Color::getBlue) - channel(second, Color::getBlue))));
+        return delta <= RENDER_ROUNDING ? 0 : 1;
+    }
+
+    /** A colour channel in 8-bit units, the precision a screenshot can actually carry. */
+    private static int channel(Color colour, ToDoubleFunction<Color> channel) {
+        return (int) Math.round(channel.applyAsDouble(colour) * 255);
     }
 
     private static double contrast(Color first, Color second) {
