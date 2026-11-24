@@ -1,6 +1,6 @@
 # CI/CD
 
-Five workflows live in `.github/workflows`. Everything they enforce is reproducible locally with
+Six workflows live in `.github/workflows`. Everything they enforce is reproducible locally with
 the commands below.
 
 ## `ci.yml` — pull requests and main
@@ -12,7 +12,6 @@ the commands below.
 | JavaFX FXML tests | `xvfb-run -a -s "-screen 0 1280x1024x24" ./gradlew :desktop-user:fxTest :desktop-admin:fxTest`, then `:ui-spike:spikeCheck` | FXML or controller wiring breaks, a light/dark or English/Vietnamese golden drifts, the chat timeline misses its render/append/rebuild/resize/pulse-gap budgets (`desktop-user/build/timeline-benchmark.md`), or the AtlantaFX/Ikonli proof of concept stops passing |
 | Live user journey (isolated Docker) | `./scripts/live-journey.sh`, then verifies no temporary container, volume or network survived | The end-to-end journey fails, or it leaks Docker resources |
 | Linux app image | Builds the desktop packaging output on Linux, then runs `scripts/verify-app-image.sh --image <dir> --launch` on both images | A packaging step fails, an image is missing a jar the app needs, or its launcher exits instead of showing its first window |
-| Shell-state stress (on demand) | On `workflow_dispatch` only: `xvfb-run … :desktop-user:fxTest --tests '*ShellStateFxTest' --rerun` with `-Dnexus.shellTable.repeat=<shell_repeat>` (600 by default) | Any pass of the state table fails; the surefire XML is uploaded as `shell-stress-reports` |
 
 The JavaFX job pins Xvfb's screen at 1280x1024, because the toolkit default is 640x480 and the
 goldens capture scenes up to 1184x784; pinned, the display is never the limit on a stage.
@@ -25,14 +24,8 @@ so the normal pass keeps the suite's 60 second cap and the gate above is unchang
 stress test's own timeout is raised. It exists because the only historic failure of this table was
 a ten-second wait in the step loop that external CPU load could not reproduce.
 
-The same mode runs as an on-demand job, `Shell-state stress (on demand)`, which no push or pull
-request reaches: start it from the Actions tab (**Run workflow**, optionally lowering
-`shell_repeat`) or with `gh workflow run ci.yml -f shell_repeat=600`. It uploads the surefire XML
-and the HTML report as `shell-stress-reports` even when it fails, so the next real failure keeps the
-iteration number, the step that did not settle, the shell diagnostics and the FX-thread
-responsiveness that the failure message carries — the evidence the historic failure lost. At 600
-passes it took 18 m 36 s locally, hence the job's 60 minute budget instead of the 20 the main JavaFX
-job uses.
+The same mode runs in its own workflow, [`shell-stress.yml`](#shell-stressyml--on-demand), so
+triggering it never re-runs the build, the live journey or the packaging.
 
 The same job runs `xvfb-run -a ./gradlew :ui-spike:spikeCheck`, the AtlantaFX/Ikonli proof of
 concept. It is a check rather than a demo: it fails on a bundled font that stops loading, a Nexus
@@ -200,6 +193,27 @@ Container references must carry an exact version tag or a `@sha256:` digest. The
 
 The build image stays on Gradle 9.8.2 because Docker Hub publishes no `9.9.1-jdk27` tag; the
 wrapper inside it runs 9.9.1, which is what compiles the project.
+
+## `shell-stress.yml` — on demand
+
+The state table in `ShellStateFxTest` runs once in the `fx-test` job. This workflow repeats it in a
+single JVM, each pass with a fresh server, socket, window and cache directory, because the only
+historic failure of that table was a ten second wait in the step loop that external CPU load could
+not reproduce. It holds nothing else, so triggering it never re-runs the build, the live journey or
+the packaging.
+
+| Job | Runs | Fails when |
+| --- | --- | --- |
+| Shell-state stress (on demand) | `xvfb-run -a -s "-screen 0 1280x1024x24" ./gradlew --no-daemon :desktop-user:fxTest --tests '*ShellStateFxTest' --rerun` with `JAVA_TOOL_OPTIONS=-Dnexus.shellTable.repeat=<shell_repeat>`, 600 passes unless the input says otherwise | Any pass of the state table fails; the surefire XML and the HTML report are uploaded as `shell-stress-reports` either way |
+
+Start it from the Actions tab (**Run workflow**, optionally lowering `shell_repeat`) or with
+`gh workflow run shell-stress.yml --ref <branch> -f shell_repeat=600`. It uploads the reports even
+when it fails, so the next real failure keeps the iteration number, the step that did not settle, the
+shell diagnostics and the FX-thread responsiveness that the failure message carries — the evidence
+the historic failure lost. At 600 passes it took 18 m 36 s locally; a `shell_repeat=20` run took
+2 min 18 s on GitHub's runner, so the job's budget is 60 minutes instead of the 20 the main JavaFX
+job uses. Its own concurrency group means a push that cancels an in-progress CI run leaves a stress
+run alone.
 
 ## `codeql.yml` and `dependency-review.yml`
 

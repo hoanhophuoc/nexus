@@ -7,12 +7,6 @@ on:
     branches: [main]
   merge_group:
   workflow_dispatch:
-    inputs:
-      shell_repeat:
-        description: Passes of the ShellStateFxTest state table
-        required: false
-        type: number
-        default: 600
 
 permissions:
   contents: read
@@ -179,61 +173,6 @@ jobs:
             desktop-admin/build/test-results/fxTest
             desktop-admin/build/golden-actual
             desktop-user/build/golden-actual
-          retention-days: 14
-
-  # On demand only: the normal suites run each state table once, and a race that needs a particular
-  # interleaving only shows up when the same table runs hundreds of times in one JVM. Kept out of
-  # pushes and pull requests because it costs tens of minutes; start it from the Actions tab or
-  # `gh workflow run ci.yml -f shell_repeat=600` when `ShellStateFxTest` has failed somewhere.
-  shell-stress:
-    name: Shell-state stress (on demand)
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    # A push cancels an in-progress run of this workflow; a stress run lasts tens of minutes, so it
-    # gets its own group and is never cancelled by one.
-    concurrency:
-      group: shell-stress-${{ github.ref }}
-      cancel-in-progress: false
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Set up JDK 27
-        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
-        with:
-          distribution: temurin
-          java-version: '27'
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
-        with:
-          validate-wrappers: true
-
-      - name: Install Xvfb
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb
-
-      # The repeating test is opt-in through this property, so the single pass that the main
-      # fx-test job runs keeps its 60 second budget either way.
-      - name: Repeat the shell-state table
-        env:
-          JAVA_TOOL_OPTIONS: -Dnexus.shellTable.repeat=${{ inputs.shell_repeat }}
-        run: >
-          xvfb-run -a -s "-screen 0 1280x1024x24"
-          ./gradlew --no-daemon :desktop-user:fxTest --tests '*ShellStateFxTest' --rerun
-
-      # A failure names the iteration and the step that did not settle, and carries the shell
-      # diagnostics and FX-thread responsiveness: those only survive if the report is kept.
-      - name: Upload shell-state stress reports
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: shell-stress-reports
-          path: |
-            desktop-user/build/test-results/fxTest
-            desktop-user/build/reports/tests/fxTest
           retention-days: 14
 
   database-identity:
