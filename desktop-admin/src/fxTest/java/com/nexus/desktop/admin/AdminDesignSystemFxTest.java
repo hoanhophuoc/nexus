@@ -12,6 +12,7 @@ import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.PasswordField;
+import javafx.scene.control.TableCell;
 import javafx.scene.control.TableView;
 import javafx.scene.control.TextField;
 import javafx.scene.paint.Paint;
@@ -20,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.kordamp.ikonli.feather.Feather;
 import org.kordamp.ikonli.javafx.FontIcon;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
 import java.util.ResourceBundle;
@@ -31,6 +33,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static com.nexus.desktop.shared.testing.FxThread.onFx;
+import static com.nexus.desktop.shared.testing.FxThread.waitForFx;
 
 class AdminDesignSystemFxTest {
     private static final String BASE = "com.nexus.desktop.admin.i18n.messages";
@@ -242,6 +245,129 @@ class AdminDesignSystemFxTest {
                 }
             })).isTrue();
         }
+    }
+
+    /**
+     * A cell the column cannot fit explains its whole value on hover, and only then. The shell shows
+     * the accounts table in a narrower content area than the workspace does, which is where a full
+     * name or an email address stops fitting, so the narrow mount is the real case and the wide one
+     * proves the explanation goes away when the value fits again.
+     */
+    @Test
+    void accountCellsExplainValuesOnlyWhenTheyAreTruncated() throws Exception {
+        try (FakeAdminServer server = new FakeAdminServer()) {
+            AtomicReference<Stage> stageReference = new AtomicReference<>();
+            AtomicReference<ThemeManager> themeReference = new AtomicReference<>();
+            AdminAppContext context = onFx(() -> {
+                Stage stage = new Stage();
+                stageReference.set(stage);
+                ThemeManager theme = new ThemeManager();
+                theme.setTheme(Theme.LIGHT);
+                themeReference.set(theme);
+                return new AdminAppContext(stage, server.origin().toString(), theme,
+                        new I18n(BASE, Locale.ENGLISH));
+            });
+            // Three blocking HTTP calls, kept off the FX thread like the other admin suites.
+            var signedIn = context.signIn("admin", "correct horse battery staple".toCharArray());
+            Stage stage = stageReference.get();
+            try {
+                Parent accounts = onFx(() -> {
+                    context.activate(signedIn);
+                    Parent root = AdminViewLoader.load(AdminViewLoader.ACCOUNTS,
+                            new AccountsController(context), new I18n(BASE, Locale.ENGLISH));
+                    Scene scene = new Scene(root, 640, 620);
+                    themeReference.get().apply(scene);
+                    AdminViewLoader.applyStylesheet(scene);
+                    stage.setScene(scene);
+                    stage.show();
+                    root.applyCss();
+                    root.layout();
+                    return root;
+                });
+                waitForFx(() -> accountsRows(accounts) > 0, Duration.ofSeconds(10));
+                onFx(() -> {
+                    accounts.applyCss();
+                    accounts.layout();
+                    return true;
+                });
+
+                TableCell<?, ?> email = cellWithText(accounts, "#accountsTable", "mallory@example.test");
+                assertThat(email).as("the reported account's email cell is rendered").isNotNull();
+                assertThat(email.getTooltip()).as("a value the column cannot fit explains itself")
+                        .isNotNull();
+                assertThat(email.getTooltip().getText())
+                        .as("the tooltip carries the whole value, not the clipped prefix")
+                        .isEqualTo("mallory@example.test");
+                assertThat(email.getAccessibleText())
+                        .as("assistive technology reads the whole value too")
+                        .isEqualTo("mallory@example.test");
+
+                TableCell<?, ?> shortValue = cellWithText(accounts, "#accountsTable", "alice");
+                assertThat(shortValue).as("a short username cell is rendered").isNotNull();
+                assertThat(shortValue.getTooltip())
+                        .as("a value that fits stays a plain cell").isNull();
+                assertThat(shortValue.getAccessibleText())
+                        .as("a value that fits needs no extra accessible text").isNull();
+
+                // The same cell, in a window wide enough for the value: the explanation must go
+                // away rather than staying installed on a reused cell.
+                onFx(() -> {
+                    stage.setWidth(1600);
+                    accounts.applyCss();
+                    accounts.layout();
+                    return true;
+                });
+                // The scene follows the window on the next pulse, so the widened layout is polled
+                // rather than assumed; the message names what was actually still on screen.
+                long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+                String state = "unread";
+                while (System.nanoTime() < deadline) {
+                    state = onFx(() -> {
+                        TableView<?> table = (TableView<?>) accounts.lookup("#accountsTable");
+                        TableCell<?, ?> cell = cellWithText(accounts, "#accountsTable",
+                                "mallory@example.test");
+                        return "table " + table.getWidth() + " scene " + accounts.getScene().getWidth()
+                                + " cell " + (cell == null ? "none" : cell.getWidth())
+                                + " tooltip " + (cell == null || cell.getTooltip() == null ? "none"
+                                : cell.getTooltip().getText());
+                    });
+                    boolean done = Boolean.TRUE.equals(onFx(() -> {
+                        TableCell<?, ?> cell = cellWithText(accounts, "#accountsTable",
+                                "mallory@example.test");
+                        return cell != null && cell.getTooltip() == null;
+                    }));
+                    if (done) break;
+                    Thread.sleep(50);
+                }
+                TableCell<?, ?> wide = cellWithText(accounts, "#accountsTable", "mallory@example.test");
+                assertThat(wide).as("the email cell survives the resize: %s", state).isNotNull();
+                assertThat(wide.getTooltip()).as("a value that now fits has no tooltip: %s", state)
+                        .isNull();
+                assertThat(wide.getAccessibleText()).isNull();
+            } finally {
+                onFx(() -> {
+                    stage.close();
+                    context.close();
+                    return true;
+                });
+            }
+        }
+    }
+
+    private static int accountsRows(Parent root) {
+        if (!(root.lookup("#accountsTable") instanceof TableView<?> table)) return 0;
+        return table.getItems().size();
+    }
+
+    /** The rendered cell showing exactly {@code text}; its text stays whole even when it is clipped. */
+    private static TableCell<?, ?> cellWithText(Parent root, String tableId, String text) {
+        if (!(root.lookup(tableId) instanceof TableView<?> table)) return null;
+        for (javafx.scene.Node node : table.lookupAll(".table-cell")) {
+            if (node instanceof TableCell<?, ?> cell && !cell.isEmpty() && text.equals(cell.getText())) {
+                return cell;
+            }
+        }
+        return null;
     }
 
     /** A button either says what it does or shows an icon that does, with accessible text. */

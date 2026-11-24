@@ -13,8 +13,11 @@ import javafx.scene.control.Label;
 import javafx.scene.control.TableCell;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
+import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.text.Font;
+import javafx.scene.text.Text;
 import javafx.scene.text.TextAlignment;
 
 import java.time.LocalDate;
@@ -58,6 +61,76 @@ final class AdminUi {
         label.maxWidthProperty().bind(column.widthProperty().subtract(8));
         column.setGraphic(label);
         column.setText(null);
+    }
+
+    /**
+     * Explains a cell whose text the column is too narrow to show: hovering it shows the whole value,
+     * and assistive technology reads the whole value instead of the clipped prefix.
+     *
+     * <p>The tooltip is installed only while the cell is really truncated, so a short value that fits
+     * stays a plain cell and an empty or reused cell carries no stale explanation into the next row.
+     * The shell shows the accounts table in a narrower content area than the workspace does, which is
+     * where a full name or an email address stops fitting.
+     */
+    static <T> void explainTruncatedText(TableColumn<T, String> column) {
+        column.setCellFactory(ignored -> new TruncatingTextCell<>());
+    }
+
+    private static final class TruncatingTextCell<T> extends TableCell<T, String> {
+        private final Tooltip tooltip = new Tooltip();
+        private String measuredText;
+        private Font measuredFont;
+        private double measuredWidth = Double.NaN;
+        private boolean measuredTruncated;
+
+        @Override
+        protected void updateItem(String item, boolean empty) {
+            super.updateItem(item, empty);
+            setText(empty ? null : item);
+            explainIfTruncated();
+        }
+
+        @Override
+        protected void layoutChildren() {
+            super.layoutChildren();
+            explainIfTruncated();
+        }
+
+        private void explainIfTruncated() {
+            String text = getText();
+            if (text == null || text.isEmpty() || getWidth() <= 0) {
+                clearExplanation();
+                return;
+            }
+            double available = getWidth() - snappedLeftInset() - snappedRightInset();
+            if (!isTruncated(text, available)) {
+                clearExplanation();
+                return;
+            }
+            if (!text.equals(tooltip.getText())) tooltip.setText(text);
+            if (getTooltip() != tooltip) setTooltip(tooltip);
+            setAccessibleText(text);
+        }
+
+        private void clearExplanation() {
+            if (getTooltip() != null) setTooltip(null);
+            setAccessibleText(null);
+        }
+
+        /** Whether {@code text} is wider than the room the cell has, measured once per size. */
+        private boolean isTruncated(String text, double available) {
+            Font font = getFont();
+            if (text.equals(measuredText) && font == measuredFont && available == measuredWidth) {
+                return measuredTruncated;
+            }
+            Text measure = new Text(text);
+            measure.setFont(font);
+            measuredText = text;
+            measuredFont = font;
+            measuredWidth = available;
+            measuredTruncated = measure.getLayoutBounds().getWidth() > available + 0.5;
+            return measuredTruncated;
+        }
     }
 
     static <T> void bindAction(TableColumn<T, String> column, Function<T, Node> graphic) {
