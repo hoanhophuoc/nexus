@@ -16,6 +16,14 @@ the commands below.
 The JavaFX job pins Xvfb's screen at 1280x1024, because the toolkit default is 640x480 and the
 goldens capture scenes up to 1184x784; pinned, the display is never the limit on a stage.
 
+The shell-state table in `ShellStateFxTest` has an opt-in stress mode:
+`JAVA_TOOL_OPTIONS=-Dnexus.shellTable.repeat=600 xvfb-run -a ./gradlew :desktop-user:fxTest
+--tests '*ShellStateFxTest' --rerun` runs the table that many times in one JVM, each pass with a
+fresh server, socket, window and cache directory. It is a separate test that the property enables,
+so the normal pass keeps the suite's 60 second cap and the gate above is unchanged; only the
+stress test's own timeout is raised. It exists because the only historic failure of this table was
+a ten-second wait in the step loop that external CPU load could not reproduce.
+
 The same job runs `xvfb-run -a ./gradlew :ui-spike:spikeCheck`, the AtlantaFX/Ikonli proof of
 concept. It is a check rather than a demo: it fails on a bundled font that stops loading, a Nexus
 token that stops winning the cascade over Primer, contrast below 4.5:1, an unskinned ComboBox or

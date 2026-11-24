@@ -16,8 +16,10 @@ import javafx.scene.control.TextField;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
@@ -63,6 +65,40 @@ class ShellStateFxTest {
 
     @Test
     void movesBetweenConversationsAndIgnoresAStaleRealtimeEvent(@TempDir Path home) throws Exception {
+        runShellTable(home);
+    }
+
+    /**
+     * Opt-in stress mode: the same table, repeated in this JVM. It is a separate test so the gate
+     * keeps the suite's 60 second cap on the pass above — this method does not exist for the gate
+     * unless {@code -Dnexus.shellTable.repeat=N} is set, and only then is its own timeout raised.
+     *
+     * <p>Each pass builds a fresh server, socket, window and cache directory, so a race that needs
+     * a particular interleaving, or state left behind by an earlier shell, gets many chances without
+     * a longer wait in any step and without external CPU load.
+     */
+    @Test
+    @EnabledIfSystemProperty(named = "nexus.shellTable.repeat", matches = "\\d+")
+    @org.junit.jupiter.api.Timeout(value = 30, unit = TimeUnit.MINUTES)
+    void repeatedShellTableStress(@TempDir Path home) throws Exception {
+        int iterations = Integer.getInteger("nexus.shellTable.repeat", 1);
+        if (iterations < 1) {
+            throw new IllegalArgumentException("nexus.shellTable.repeat must be at least 1, was " + iterations);
+        }
+        for (int iteration = 1; iteration <= iterations; iteration++) {
+            Path iterationHome = home.resolve("iteration-" + iteration);
+            Files.createDirectories(iterationHome);
+            System.out.println("shell table iteration " + iteration + " of " + iterations);
+            try {
+                runShellTable(iterationHome);
+            } catch (Exception | AssertionError failed) {
+                throw new AssertionError("shell table iteration " + iteration + " of " + iterations
+                        + " failed: " + failed.getMessage(), failed);
+            }
+        }
+    }
+
+    private void runShellTable(Path home) throws Exception {
         String previousHome = System.getProperty("user.home");
         System.setProperty("user.home", home.toString());
         try (FakeChatServer server = new FakeChatServer();
@@ -583,8 +619,11 @@ class ShellStateFxTest {
      * second timeout is worse than reporting the step without the shell's labels.
      */
     private static String shellDiagnostics(Stage stage) {
+        long start = System.nanoTime();
         try {
-            return onFx(() -> diagnostics(stage));
+            String state = onFx(() -> diagnostics(stage));
+            return state + ", FX thread answered in "
+                    + (System.nanoTime() - start) / 1_000_000 + " ms";
         } catch (AssertionError fxThreadStuck) {
             return "unavailable, the FX thread did not answer: " + fxThreadStuck.getMessage();
         }
