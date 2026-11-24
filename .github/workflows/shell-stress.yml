@@ -13,6 +13,11 @@ on:
         required: false
         type: number
         default: 600
+  # No push or pull request ever pays for this on its own. A maintainer adds the `shell-stress`
+  # label when they want a repetition, which also works before this file has reached main, where
+  # GitHub resolves dispatches from.
+  pull_request:
+    types: [labeled]
 
 permissions:
   contents: read
@@ -24,6 +29,7 @@ concurrency:
 jobs:
   shell-stress:
     name: Shell-state stress (on demand)
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'shell-stress'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -47,10 +53,12 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb
 
       # The repeating test is opt-in through this property, so the single pass that the main
-      # JavaFX job runs keeps its 60 second budget either way.
+      # JavaFX job runs keeps its 60 second budget either way. A labelled pull request has no
+      # dispatch input, so it repeats the table 20 times: enough to prove the wiring, cheap enough
+      # to label a pull request twice.
       - name: Repeat the shell-state table
         env:
-          JAVA_TOOL_OPTIONS: -Dnexus.shellTable.repeat=${{ inputs.shell_repeat }}
+          JAVA_TOOL_OPTIONS: -Dnexus.shellTable.repeat=${{ inputs.shell_repeat || '20' }}
         run: >
           xvfb-run -a -s "-screen 0 1280x1024x24"
           ./gradlew --no-daemon :desktop-user:fxTest --tests '*ShellStateFxTest' --rerun
