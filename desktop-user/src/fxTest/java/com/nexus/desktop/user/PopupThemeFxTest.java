@@ -15,6 +15,8 @@ import javafx.scene.control.Label;
 import javafx.scene.control.MenuButton;
 import javafx.scene.control.MenuItem;
 import javafx.scene.control.Tooltip;
+import javafx.scene.image.PixelReader;
+import javafx.scene.image.WritableImage;
 import javafx.scene.layout.Background;
 import javafx.scene.layout.BackgroundFill;
 import javafx.scene.layout.Region;
@@ -125,6 +127,9 @@ class PopupThemeFxTest {
             });
             Parent context = open(".context-menu", menu::show);
             assertTheme(context, LIGHT);
+            // The menu paints -color-surface behind items that use -color-text: both tokens have to
+            // reach the popup skin, not just the one the item label happens to use.
+            assertPainted(context, ".context-menu", LIGHT_SURFACE);
             assertMenuItemText(context, LIGHT_TEXT);
 
             onFx(() -> {
@@ -134,6 +139,7 @@ class PopupThemeFxTest {
             });
             Parent darkMenu = open(".context-menu", menu::show);
             assertTheme(darkMenu, DARK);
+            assertPainted(darkMenu, ".context-menu", DARK_SURFACE);
             assertMenuItemText(darkMenu, DARK_TEXT);
         } finally {
             onFx(() -> {
@@ -194,9 +200,10 @@ class PopupThemeFxTest {
             });
             Parent popup = awaitPopup(".tooltip");
             assertTheme(popup, LIGHT);
-            // The tooltip paints -color-surface on -color-text; reading the rendered text proves
-            // the semantic token reached the popup skin.
+            // The tooltip paints -color-surface on -color-text; reading the rendered text and the
+            // rendered background proves both tokens reached the popup skin.
             assertTextFill(popup, LIGHT_SURFACE);
+            assertPainted(popup, ".tooltip", LIGHT_TEXT);
 
             onFx(() -> {
                 theme.setTheme(Theme.DARK);
@@ -212,6 +219,7 @@ class PopupThemeFxTest {
             Parent reopened = awaitPopup(".tooltip");
             assertTheme(reopened, DARK);
             assertTextFill(reopened, DARK_SURFACE);
+            assertPainted(reopened, ".tooltip", DARK_TEXT);
         } finally {
             onFx(() -> {
                 tip.hide();
@@ -246,12 +254,22 @@ class PopupThemeFxTest {
             assertThat(dialog.getScene().getStylesheets()).as("dialog scene stylesheet")
                     .contains(ThemeManager.stylesheetUrl());
             assertThat(pane.getStyleClass()).as("dialog theme class").contains(LIGHT);
+            // A dialog is a Stage of its own, so its pane is one more scene the tokens have to reach.
+            assertThat(background(pane)).as("dialog pane background").isEqualTo(LIGHT_SURFACE);
 
             onFx(() -> {
                 theme.setTheme(Theme.DARK);
                 return true;
             });
             assertThat(pane.getStyleClass()).as("dialog follows the theme").contains(DARK);
+            waitForFx(() -> {
+                Parent live = dialog.getScene().getRoot();
+                live.applyCss();
+                live.layout();
+                return DARK_SURFACE.equals(background(live));
+            }, Duration.ofSeconds(10));
+            assertThat(background(pane)).as("dialog pane background after the flip")
+                    .isEqualTo(DARK_SURFACE);
 
             onFx(() -> {
                 Button cancel = (Button) dialog.getScene().lookup("#confirmDialogCancel");
@@ -509,10 +527,45 @@ class PopupThemeFxTest {
         assertThat(popup.getStyleClass()).as("theme class on the popup root").contains(themeClass);
     }
 
+    /**
+     * The colour the reader actually sees inside the popup: the node's own background where the rule
+     * sets one, otherwise the pixel it paints. A background property alone cannot tell an unstyled
+     * popup from a styled one whose rule lost the cascade, so the pixel is the assertion.
+     */
+    private static void assertPainted(Parent popup, String selector, Color expected) {
+        Region region = region(popup, selector);
+        assertThat(region).as("the %s region", selector).isNotNull();
+        Color painted = paintedColour(region);
+        assertThat(painted)
+                .as("%s painted colour (bg=%s border=%s classes=%s)", selector,
+                        region.getBackground(), region.getBorder(), region.getStyleClass())
+                .isEqualTo(expected);
+    }
+
+    /** The first opaque pixel row inside the region's padding, which is its surface, not its text. */
+    private static Color paintedColour(Region region) {
+        WritableImage image = onFx(() -> {
+            region.applyCss();
+            region.layout();
+            return region.snapshot(new SnapshotParameters(), null);
+        });
+        PixelReader reader = image.getPixelReader();
+        if (reader == null) return null;
+        int x = (int) Math.max(1, region.getLayoutBounds().getWidth() / 2);
+        for (int y = 1; y < Math.min(14, (int) region.getLayoutBounds().getHeight()); y++) {
+            Color colour = reader.getColor(x, y);
+            if (colour.getOpacity() > 0.99) return colour;
+        }
+        return null;
+    }
+
     private static void assertToken(Parent popup, String selector, Color expected) {
         Region region = region(popup, selector);
         assertThat(region).as("the %s region", selector).isNotNull();
-        assertThat(background(region)).as("%s background in %s", selector, popup.getStyleClass())
+        assertThat(background(region))
+                .as("%s background in %s (matched %s, background=%s)",
+                        selector, popup.getStyleClass(), region.getStyleClass(),
+                        region.getBackground())
                 .isEqualTo(expected);
     }
 

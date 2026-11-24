@@ -135,6 +135,31 @@ modules.** The evidence:
 - The spike stays in the build as the standing proof that a new UI dependency has to clear the
   compatibility, licence and packaging gates before touching production modules.
 
+**Re-verified on the branch tip (2026-11-24), from a fresh read of the code plus the runs below.**
+`theme.css` declares the light palette on `.root, .theme-light` and dark on `.theme-dark`.
+`PopupThemes` holds one `ListChangeListener<Window>` for the JVM, keeps managers behind
+`WeakReference`s, and styles a window only when its owner chain reaches a window its manager already
+styled, both on window-added and on `showing`. `ThemeManager` is still the only owner of the
+preference and the effective theme, and re-applies it to the primary scene and every remembered
+window. What was re-run:
+
+- `xvfb-run -a -s "-screen 0 1280x1024x24" ./gradlew :ui-spike:spikeCheck` — every check passed,
+  printing `combo popup stylesheets=[theme.css] surface=0x151c26ff` and
+  `date popup stylesheets=[theme.css] surface=0x151c26ff`. The ComboBox popup is checked open,
+  reopened and again on a control built after a live flip; the DatePicker popup now carries the same
+  stylesheet, theme-class, rendered-token and reopen assertions instead of only a label check.
+- `./gradlew :desktop-user:fxTest --tests '*PopupThemeFxTest' --rerun` — 8 tests, 0 failures. The
+  context menu, the tooltip and the dialog now assert the colour the reader actually sees: the
+  menu's `-color-surface` and the tooltip's `-color-text` bubble are read from a rendered snapshot,
+  because the `Background` property reports `null` on those two skins even when the pixel is right,
+  and the dialog pane's `-color-surface` is asserted before and after a live flip.
+- `./gradlew :desktop-admin:fxTest :desktop-user:fxTest` — 87 tests, 0 failures, 6 gated skips, with
+  no pre-existing golden changed.
+
+The verdict is unchanged: **retain AtlantaFX isolated in `ui-spike`**, for the reasons above — none
+of the work above required a second stylesheet layer, and Primer contributes no token the product
+uses.
+
 The check runs in the `fx-test` CI job; its screenshots are uploaded as the `ui-spike` artifact.
 
 Official references:

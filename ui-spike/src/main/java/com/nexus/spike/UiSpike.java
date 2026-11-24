@@ -232,13 +232,13 @@ public final class UiSpike extends Application {
 
             combo.show();
             requireStyled(popupRoot(), "light");
-            requireSurface(popupRoot(), "light");
+            requireSurface(popupRoot(), "light", ".list-view");
             combo.hide();
 
             // Hidden and opened again: the popup scene keeps its styling.
             combo.show();
             requireStyled(popupRoot(), "light");
-            requireSurface(popupRoot(), "light");
+            requireSurface(popupRoot(), "light", ".list-view");
 
             // The theme changes while the popup is open: the class must flip immediately. The
             // popup's rendered colours are asserted after the reopen below, because this spike
@@ -258,26 +258,39 @@ public final class UiSpike extends Application {
             later.show();
             Parent afterFlip = popupRoot();
             requireStyled(afterFlip, "dark");
-            requireSurface(afterFlip, "dark");
+            requireSurface(afterFlip, "dark", ".list-view");
             System.out.printf("[spike]   combo popup stylesheets=%s surface=%s%n",
                     afterFlip.getScene().getStylesheets().stream()
                             .map(url -> url.substring(url.lastIndexOf('/') + 1)).toList(),
                     backgroundOf((Region) afterFlip.lookup(".list-view")));
             later.hide();
 
+            // The second popup control, held to the same three assertions: stylesheet, theme class
+            // and the rendered token, then styled again after a reopen.
             date.show();
             Parent datePopup = popupRoot();
             requireStyled(datePopup, "dark");
+            requireSurface(datePopup, "dark", ".date-picker-popup");
             datePopup.applyCss();
             datePopup.layout();
             require(!datePopup.lookupAll(".label").isEmpty(),
                     "the DatePicker popup rendered no label");
             date.hide();
 
+            date.show();
+            Parent reopenedDate = popupRoot();
+            requireStyled(reopenedDate, "dark");
+            requireSurface(reopenedDate, "dark", ".date-picker-popup");
+            System.out.printf("[spike]   date popup stylesheets=%s surface=%s%n",
+                    reopenedDate.getScene().getStylesheets().stream()
+                            .map(url -> url.substring(url.lastIndexOf('/') + 1)).toList(),
+                    backgroundOf((Region) reopenedDate.lookup(".date-picker-popup")));
+            date.hide();
+
             require(combo.getSkin() != null && date.getSkin() != null,
                     "a popup control lost its skin");
-            require(popupChecks >= 8,
-                    "the popup audit ran only " + popupChecks + " of its 8 stamping checks");
+            require(popupChecks >= 11,
+                    "the popup audit ran only " + popupChecks + " of its 11 stamping checks");
         } finally {
             stage.close();
         }
@@ -296,13 +309,13 @@ public final class UiSpike extends Application {
                 "the popup root is missing " + expected + ": " + popup.getStyleClass());
     }
 
-    /** The rendered popup list paints -color-surface, not a stock skin colour. */
-    private static void requireSurface(Parent popup, String variant) {
+    /** The rendered popup paints -color-surface, not a stock skin colour. */
+    private static void requireSurface(Parent popup, String variant, String selector) {
         popupChecks++;
         popup.applyCss();
         popup.layout();
-        Node list = popup.lookup(".list-view");
-        require(list instanceof Region, "the ComboBox popup has no skinned list");
+        Node list = popup.lookup(selector);
+        require(list instanceof Region, "the popup has no skinned " + selector);
         Color surface = colour(backgroundOf((Region) list));
         Color expected = Color.web("dark".equals(variant) ? "#151C26" : "#FFFFFF");
         require(expected.equals(surface),
