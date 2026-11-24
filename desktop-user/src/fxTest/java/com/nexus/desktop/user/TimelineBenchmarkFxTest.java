@@ -20,8 +20,10 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -68,6 +70,26 @@ class TimelineBenchmarkFxTest {
     private static final int PENDING_ROWS = 3;
     /** Seeded messages per day, so the timeline builds a date separator every this many rows. */
     private static final int MESSAGES_PER_DAY = 30;
+    /**
+     * The block in {@code docs/ui-ux-design-system.md} that repeats this report. The test below
+     * reads it back, so the doc cannot keep numbers the report no longer produces.
+     */
+    private static final String DOC_BEGIN = "<!-- timeline-benchmark:begin -->";
+    private static final String DOC_END = "<!-- timeline-benchmark:end -->";
+    /**
+     * How far a documented number may sit from a live run. Timings move with the machine (and most
+     * of all at 100 messages, which absorbs JIT warm-up), so an exact match would be red on healthy
+     * runs; a factor of three still fails a table copied from an older timeline, where appends were
+     * two orders of magnitude slower.
+     */
+    private static final double TIMING_TOLERANCE_FACTOR = 3.0;
+    private static final long TIMING_TOLERANCE_FLOOR_MS = 25;
+    /** Node counts barely move, so a quarter is loose enough for layout variation and no more. */
+    private static final double NODE_TOLERANCE_FRACTION = 0.25;
+    /** Cells the benchmark budgets; {@code delivery}, {@code reveal} and heap are reported only. */
+    private static final List<String> BUDGETED_COLUMNS = List.of("render ms", "append p95 ms",
+            "rebuild p95 ms", "resize p95 ms", "pulse p95 ms", "pulse max ms", "row nodes",
+            "scene nodes");
 
     private record Measurement(int messages, List<Long> initial, List<Long> append,
                                List<Long> delivery, List<Long> rebuild, List<Long> resize,
@@ -86,6 +108,36 @@ class TimelineBenchmarkFxTest {
                     + " | " + percentile(pulses, 95) + " | " + worst(pulses)
                     + " | " + rowNodes + " | " + sceneNodes + " | " + heapMb + " |";
         }
+
+        /** The cells the design doc must agree with, keyed by the report's column name. */
+        Map<String, Long> budgetedCells() {
+            Map<String, Long> cells = new LinkedHashMap<>();
+            cells.put("render ms", percentile(initial, 50));
+            cells.put("append p95 ms", percentile(append, 95));
+            cells.put("rebuild p95 ms", percentile(rebuild, 95));
+            cells.put("resize p95 ms", percentile(resize, 95));
+            cells.put("pulse p95 ms", percentile(pulses, 95));
+            cells.put("pulse max ms", worst(pulses));
+            cells.put("row nodes", (long) rowNodes);
+            cells.put("scene nodes", (long) sceneNodes);
+            return cells;
+        }
+    }
+
+    /**
+     * The budget sentence, built from the constants so the report and the design doc quote the same
+     * one. The doc test compares it verbatim, which is what stops a budget being changed in one
+     * place and left behind in the other.
+     */
+    private static String budgetLine() {
+        return "Budget at 5,000 messages: render <= " + BUDGET_INITIAL_MS
+                + " ms, append p95 <= " + BUDGET_APPEND_MS
+                + " ms, rebuild p95 <= " + BUDGET_REBUILD_MS
+                + " ms, resize p95 <= " + BUDGET_RESIZE_MS
+                + " ms, pulse gap p95 <= " + BUDGET_PULSE_P95_MS
+                + " ms, worst pulse gap <= " + BUDGET_PULSE_MAX_MS
+                + " ms, message rows <= " + BUDGET_ROW_NODES
+                + " and scene nodes <= " + BUDGET_SCENE_NODES + ".";
     }
 
     /** The benchmark is deliberately longer than the suite-wide 60 second test budget. */
@@ -122,16 +174,11 @@ class TimelineBenchmarkFxTest {
                 .append("saw the previous frame: p95 and the worst gap are budgeted, recorded across ")
                 .append("the whole run rather than one burst. The fixture also carries ")
                 .append(PENDING_ROWS).append(" queued rows that stay pending through the measured ")
-                .append("phases.\n\nBudget at 5,000 messages: render <= ")
-                .append(BUDGET_INITIAL_MS)
-                .append(" ms, append p95 <= ").append(BUDGET_APPEND_MS)
-                .append(" ms, rebuild p95 <= ").append(BUDGET_REBUILD_MS)
-                .append(" ms, resize p95 <= ").append(BUDGET_RESIZE_MS)
-                .append(" ms, pulse gap p95 <= ").append(BUDGET_PULSE_P95_MS)
-                .append(" ms, worst pulse gap <= ").append(BUDGET_PULSE_MAX_MS)
-                .append(" ms, message rows <= ").append(BUDGET_ROW_NODES)
-                .append(" and scene nodes <= ").append(BUDGET_SCENE_NODES).append(".\n");
+                .append("phases.\n\n").append(budgetLine()).append('\n');
         Files.writeString(report, markdown.toString());
+
+        // The doc repeats this report; reading it back is what keeps the two in step.
+        assertDesignSystemAgrees(markdown.toString(), results);
 
         assertThat(results).as("a measurement row per history size").hasSize(SIZES.length);
         Measurement largest = results.getLast();
@@ -151,6 +198,95 @@ class TimelineBenchmarkFxTest {
                 .isLessThanOrEqualTo(BUDGET_ROW_NODES);
         assertThat(largest.sceneNodes()).as("scene nodes at 5,000 messages")
                 .isLessThanOrEqualTo(BUDGET_SCENE_NODES);
+    }
+
+    // -------------------------------------------------------------------------- design doc
+
+    /**
+     * Compares the block in {@code docs/ui-ux-design-system.md} with the report just written. The
+     * report is the source: the test fails when the doc quotes different budgets, a different table
+     * shape, or numbers a live run cannot have produced.
+     */
+    private static void assertDesignSystemAgrees(String report, List<Measurement> measured)
+            throws Exception {
+        Path doc = Path.of("..", "docs", "ui-ux-design-system.md").normalize();
+        assertThat(Files.exists(doc))
+                .as("the design doc the timeline table is published in (%s)", doc.toAbsolutePath())
+                .isTrue();
+        String text = Files.readString(doc);
+        int begin = text.indexOf(DOC_BEGIN);
+        int end = text.indexOf(DOC_END);
+        assertThat(begin).as("a %s block in %s", DOC_BEGIN, doc).isNotNegative();
+        assertThat(end).as("a %s block in %s", DOC_END, doc).isGreaterThan(begin);
+        List<String> block = text.substring(begin + DOC_BEGIN.length(), end).strip().lines().toList();
+
+        String documentedBudget = block.stream()
+                .filter(line -> line.startsWith("Budget at 5,000 messages:"))
+                .findFirst().orElse("");
+        String reportBudget = report.lines()
+                .filter(line -> line.startsWith("Budget at 5,000 messages:"))
+                .findFirst().orElseThrow();
+        assertThat(documentedBudget)
+                .as("the budget sentence in %s must match the benchmark's constants; refresh it "
+                        + "from desktop-user/build/timeline-benchmark.md", doc)
+                .isEqualTo(reportBudget);
+
+        List<String> table = block.stream().filter(line -> line.startsWith("|")).toList();
+        assertThat(table).as("a markdown table in the %s block of %s", DOC_BEGIN, doc)
+                .isNotEmpty();
+        List<String> header = cells(table.getFirst());
+        assertThat(header).as("the table header in %s", doc)
+                .isEqualTo(cells(Measurement.header()));
+        int messagesColumn = header.indexOf("messages");
+        for (String column : BUDGETED_COLUMNS) {
+            assertThat(header).as("a %s column in %s", column, doc).contains(column);
+        }
+
+        Map<Long, List<Long>> documented = new LinkedHashMap<>();
+        for (String line : table.subList(1, table.size())) {
+            List<String> row = cells(line);
+            // The --- separator carries no numbers; a header repeat would be a second header.
+            if (row.stream().allMatch(cell -> cell.matches("-+"))) continue;
+            assertThat(row).as("table row %s in %s", line, doc).hasSameSizeAs(header);
+            documented.put(number(row.get(messagesColumn)),
+                    row.stream().map(TimelineBenchmarkFxTest::number).toList());
+        }
+
+        assertThat(documented.keySet()).as("the history sizes in the table of %s", doc)
+                .containsExactlyInAnyOrderElementsOf(measured.stream()
+                        .map(measurement -> (long) measurement.messages()).toList());
+        for (Measurement measurement : measured) {
+            List<Long> row = documented.get((long) measurement.messages());
+            measurement.budgetedCells().forEach((column, actual) -> {
+                long shown = row.get(header.indexOf(column));
+                boolean nodes = column.endsWith("nodes");
+                long allowed = nodes
+                        ? Math.max(5, Math.round(actual * NODE_TOLERANCE_FRACTION))
+                        : Math.max(TIMING_TOLERANCE_FLOOR_MS,
+                                Math.round(actual * TIMING_TOLERANCE_FACTOR));
+                assertThat(Math.abs(shown - actual))
+                        .as("%s: %s at %d messages is documented as %d but this run measured %d; "
+                                        + "refresh the table from desktop-user/build/"
+                                        + "timeline-benchmark.md",
+                                doc, column, measurement.messages(), shown, actual)
+                        .isLessThanOrEqualTo(allowed);
+            });
+        }
+    }
+
+    /** Splits a markdown table line into its cells, dropping the outer pipes. */
+    private static List<String> cells(String row) {
+        String[] parts = row.strip().split("\\|");
+        List<String> cells = new ArrayList<>(parts.length);
+        for (int index = 1; index < parts.length; index++) {
+            cells.add(parts[index].strip());
+        }
+        return cells;
+    }
+
+    /** A table cell as a number: the report writes thousands with a comma ({@code 1,000}). */
+    private static long number(String cell) {
+        return Long.parseLong(cell.replace(",", "").replace(" ", ""));
     }
 
     private static Measurement measure(int size, Path home) throws Exception {

@@ -163,18 +163,27 @@ Use a consistent spacing scale derived from 4px increments. Preferred steps are 
 - Preserve scroll position when older messages load. Auto-scroll only when the user is already at the bottom or explicitly requests it.
 - The implemented timeline contract: an update that only appends to the end of the loaded history adds rows without touching the ones above them; an update that rewrites or reorders the history rebuilds it and restores the message that sat at the top of the viewport, by message id; the newest row is followed only when the reader was already there (read from the list's scroll position, not from a recycled cell's bounds) or when the row is one the user just sent, and a follow the shell already started is not cancelled by an arrival that lands while the move to the newest row is still being re-applied — the scroll bar read mid-move is not the reader leaving the bottom. A move re-applies itself after measuring the rows it just gained rather than on a wall-clock budget, so a loaded machine lengthens it in time without ending it early; the anchor restore of a rebuilt timeline follows the same rule. A revealed search hit is positioned by its row index in the list, with one row of room above it.
 
-**Timeline budget and measured result (2026-11-23).** `:desktop-user:fxTest --tests
+**Timeline budget and measured result.** `:desktop-user:fxTest --tests
 *TimelineBenchmarkFxTest` writes `desktop-user/build/timeline-benchmark.md` and fails the build when
-the 5,000-message budgets are missed: initial render ≤ 800 ms, append (row painted) p95 ≤ 50 ms,
-rebuild p95 ≤ 900 ms, resize p95 ≤ 150 ms, pulse gap p95 ≤ 150 ms, worst pulse gap ≤ 500 ms,
-60 message rows and 500 scene nodes. The node budgets are what fails if the timeline goes back to
+the 5,000-message budgets are missed. The node budgets are what fails if the timeline goes back to
 building one node per message; the timing budgets alone could pass by luck on a fast run. The
 pulse budget is set above the measured spread rather than at it: nine runs put the 5,000-message p95
-between 58 and 113 ms, so a 100 ms ceiling failed on healthy runs. The
-fixture carries alternating senders, long and short bodies, a date separator every 30 messages and
-three queued rows that stay pending through the measured phases. On this machine (Linux, JDK
-27.0.1, JavaFX 27.0.1, Xvfb 1280x1024), from one run — the numbers move between runs, most of all
-the 100-message size, which absorbs JIT warm-up; the budgets above are the contract:
+between 58 and 113 ms, so a 100 ms ceiling failed on healthy runs. The fixture carries alternating
+senders, long and short bodies, a date separator every 30 messages and three queued rows that stay
+pending through the measured phases.
+
+The block below repeats the report and is read back by the same test, so it is verified rather than
+hand-copied: the budget sentence must equal the benchmark's budget constants, the table's header
+and history sizes must equal the report's, and each budgeted cell must stay within a factor of
+three (or 25 ms, whichever is larger) of the run that produced the report, with node counts within
+a quarter. A table left behind by an older timeline — the `ScrollPane`+`VBox` one had 13,021 row
+nodes and appends near 2,000 ms — therefore fails the build. Timings move between runs, most of all
+at 100 messages, which absorbs JIT warm-up; refresh the block from
+`desktop-user/build/timeline-benchmark.md` only when the timeline itself changed. This machine is
+Linux, JDK 27.0.1, JavaFX 27.0.1, Xvfb 1280x1024.
+
+<!-- timeline-benchmark:begin -->
+Budget at 5,000 messages: render <= 800 ms, append p95 <= 50 ms, rebuild p95 <= 900 ms, resize p95 <= 150 ms, pulse gap p95 <= 150 ms, worst pulse gap <= 500 ms, message rows <= 60 and scene nodes <= 500.
 
 | messages | render ms | append p95 ms | delivery p95 ms | rebuild p95 ms | resize p95 ms | reveal ms | pulse p95 ms | pulse max ms | row nodes | scene nodes | heap MB |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -182,6 +191,7 @@ the 100-message size, which absorbs JIT warm-up; the budgets above are the contr
 | 500 | 62 | 14 | 11 | 25 | 64 | 0 | 45 | 85 | 8 | 317 | 125 |
 | 1,000 | 69 | 13 | 10 | 17 | 61 | 1 | 63 | 69 | 8 | 317 | 176 |
 | 5,000 | 81 | 18 | 38 | 41 | 64 | 1 | 64 | 107 | 7 | 303 | 145 |
+<!-- timeline-benchmark:end -->
 
 `delivery p95` is the part before the timeline: the socket round trip plus the encrypted cache's
 whole-file persist. It is reported, not budgeted, because it is a data-layer cost; the append
