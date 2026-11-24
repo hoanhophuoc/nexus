@@ -71,6 +71,7 @@ final class FakeChatServer implements AutoCloseable {
     private volatile int passwordChanges;
     private volatile int passwordResetRequests;
     private volatile boolean messageSendsFail;
+    private volatile boolean conversationListFails;
     private volatile int clearedHistories;
     private volatile int friendRemovals;
     private volatile int blockedRequestAttempts;
@@ -200,6 +201,14 @@ final class FakeChatServer implements AutoCloseable {
      */
     void failMessageSends() {
         messageSendsFail = true;
+    }
+
+    /**
+     * Refuses the conversation list, as an outage does. The realtime reconnect re-syncs through the
+     * same call, so this is what turns "the reconnect could not catch up" from a race into a fact.
+     */
+    void failConversationList() {
+        conversationListFails = true;
     }
 
     void hideDirectConversation() {
@@ -426,6 +435,10 @@ final class FakeChatServer implements AutoCloseable {
         }
         if (!"GET".equals(exchange.getRequestMethod())) {
             respondJson(exchange, 405, "{}");
+            return;
+        }
+        if (conversationListFails) {
+            respondJson(exchange, 503, "{\"error\":\"conversation list unavailable\"}");
             return;
         }
         String direct = """
