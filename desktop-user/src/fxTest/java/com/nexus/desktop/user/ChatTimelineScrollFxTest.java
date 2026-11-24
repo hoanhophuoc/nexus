@@ -484,23 +484,31 @@ class ChatTimelineScrollFxTest {
     /**
      * A true bottom: the newest row fully inside the viewport. {@code scrollTo} alone can leave the
      * last row clipped by a pixel or two, which the shell deliberately does not count as "at the
-     * bottom", so the skin's own scroll bar is driven to its end here, where the test is allowed to
-     * treat it as an input rather than as the value under test.
+     * bottom", so the move is repeated until the list's own scroll bar reports its end.
+     *
+     * <p>Each attempt drives the layout pass and reads the bar straight after it. The earlier
+     * version retried ten times and then left the rest to a two-second wait for a pulse; on a loaded
+     * runner that delivered no pulse inside the wait, the test failed although the scroll was one
+     * frame away. Reading in the attempt itself keeps the wait bounded by the FX thread's own
+     * budget, so a stall delays the landing instead of failing it.
      */
     private static void scrollToBottom(Parent root) throws InterruptedException {
         // The list measures a row on its layout pass, so a scroll asks for the end from the extent
-        // it knew; it has to be repeated across a few pulses to actually land there.
-        for (int attempt = 0; attempt < 10; attempt++) {
-            onFx(() -> {
+        // it knew; it has to be repeated until that extent has grown to the whole history.
+        for (int attempt = 0; attempt < 40; attempt++) {
+            boolean atEnd = onFx(() -> {
                 ListView<?> list = timeline(root);
                 if (!list.getItems().isEmpty()) list.scrollTo(list.getItems().size() - 1);
                 list.layout();
-                return true;
+                return atBottom(root);
             });
-            if (atBottom(root)) return;
-            Thread.sleep(50);
+            if (atEnd) return;
+            Thread.sleep(25);
         }
-        waitForFx(() -> atBottom(root), Duration.ofSeconds(2));
+        assertThat(onFx(() -> atBottom(root)))
+                .as("the timeline did not reach its newest row; the scroll bar is at %s of its "
+                        + "maximum", onFx(() -> scrollBarValue(root)))
+                .isTrue();
     }
 
     /** A page or home key over the timeline; the guard reads the key, not the resulting value. */
