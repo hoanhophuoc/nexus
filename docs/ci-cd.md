@@ -207,7 +207,10 @@ the packaging.
 | Shell-state stress (on demand) | `xvfb-run -a -s "-screen 0 1280x1024x24" ./gradlew --no-daemon :desktop-user:fxTest --tests '*ShellStateFxTest' --rerun` with `JAVA_TOOL_OPTIONS=-Dnexus.shellTable.repeat=<shell_repeat>`, 600 passes unless the input says otherwise | Any pass of the state table fails; the surefire XML and the HTML report are uploaded as `shell-stress-reports` either way |
 
 Start it from the Actions tab (**Run workflow**, optionally lowering `shell_repeat`) or with
-`gh workflow run shell-stress.yml --ref <branch> -f shell_repeat=600`. It uploads the reports even
+`gh workflow run shell-stress.yml --ref <branch> -f shell_repeat=600`. GitHub only lists and
+dispatches a workflow whose file exists on the default branch, so until this one is merged the
+dispatch answers `HTTP 404: workflow shell-stress.yml not found on the default branch` even with a
+`--ref` to the branch that has it. It uploads the reports even
 when it fails, so the next real failure keeps the iteration number, the step that did not settle, the
 shell diagnostics and the FX-thread responsiveness that the failure message carries — the evidence
 the historic failure lost. At 600 passes it took 18 m 36 s locally; a `shell_repeat=20` run took
