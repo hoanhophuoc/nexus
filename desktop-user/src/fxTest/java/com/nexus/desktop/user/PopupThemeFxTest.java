@@ -5,6 +5,7 @@ import com.nexus.desktop.shared.ui.Theme;
 import com.nexus.desktop.shared.ui.ThemeManager;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
+import javafx.geometry.Bounds;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.SnapshotParameters;
@@ -19,6 +20,7 @@ import javafx.scene.image.PixelReader;
 import javafx.scene.image.WritableImage;
 import javafx.scene.layout.Background;
 import javafx.scene.layout.BackgroundFill;
+import javafx.scene.layout.Border;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
@@ -528,9 +530,9 @@ class PopupThemeFxTest {
     }
 
     /**
-     * The colour the reader actually sees inside the popup: the node's own background where the rule
-     * sets one, otherwise the pixel it paints. A background property alone cannot tell an unstyled
-     * popup from a styled one whose rule lost the cascade, so the pixel is the assertion.
+     * The colour the reader actually sees inside the popup, read from a rendered snapshot rather than
+     * from the background property. A property alone cannot tell an unstyled popup from a styled one
+     * whose rule lost the cascade, so the painted pixel is the assertion.
      */
     private static void assertPainted(Parent popup, String selector, Color expected) {
         Region region = region(popup, selector);
@@ -542,18 +544,34 @@ class PopupThemeFxTest {
                 .isEqualTo(expected);
     }
 
-    /** The first opaque pixel row inside the region's padding, which is its surface, not its text. */
+    /**
+     * The first opaque pixel row inside the region's padding, which is its surface, not its text.
+     *
+     * <p>Layout bounds are a JavaFX property and the snapshot's pixel scale decides which row the
+     * border occupies, so all three are read in the one FX task. The scan starts below the region's
+     * own border: a 1px rule spans more than one device row once the scale is above 1, and reading it
+     * would report {@code -color-border} where the surface token is expected.
+     */
     private static Color paintedColour(Region region) {
-        WritableImage image = onFx(() -> {
+        record Surface(WritableImage image, int column, int firstRow) {
+        }
+        Surface surface = onFx(() -> {
             region.applyCss();
             region.layout();
-            return region.snapshot(new SnapshotParameters(), null);
+            WritableImage image = region.snapshot(new SnapshotParameters(), null);
+            Bounds bounds = region.getLayoutBounds();
+            Border border = region.getBorder();
+            double scale = bounds.getWidth() > 0 ? image.getWidth() / bounds.getWidth() : 1;
+            double borderTop = border == null ? 0 : border.getInsets().getTop();
+            return new Surface(image,
+                    (int) Math.max(1, image.getWidth() / 2),
+                    Math.max(1, (int) Math.ceil(borderTop * scale) + 1));
         });
-        PixelReader reader = image.getPixelReader();
+        PixelReader reader = surface.image().getPixelReader();
         if (reader == null) return null;
-        int x = (int) Math.max(1, region.getLayoutBounds().getWidth() / 2);
-        for (int y = 1; y < Math.min(14, (int) region.getLayoutBounds().getHeight()); y++) {
-            Color colour = reader.getColor(x, y);
+        int height = (int) surface.image().getHeight();
+        for (int y = surface.firstRow(); y < Math.min(surface.firstRow() + 13, height); y++) {
+            Color colour = reader.getColor(surface.column(), y);
             if (colour.getOpacity() > 0.99) return colour;
         }
         return null;
