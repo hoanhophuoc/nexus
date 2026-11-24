@@ -176,7 +176,9 @@ The block below repeats the report and is read back by the same test, so it is v
 hand-copied: the budget sentence must equal the benchmark's budget constants, the table's header
 and history sizes must equal the report's, and each budgeted cell must stay within a factor of
 three (or 25 ms, whichever is larger) of the run that produced the report, with node counts within
-a quarter. A table left behind by an older timeline — the `ScrollPane`+`VBox` one had 13,021 row
+a quarter. Timing cells are compared from 500 messages up: at 100 messages class loading and the
+JIT dominate, so the row is reported but its timings are not gated (append p95 has measured between
+12 and 74 ms there); its node counts, like every row's, are compared. A table left behind by an older timeline — the `ScrollPane`+`VBox` one had 13,021 row
 nodes and appends near 2,000 ms — therefore fails the build. Timings move between runs, most of all
 at 100 messages, which absorbs JIT warm-up; refresh the block from
 `desktop-user/build/timeline-benchmark.md` only when the timeline itself changed. This machine is
@@ -185,12 +187,12 @@ Linux, JDK 27.0.1, JavaFX 27.0.1, Xvfb 1280x1024.
 <!-- timeline-benchmark:begin -->
 Budget at 5,000 messages: render <= 800 ms, append p95 <= 50 ms, rebuild p95 <= 900 ms, resize p95 <= 150 ms, pulse gap p95 <= 150 ms, worst pulse gap <= 500 ms, message rows <= 60 and scene nodes <= 500.
 
-| messages | render ms | append p95 ms | delivery p95 ms | rebuild p95 ms | resize p95 ms | reveal ms | pulse p95 ms | pulse max ms | row nodes | scene nodes | heap MB |
+| messages | render ms | append p95 ms | delivery p95 ms | rebuild p95 ms | resize p95 ms | reveal ms | pulse p95 ms | pulse max ms | row nodes | scene nodes | heap delta MB |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 100 | 85 | 32 | 48 | 37 | 64 | 1 | 40 | 92 | 7 | 304 | 107 |
-| 500 | 62 | 14 | 11 | 25 | 64 | 0 | 45 | 85 | 8 | 317 | 125 |
-| 1,000 | 69 | 13 | 10 | 17 | 61 | 1 | 63 | 69 | 8 | 317 | 176 |
-| 5,000 | 81 | 18 | 38 | 41 | 64 | 1 | 64 | 107 | 7 | 303 | 145 |
+| 100 | 178 | 58 | 98 | 28 | 74 | 1 | 94 | 152 | 7 | 304 | 81 |
+| 500 | 100 | 18 | 13 | 28 | 65 | 1 | 37 | 86 | 8 | 317 | 69 |
+| 1,000 | 75 | 26 | 9 | 32 | 62 | 3 | 62 | 78 | 8 | 314 | 118 |
+| 5,000 | 80 | 11 | 25 | 36 | 60 | 1 | 69 | 94 | 7 | 303 | 109 |
 <!-- timeline-benchmark:end -->
 
 `delivery p95` is the part before the timeline: the socket round trip plus the encrypted cache's
@@ -199,7 +201,11 @@ budget measures the timeline's own work from the row entering the model to it be
 `pulse p95` and `pulse max` are the gaps between animation pulses recorded across the whole measured
 run — a gap is how long the reader kept seeing the previous frame — and they are what a stall shows
 up as: a burst of arrivals that each rebuild the list, as ten back-to-back pushes do here, is the
-current worst case at 5,000 messages.
+current worst case at 5,000 messages. `heap delta MB` is the used heap with the history in the
+timeline minus the used heap before that size was opened (each size after its own collection, so a
+row is that size's cost and not the sizes before it). It is reported, not budgeted, because garbage
+collection timing makes it too noisy to gate a build on, and it can be negative when a run collects
+more than it retains.
 - Make pending, sent, failed, retrying and incoming states distinguishable without confusing them with encryption or delivery guarantees.
 - Keep composer focus, keyboard send behavior, multiline entry, attachments and error recovery predictable.
 - Presence and unread indicators must not rely on color alone.
