@@ -385,6 +385,71 @@ class AdminDesignSystemFxTest {
         }
     }
 
+    /**
+     * The audit log has the same problem in the same place: the shell mounts it in a content area
+     * narrower than the workspace's, and an actor ID is the value that stops fitting.
+     */
+    @Test
+    void auditCellsExplainValuesOnlyWhenTheyAreTruncated() throws Exception {
+        try (FakeAdminServer server = new FakeAdminServer()) {
+            AtomicReference<Stage> stageReference = new AtomicReference<>();
+            AtomicReference<ThemeManager> themeReference = new AtomicReference<>();
+            AdminAppContext context = onFx(() -> {
+                Stage stage = new Stage();
+                stageReference.set(stage);
+                ThemeManager theme = new ThemeManager();
+                theme.setTheme(Theme.LIGHT);
+                themeReference.set(theme);
+                return new AdminAppContext(stage, server.origin().toString(), theme,
+                        new I18n(BASE, Locale.ENGLISH));
+            });
+            var signedIn = context.signIn("admin", "correct horse battery staple".toCharArray());
+            Stage stage = stageReference.get();
+            try {
+                Parent audit = onFx(() -> {
+                    context.activate(signedIn);
+                    Parent root = AdminViewLoader.load(AdminViewLoader.AUDIT,
+                            new AuditController(context), new I18n(BASE, Locale.ENGLISH));
+                    Scene scene = new Scene(root, 640, 620);
+                    themeReference.get().apply(scene);
+                    AdminViewLoader.applyStylesheet(scene);
+                    stage.setScene(scene);
+                    stage.show();
+                    root.applyCss();
+                    root.layout();
+                    return root;
+                });
+                waitForFx(() -> tableRows(audit, "#auditTable") > 0, Duration.ofSeconds(10));
+                onFx(() -> {
+                    audit.applyCss();
+                    audit.layout();
+                    return true;
+                });
+
+                String actor = FakeAdminServer.ADMIN_ID.toString();
+                TableCell<?, ?> actorCell = cellWithText(audit, "#auditTable", actor);
+                assertThat(actorCell).as("the audit event's actor cell is rendered").isNotNull();
+                assertThat(actorCell.getTooltip())
+                        .as("an actor ID the narrow pane cannot fit explains itself").isNotNull();
+                assertThat(actorCell.getTooltip().getText())
+                        .as("the whole ID, not the clipped prefix").isEqualTo(actor);
+                assertThat(actorCell.getAccessibleText())
+                        .as("assistive technology reads the whole ID too").isEqualTo(actor);
+
+                TableCell<?, ?> actionCell = cellWithText(audit, "#auditTable", "admin.user.lock");
+                assertThat(actionCell).as("the audit event's action cell is rendered").isNotNull();
+                assertThat(actionCell.getTooltip())
+                        .as("an action that fits stays a plain cell").isNull();
+            } finally {
+                onFx(() -> {
+                    stage.close();
+                    context.close();
+                    return true;
+                });
+            }
+        }
+    }
+
     private static int accountsRows(Parent root) {
         return tableRows(root, "#accountsTable");
     }
