@@ -385,42 +385,6 @@ class AdminDesignSystemFxTest {
     }
 
     /**
-     * A report reason or a submitted message is free text: showing it as one line would make the
-     * explanation wider than the window. This measures the popup the cell really installs, so the
-     * wrapping has to show up as a narrower and taller tooltip, not just as a property.
-     */
-    @Test
-    void aLongExplanationWrapsAtAReadableWidth() throws Exception {
-        try (FakeAdminServer server = new FakeAdminServer();
-             Mounted mounted = mountedScreen(server, AdminViewLoader.AUDIT,
-                     AuditController::new, NARROW_WIDTH, NARROW_HEIGHT)) {
-            Parent audit = afterFirstRows(mounted.root(), "#auditTable");
-
-            TableCell<?, ?> actorCell = cellWithText(audit, "#auditTable",
-                    FakeAdminServer.ADMIN_ID.toString());
-            assertThat(actorCell).as("a truncated cell is rendered").isNotNull();
-            Tooltip explanation = actorCell.getTooltip();
-            assertThat(explanation).as("the cell installs its explanation").isNotNull();
-            assertThat(explanation.isWrapText()).as("the explanation wraps").isTrue();
-
-            double[] shortSize = renderedSize(explanation, actorCell, "admin.user.lock");
-            String longReason = "The reported account sent a long series of direct messages "
-                    + "after being asked to stop, and the reporter submitted the whole "
-                    + "conversation as evidence for this case.";
-            double[] longSize = renderedSize(explanation, actorCell, longReason);
-            assertThat(longSize[0])
-                    .as("a long explanation stays inside its readable width: %s px", longSize[0])
-                    .isLessThanOrEqualTo(AdminUi.TOOLTIP_WRAP_WIDTH + 1);
-            assertThat(longSize[1])
-                    .as("and it grows down instead: %s px against %s px", longSize[1], shortSize[1])
-                    .isGreaterThan(shortSize[1] * 2);
-            assertThat(longSize[1])
-                    .as("the wrapped explanation fits the window height")
-                    .isLessThan(600);
-        }
-    }
-
-    /**
      * A value that is a paragraph — a submitted message, a long report reason — cannot be shown in
      * a hover without making the tooltip taller than the window, so the hover keeps its opening
      * words while the cell keeps the whole value as accessible text. The table here is built from
@@ -472,7 +436,11 @@ class AdminDesignSystemFxTest {
                     .as("assistive technology still reads the whole value")
                     .isEqualTo(longMessage);
 
+            // A hover of 201 characters cannot be one line inside 420 px, so measuring the shown
+            // popup proves the wrapping and the height cap together: wide enough to read, never
+            // taller than the window.
             double[] size = shownSize(hover, cell);
+            assertThat(hover.isWrapText()).as("the explanation wraps").isTrue();
             assertThat(size[0]).as("the hover stays inside its readable width: %s px", size[0])
                     .isLessThanOrEqualTo(AdminUi.TOOLTIP_WRAP_WIDTH + 1);
             assertThat(size[1]).as("and inside the window's height: %s px", size[1])
@@ -550,17 +518,6 @@ class AdminDesignSystemFxTest {
             return true;
         });
         return root;
-    }
-
-    /** Shows {@code explanation} with {@code text} and returns its rendered {width, height}. */
-    private static double[] renderedSize(Tooltip explanation, Node owner, String text)
-            throws Exception {
-        onFx(() -> {
-            explanation.hide();
-            explanation.setText(text);
-            return true;
-        });
-        return shownSize(explanation, owner);
     }
 
     /** Shows {@code explanation} as it is and returns its rendered {width, height}. */
