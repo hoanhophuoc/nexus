@@ -285,7 +285,8 @@ class AdminDesignSystemFxTest {
                     return root;
                 });
                 waitForFx(() -> accountsRows(accounts) > 0
-                        && tableRows(accounts, "#historyTable") > 0, Duration.ofSeconds(10));
+                        && tableRows(accounts, "#historyTable") > 0
+                        && tableRows(accounts, "#friendsTable") > 0, Duration.ofSeconds(10));
                 onFx(() -> {
                     accounts.applyCss();
                     accounts.layout();
@@ -324,6 +325,20 @@ class AdminDesignSystemFxTest {
                 assertThat(historyUser.getAccessibleText())
                         .as("assistive technology reads the whole value there too")
                         .isEqualTo("Alice Example (alice)");
+
+                // The friend list shares that pane: the seeded friend is wide enough to be clipped
+                // in the three narrow columns, so the whole name has to stay reachable.
+                TableCell<?, ?> friendName = cellWithText(accounts, "#friendsTable",
+                        FakeAdminServer.FRIEND_FULL_NAME);
+                assertThat(friendName).as("the selected account's friend is rendered").isNotNull();
+                assertThat(friendName.getTooltip()).as("a friend name the pane cannot fit explains itself")
+                        .isNotNull();
+                assertThat(friendName.getTooltip().getText())
+                        .as("the whole name, not the clipped prefix")
+                        .isEqualTo(FakeAdminServer.FRIEND_FULL_NAME);
+                assertThat(friendName.getAccessibleText())
+                        .as("assistive technology reads the whole name there too")
+                        .isEqualTo(FakeAdminServer.FRIEND_FULL_NAME);
 
                 // The same cell, in a window wide enough for the value: the explanation must go
                 // away rather than staying installed on a reused cell.

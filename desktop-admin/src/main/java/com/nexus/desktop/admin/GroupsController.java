@@ -50,6 +50,12 @@ public final class GroupsController {
                 : member.getUser().getFullName());
         AdminUi.bind(memberRoleColumn, member -> AdminUi.role(member, i18n));
         AdminUi.bind(memberJoinedColumn, member -> i18n.format("admin.groups.joinedEpoch", member.getJoinedEpoch()));
+        // The shell shows this screen in a narrower content area than the workspace does, where a
+        // group name or a member's name stops fitting; a hover then explains the value.
+        for (TableColumn<?, String> column : List.<TableColumn<?, String>>of(nameColumn, createdColumn,
+                memberUsernameColumn, memberFullNameColumn, memberRoleColumn, memberJoinedColumn)) {
+            AdminUi.explainTruncatedText(column);
+        }
         groupsTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
         membersTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
         filterField.setAccessibleText(i18n.get("admin.groups.filterPrompt"));

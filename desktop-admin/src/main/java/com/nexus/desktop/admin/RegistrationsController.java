@@ -46,6 +46,12 @@ public final class RegistrationsController {
         AdminUi.bind(statusColumn, user -> i18n.get(user.getStatus() == AdminUser.StatusEnum.LOCKED
                 ? "admin.accounts.statusLocked" : "admin.accounts.statusActive"));
         AdminUi.bind(createdColumn, user -> AdminUi.time(user.getCreatedAt(), i18n));
+        // The shell shows this screen in a narrower content area than the workspace does, where a
+        // name or an email address stops fitting; a hover then explains the value.
+        for (TableColumn<?, String> column : List.<TableColumn<?, String>>of(usernameColumn,
+                fullNameColumn, emailColumn, statusColumn, createdColumn)) {
+            AdminUi.explainTruncatedText(column);
+        }
         registrationsTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
         fromDate.setAccessibleText(i18n.get("admin.registrations.from"));
         toDate.setAccessibleText(i18n.get("admin.registrations.to"));

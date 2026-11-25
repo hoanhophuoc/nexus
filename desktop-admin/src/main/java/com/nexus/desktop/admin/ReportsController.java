@@ -74,6 +74,13 @@ public final class ReportsController {
         AdminUi.bind(evidenceContentColumn, ReportSelectedEvidenceInner::getSubmittedContent);
         AdminUi.bindAction(evidenceColumn, this::evidenceButton);
         AdminUi.bindAction(decisionColumn, this::decisionButtons);
+        // The shell shows this screen in a narrower content area than the workspace does, where a
+        // reason, a username or a piece of evidence stops fitting; a hover then explains the value.
+        for (TableColumn<?, String> column : List.<TableColumn<?, String>>of(reportedColumn,
+                reporterColumn, statusColumn, reasonColumn, createdColumn, evidenceMessageColumn,
+                evidenceContentColumn)) {
+            AdminUi.explainTruncatedText(column);
+        }
         reportsTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
         evidenceTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
         reportsTable.setAccessibleText(i18n.get("admin.reports.title"));
