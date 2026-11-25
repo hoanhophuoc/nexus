@@ -15,6 +15,7 @@ import javafx.scene.control.PasswordField;
 import javafx.scene.control.TableCell;
 import javafx.scene.control.TableView;
 import javafx.scene.control.TextField;
+import javafx.scene.control.Tooltip;
 import javafx.scene.paint.Paint;
 import javafx.stage.Stage;
 import org.junit.jupiter.api.Test;
@@ -448,6 +449,93 @@ class AdminDesignSystemFxTest {
                 });
             }
         }
+    }
+
+    /**
+     * A report reason or a submitted message is free text: showing it as one line would make the
+     * explanation wider than the window. This measures the popup the cell really installs, so the
+     * wrapping has to show up as a narrower and taller tooltip, not just as a property.
+     */
+    @Test
+    void aLongExplanationWrapsAtAReadableWidth() throws Exception {
+        try (FakeAdminServer server = new FakeAdminServer()) {
+            AtomicReference<Stage> stageReference = new AtomicReference<>();
+            AtomicReference<ThemeManager> themeReference = new AtomicReference<>();
+            AdminAppContext context = onFx(() -> {
+                Stage stage = new Stage();
+                stageReference.set(stage);
+                ThemeManager theme = new ThemeManager();
+                theme.setTheme(Theme.LIGHT);
+                themeReference.set(theme);
+                return new AdminAppContext(stage, server.origin().toString(), theme,
+                        new I18n(BASE, Locale.ENGLISH));
+            });
+            var signedIn = context.signIn("admin", "correct horse battery staple".toCharArray());
+            Stage stage = stageReference.get();
+            try {
+                Parent audit = onFx(() -> {
+                    context.activate(signedIn);
+                    Parent root = AdminViewLoader.load(AdminViewLoader.AUDIT,
+                            new AuditController(context), new I18n(BASE, Locale.ENGLISH));
+                    Scene scene = new Scene(root, 640, 620);
+                    themeReference.get().apply(scene);
+                    AdminViewLoader.applyStylesheet(scene);
+                    stage.setScene(scene);
+                    stage.show();
+                    root.applyCss();
+                    root.layout();
+                    return root;
+                });
+                waitForFx(() -> tableRows(audit, "#auditTable") > 0, Duration.ofSeconds(10));
+                onFx(() -> {
+                    audit.applyCss();
+                    audit.layout();
+                    return true;
+                });
+
+                TableCell<?, ?> actorCell = cellWithText(audit, "#auditTable",
+                        FakeAdminServer.ADMIN_ID.toString());
+                assertThat(actorCell).as("a truncated cell is rendered").isNotNull();
+                Tooltip explanation = actorCell.getTooltip();
+                assertThat(explanation).as("the cell installs its explanation").isNotNull();
+                assertThat(explanation.isWrapText()).as("the explanation wraps").isTrue();
+
+                double[] shortSize = renderedSize(explanation, actorCell, "admin.user.lock");
+                String longReason = "The reported account sent a long series of direct messages "
+                        + "after being asked to stop, and the reporter submitted the whole "
+                        + "conversation as evidence for this case.";
+                double[] longSize = renderedSize(explanation, actorCell, longReason);
+                assertThat(longSize[0])
+                        .as("a long explanation stays inside its readable width: %s px", longSize[0])
+                        .isLessThanOrEqualTo(AdminUi.TOOLTIP_WRAP_WIDTH + 1);
+                assertThat(longSize[1])
+                        .as("and it grows down instead: %s px against %s px", longSize[1], shortSize[1])
+                        .isGreaterThan(shortSize[1] * 2);
+                assertThat(longSize[1])
+                        .as("the wrapped explanation fits the window height")
+                        .isLessThan(600);
+            } finally {
+                onFx(() -> {
+                    stage.close();
+                    context.close();
+                    return true;
+                });
+            }
+        }
+    }
+
+    /** Shows {@code explanation} with {@code text} and returns its rendered {width, height}. */
+    private static double[] renderedSize(Tooltip explanation, javafx.scene.Node owner, String text)
+            throws Exception {
+        onFx(() -> {
+            explanation.hide();
+            explanation.setText(text);
+            explanation.show(owner, 40, 40);
+            return true;
+        });
+        waitForFx(() -> explanation.isShowing() && explanation.getWidth() > 0
+                && explanation.getHeight() > 0, Duration.ofSeconds(5));
+        return onFx(() -> new double[] { explanation.getWidth(), explanation.getHeight() });
     }
 
     private static int accountsRows(Parent root) {

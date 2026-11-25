@@ -76,12 +76,23 @@ final class AdminUi {
         column.setCellFactory(ignored -> new TruncatingTextCell<>());
     }
 
+    /**
+     * An explanation can hold free text (a report reason, a submitted message), so it wraps at a
+     * readable width instead of running off the window as one very long line.
+     */
+    static final double TOOLTIP_WRAP_WIDTH = 420;
+
     private static final class TruncatingTextCell<T> extends TableCell<T, String> {
         private final Tooltip tooltip = new Tooltip();
         private String measuredText;
         private Font measuredFont;
         private double measuredWidth = Double.NaN;
         private boolean measuredTruncated;
+
+        private TruncatingTextCell() {
+            tooltip.setWrapText(true);
+            tooltip.setMaxWidth(TOOLTIP_WRAP_WIDTH);
+        }
 
         @Override
         protected void updateItem(String item, boolean empty) {
