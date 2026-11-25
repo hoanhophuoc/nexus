@@ -127,6 +127,9 @@ public final class AccountsController {
         accountsTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
         historyTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
         friendsTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+        for (TableView<?> table : List.of(accountsTable, historyTable, friendsTable)) {
+            AdminUi.keyboardReadable(table);
+        }
         accountsTable.setAccessibleText(i18n.get("admin.accounts.title"));
         historyTable.setAccessibleText(i18n.get("admin.accounts.loginHistoryTitle"));
         friendsTable.setAccessibleText(i18n.get("admin.accounts.friendListTitle"));

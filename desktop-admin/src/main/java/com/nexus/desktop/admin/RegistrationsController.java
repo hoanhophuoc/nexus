@@ -53,6 +53,7 @@ public final class RegistrationsController {
             AdminUi.explainTruncatedText(column);
         }
         registrationsTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+        AdminUi.keyboardReadable(registrationsTable);
         fromDate.setAccessibleText(i18n.get("admin.registrations.from"));
         toDate.setAccessibleText(i18n.get("admin.registrations.to"));
         filterField.setAccessibleText(i18n.get("admin.registrations.filterPrompt"));

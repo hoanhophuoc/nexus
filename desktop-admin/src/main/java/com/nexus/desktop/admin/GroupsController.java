@@ -58,6 +58,9 @@ public final class GroupsController {
         }
         groupsTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
         membersTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+        for (TableView<?> table : List.of(groupsTable, membersTable)) {
+            AdminUi.keyboardReadable(table);
+        }
         filterField.setAccessibleText(i18n.get("admin.groups.filterPrompt"));
         groupsTable.setAccessibleText(i18n.get("admin.groups.title"));
         membersTable.setAccessibleText(i18n.get("admin.groups.membersTitle"));

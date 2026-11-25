@@ -45,6 +45,7 @@ public final class AuditController {
             AdminUi.explainTruncatedText(column);
         }
         auditTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+        AdminUi.keyboardReadable(auditTable);
         auditTable.setAccessibleText(i18n.get("admin.audit.title"));
         reloadButton.setOnAction(event -> load());
         load();

@@ -18,6 +18,9 @@ import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
+import javafx.scene.input.Clipboard;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyEvent;
 import javafx.scene.paint.Paint;
 import javafx.stage.Stage;
 import org.junit.jupiter.api.Test;
@@ -451,6 +454,81 @@ class AdminDesignSystemFxTest {
                 return true;
             });
         }
+    }
+
+    /**
+     * The keyboard lives on rows, not cells: a JavaFX table keeps the focus model on the selected
+     * row, so that is where a clipped value has to become readable. F2 opens the row in full and
+     * the copy shortcut takes it away — the same values the hover explains, one cell at a time.
+     */
+    @Test
+    void aKeyboardUserCanReadAndCopyTheSelectedRow() throws Exception {
+        String value = "Mallory Q. Reported-Example, 3 Report Lane, Apartment 14";
+        AtomicReference<Stage> stageReference = new AtomicReference<>();
+        AtomicReference<Tooltip> inspectorReference = new AtomicReference<>();
+        TableView<String> table = onFx(() -> {
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            TableView<String> loaded = new TableView<>(
+                    FXCollections.observableArrayList(value, "short"));
+            TableColumn<String, String> column = new TableColumn<>("Address");
+            AdminUi.bind(column, cell -> cell);
+            AdminUi.explainTruncatedText(column);
+            AdminUi.wrapHeader(column);
+            loaded.getColumns().add(column);
+            loaded.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+            inspectorReference.set(AdminUi.keyboardReadable(loaded));
+            Stage stage = new Stage();
+            stageReference.set(stage);
+            Scene scene = new Scene(loaded, 200, 160);
+            theme.apply(scene);
+            AdminViewLoader.applyStylesheet(scene);
+            stage.setScene(scene);
+            stage.show();
+            loaded.applyCss();
+            loaded.layout();
+            loaded.requestFocus();
+            loaded.getSelectionModel().selectFirst();
+            return loaded;
+        });
+        try {
+            Tooltip inspector = inspectorReference.get();
+            assertThat(inspector).as("the mount built the row inspector").isNotNull();
+            assertThat(inspector.isShowing()).as("nothing is shown before the shortcut").isFalse();
+
+            onFx(() -> {
+                table.fireEvent(key(KeyCode.F2));
+                return true;
+            });
+            waitForFx(inspector::isShowing, Duration.ofSeconds(5));
+            assertThat(inspector.getText())
+                    .as("the whole row, labelled, rather than one clipped cell")
+                    .isEqualTo("Address: " + value);
+
+            onFx(() -> {
+                table.fireEvent(key(KeyCode.ESCAPE));
+                return true;
+            });
+            waitForFx(() -> !inspector.isShowing(), Duration.ofSeconds(5));
+
+            onFx(() -> {
+                table.fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED, "", "", KeyCode.C,
+                        false, true, false, false));
+                return true;
+            });
+            assertThat(onFx(() -> Clipboard.getSystemClipboard().getString()))
+                    .as("the copy shortcut takes the whole value, not the shortened hover")
+                    .isEqualTo(value);
+        } finally {
+            onFx(() -> {
+                stageReference.get().close();
+                return true;
+            });
+        }
+    }
+
+    private static KeyEvent key(KeyCode code) {
+        return new KeyEvent(KeyEvent.KEY_PRESSED, "", "", code, false, false, false, false);
     }
 
     /**

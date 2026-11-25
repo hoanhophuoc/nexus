@@ -4,6 +4,7 @@ import com.nexus.desktop.shared.ui.I18n;
 import com.nexus.desktop.shared.ui.UiComponents;
 import com.nexus.sdk.model.GroupMember;
 import javafx.beans.property.SimpleStringProperty;
+import javafx.geometry.Bounds;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.chart.BarChart;
@@ -14,6 +15,10 @@ import javafx.scene.control.TableCell;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
 import javafx.scene.control.Tooltip;
+import javafx.scene.input.Clipboard;
+import javafx.scene.input.ClipboardContent;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.text.Font;
@@ -104,6 +109,8 @@ final class AdminUi {
         @Override
         protected void updateItem(String item, boolean empty) {
             super.updateItem(item, empty);
+            // A cell that scrolls on to another row must not leave the previous value on screen.
+            tooltip.hide();
             setText(empty ? null : item);
             explainIfTruncated();
         }
@@ -133,6 +140,7 @@ final class AdminUi {
         }
 
         private void clearExplanation() {
+            tooltip.hide();
             if (getTooltip() != null) setTooltip(null);
             setAccessibleText(null);
         }
@@ -159,6 +167,77 @@ final class AdminUi {
             measuredTruncated = measure.getLayoutBounds().getWidth() > available + 0.5;
             return measuredTruncated;
         }
+    }
+
+    /**
+     * Gives a table the keyboard path to the values the narrow pane clips. A JavaFX table keeps the
+     * keyboard on rows, not cells, so both gestures work on the selected row: F2 shows every column
+     * in full, and the copy shortcut takes the row as tab-separated text for pasting into a ticket.
+     *
+     * <p>This is the pointer-free counterpart of the per-cell hover explanation, not a replacement
+     * for it: the tooltip still names one clipped value, while F2 answers "what does this row
+     * actually say" without needing a steady hand.
+     *
+     * @return the row inspector, which the caller may hold for its own tests or hints; it is only
+     *     shown on F2, so it is deliberately not installed as the table's hover tooltip.
+     */
+    static Tooltip keyboardReadable(TableView<?> table) {
+        Tooltip inspector = new Tooltip();
+        inspector.setWrapText(true);
+        inspector.setMaxWidth(TOOLTIP_WRAP_WIDTH);
+        table.addEventHandler(KeyEvent.KEY_PRESSED, event -> {
+            if (event.getCode() == KeyCode.ESCAPE && inspector.isShowing()) {
+                inspector.hide();
+                event.consume();
+                return;
+            }
+            if (event.getCode() == KeyCode.F2) {
+                String values = rowText(table, true);
+                if (values.isEmpty() || inspector.isShowing()) {
+                    inspector.hide();
+                } else {
+                    inspector.setText(values);
+                    Bounds bounds = table.localToScreen(table.getBoundsInLocal());
+                    if (bounds != null) inspector.show(table, bounds.getMinX(), bounds.getMinY() + 28);
+                }
+                event.consume();
+                return;
+            }
+            if (event.isShortcutDown() && event.getCode() == KeyCode.C) {
+                String values = rowText(table, false);
+                if (values.isEmpty()) return;
+                ClipboardContent content = new ClipboardContent();
+                content.putString(values);
+                Clipboard.getSystemClipboard().setContent(content);
+                event.consume();
+            }
+        });
+        table.focusedProperty().addListener((observable, wasFocused, focused) -> {
+            if (!focused) inspector.hide();
+        });
+        return inspector;
+    }
+
+    /** The selected row as text, labelled with the column headers when asked. */
+    private static String rowText(TableView<?> table, boolean withHeaders) {
+        int row = table.getSelectionModel().getSelectedIndex();
+        if (row < 0 || row >= table.getItems().size()) return "";
+        StringBuilder text = new StringBuilder();
+        for (TableColumn<?, ?> column : table.getColumns()) {
+            Object value = column.getCellData(row);
+            if (value == null || value.toString().isEmpty()) continue;
+            if (text.length() > 0) text.append(withHeaders ? '\n' : '\t');
+            if (withHeaders) text.append(headerText(column)).append(": ");
+            text.append(value);
+        }
+        return text.toString();
+    }
+
+    /** A header's words; {@link #wrapHeader} moves them from the text into the graphic. */
+    private static String headerText(TableColumn<?, ?> column) {
+        if (column.getText() != null && !column.getText().isBlank()) return column.getText();
+        if (column.getGraphic() instanceof Label label && label.getText() != null) return label.getText();
+        return "";
     }
 
     static <T> void bindAction(TableColumn<T, String> column, Function<T, Node> graphic) {

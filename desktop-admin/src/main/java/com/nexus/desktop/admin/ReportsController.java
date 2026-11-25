@@ -83,6 +83,9 @@ public final class ReportsController {
         }
         reportsTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
         evidenceTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+        for (TableView<?> table : List.of(reportsTable, evidenceTable)) {
+            AdminUi.keyboardReadable(table);
+        }
         reportsTable.setAccessibleText(i18n.get("admin.reports.title"));
         evidenceTable.setAccessibleText(i18n.get("admin.reports.evidenceTitle"));
         reportedUsernameField.setAccessibleText(i18n.get("admin.reports.filterPrompt"));
