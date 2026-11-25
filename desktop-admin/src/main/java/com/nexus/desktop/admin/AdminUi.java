@@ -82,6 +82,13 @@ final class AdminUi {
      */
     static final double TOOLTIP_WRAP_WIDTH = 420;
 
+    /**
+     * A hover stays short even for a value that is a paragraph: wrapping bounds the width, not the
+     * height, so a whole evidence message would still make a tooltip taller than the window. The
+     * value is not lost, it stays on the cell as accessible text.
+     */
+    static final int TOOLTIP_PREVIEW_CHARS = 200;
+
     private static final class TruncatingTextCell<T> extends TableCell<T, String> {
         private final Tooltip tooltip = new Tooltip();
         private String measuredText;
@@ -118,14 +125,24 @@ final class AdminUi {
                 clearExplanation();
                 return;
             }
-            if (!text.equals(tooltip.getText())) tooltip.setText(text);
+            String preview = hoverPreview(text);
+            if (!preview.equals(tooltip.getText())) tooltip.setText(preview);
             if (getTooltip() != tooltip) setTooltip(tooltip);
+            // The cell keeps the whole value for assistive technology; only the hover is shortened.
             setAccessibleText(text);
         }
 
         private void clearExplanation() {
             if (getTooltip() != null) setTooltip(null);
             setAccessibleText(null);
+        }
+
+        /** The hover copy for {@code text}: the value itself, or its opening words when it is long. */
+        private static String hoverPreview(String text) {
+            if (text.length() <= TOOLTIP_PREVIEW_CHARS) return text;
+            int cut = text.lastIndexOf(' ', TOOLTIP_PREVIEW_CHARS);
+            if (cut < TOOLTIP_PREVIEW_CHARS / 2) cut = TOOLTIP_PREVIEW_CHARS;
+            return text.substring(0, cut).stripTrailing() + "…";
         }
 
         /** Whether {@code text} is wider than the room the cell has, measured once per size. */

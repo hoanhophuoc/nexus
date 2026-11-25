@@ -3,6 +3,7 @@ package com.nexus.desktop.admin;
 import com.nexus.desktop.shared.ui.I18n;
 import com.nexus.desktop.shared.ui.Theme;
 import com.nexus.desktop.shared.ui.ThemeManager;
+import javafx.collections.FXCollections;
 import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.control.CheckBox;
@@ -13,6 +14,7 @@ import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.TableCell;
+import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
@@ -419,6 +421,71 @@ class AdminDesignSystemFxTest {
     }
 
     /**
+     * A value that is a paragraph — a submitted message, a long report reason — cannot be shown in
+     * a hover without making the tooltip taller than the window, so the hover keeps its opening
+     * words while the cell keeps the whole value as accessible text. The table here is built from
+     * the production helpers, so the cell under test is the one every admin screen installs.
+     */
+    @Test
+    void aVeryLongExplanationKeepsItsHoverShort() throws Exception {
+        String longMessage = String.join(" ",
+                "The reported account sent a long series of direct messages after being asked",
+                "to stop, and the reporter submitted the whole conversation as evidence for",
+                "this case, including the times and the replies that followed each message.",
+                "The messages continued the next day, and the reporter asked twice more for",
+                "them to stop before reporting the account to the moderation team, which",
+                "asked for the conversation, the timestamps and any screenshots as evidence.");
+        assertThat(longMessage.length()).isGreaterThan(AdminUi.TOOLTIP_PREVIEW_CHARS * 2);
+
+        AtomicReference<Stage> stageReference = new AtomicReference<>();
+        TableCell<?, ?> cell = onFx(() -> {
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            TableView<String> table = new TableView<>(
+                    FXCollections.observableArrayList(longMessage, "short"));
+            TableColumn<String, String> column = new TableColumn<>();
+            AdminUi.bind(column, value -> value);
+            AdminUi.explainTruncatedText(column);
+            table.getColumns().add(column);
+            table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+            Stage stage = new Stage();
+            stageReference.set(stage);
+            Scene scene = new Scene(table, 280, 200);
+            theme.apply(scene);
+            AdminViewLoader.applyStylesheet(scene);
+            stage.setScene(scene);
+            stage.show();
+            table.applyCss();
+            table.layout();
+            return cellWithText(table, longMessage);
+        });
+        try {
+            assertThat(cell).as("the long value is rendered in a column that clips it").isNotNull();
+            Tooltip hover = cell.getTooltip();
+            assertThat(hover).as("a clipped value explains itself on hover").isNotNull();
+            assertThat(hover.getText().length())
+                    .as("the hover keeps only the opening words")
+                    .isLessThanOrEqualTo(AdminUi.TOOLTIP_PREVIEW_CHARS + 1);
+            assertThat(hover.getText()).as("a shortened hover says so").endsWith("…");
+            assertThat(longMessage).startsWith(hover.getText().substring(0, 40));
+            assertThat(cell.getAccessibleText())
+                    .as("assistive technology still reads the whole value")
+                    .isEqualTo(longMessage);
+
+            double[] size = shownSize(hover, cell);
+            assertThat(size[0]).as("the hover stays inside its readable width: %s px", size[0])
+                    .isLessThanOrEqualTo(AdminUi.TOOLTIP_WRAP_WIDTH + 1);
+            assertThat(size[1]).as("and inside the window's height: %s px", size[1])
+                    .isLessThan(200);
+        } finally {
+            onFx(() -> {
+                stageReference.get().close();
+                return true;
+            });
+        }
+    }
+
+    /**
      * Signs in against the fake server and mounts one admin screen on a window of its own. Every
      * screen test here needs the same off-thread sign-in, light theme, stylesheet and teardown, so
      * this keeps that sequence in one place; the caller only names the screen and the window size.
@@ -491,6 +558,14 @@ class AdminDesignSystemFxTest {
         onFx(() -> {
             explanation.hide();
             explanation.setText(text);
+            return true;
+        });
+        return shownSize(explanation, owner);
+    }
+
+    /** Shows {@code explanation} as it is and returns its rendered {width, height}. */
+    private static double[] shownSize(Tooltip explanation, Node owner) throws Exception {
+        onFx(() -> {
             explanation.show(owner, 40, 40);
             return true;
         });
@@ -511,6 +586,10 @@ class AdminDesignSystemFxTest {
     /** The rendered cell showing exactly {@code text}; its text stays whole even when it is clipped. */
     private static TableCell<?, ?> cellWithText(Parent root, String tableId, String text) {
         if (!(root.lookup(tableId) instanceof TableView<?> table)) return null;
+        return cellWithText(table, text);
+    }
+
+    private static TableCell<?, ?> cellWithText(TableView<?> table, String text) {
         for (javafx.scene.Node node : table.lookupAll(".table-cell")) {
             if (node instanceof TableCell<?, ?> cell && !cell.isEmpty() && text.equals(cell.getText())) {
                 return cell;
