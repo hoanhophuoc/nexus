@@ -157,10 +157,8 @@ final class AdminUi {
             TableView<T> table = getTableView();
             if (table == null || !table.isFocused() || isEmpty() || getTableColumn() == null) return false;
             TablePosition<T, ?> focused = table.getFocusModel().getFocusedCell();
-            return focused != null
-                    && focused.getRow() == getIndex()
-                    && focused.getColumn() >= 0
-                    && table.getColumns().get(focused.getColumn()) == getTableColumn();
+            return focused != null && focused.getRow() == getIndex()
+                    && focused.getTableColumn() == getTableColumn();
         }
 
         /** Shows the explanation for the cell the keyboard reached; hover installs it by itself. */
@@ -288,30 +286,26 @@ final class AdminUi {
         if (row < 0) return;
         TablePosition<?, ?> focused = table.getFocusModel().getFocusedCell();
         int from = focused == null ? -1 : focused.getColumn();
-        int next = forward ? nextReadable(table, from) : previousReadable(table, from);
+        int next = neighbour(table, from, forward);
         if (next < 0) return;
         focusCell(table, row, next);
         event.consume();
+    }
+
+    /** The next column in {@code direction} that explains itself, or -1 at the edge. */
+    private static int neighbour(TableView<?> table, int from, boolean forward) {
+        int step = forward ? 1 : -1;
+        for (int index = from < 0 ? (forward ? 0 : table.getColumns().size() - 1) : from + step;
+                index >= 0 && index < table.getColumns().size(); index += step) {
+            if (READABLE.contains(table.getColumns().get(index))) return index;
+        }
+        return -1;
     }
 
     /** Focuses one cell; the raw cast is the price of driving a wildcard table's focus model. */
     @SuppressWarnings({ "unchecked", "rawtypes" })
     private static void focusCell(TableView<?> table, int row, int column) {
         ((TableView) table).getFocusModel().focus(row, table.getColumns().get(column));
-    }
-
-    private static int nextReadable(TableView<?> table, int from) {
-        for (int index = from + 1; index < table.getColumns().size(); index++) {
-            if (READABLE.contains(table.getColumns().get(index))) return index;
-        }
-        return -1;
-    }
-
-    private static int previousReadable(TableView<?> table, int from) {
-        for (int index = from < 0 ? table.getColumns().size() - 1 : from - 1; index >= 0; index--) {
-            if (READABLE.contains(table.getColumns().get(index))) return index;
-        }
-        return -1;
     }
 
     private static void showRowInspector(TableView<?> table, Tooltip inspector, KeyEvent event) {

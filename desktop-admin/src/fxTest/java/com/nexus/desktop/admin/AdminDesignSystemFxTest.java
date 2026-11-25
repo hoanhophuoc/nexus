@@ -569,6 +569,7 @@ class AdminDesignSystemFxTest {
             TableCell<?, ?> stateCell = onFx(() -> cellWithText(table, "ok"));
             assertThat(addressCell).as("the clipped cell is rendered").isNotNull();
             assertThat(stateCell).as("the neighbouring cell is rendered").isNotNull();
+            String textBefore = onFx(() -> textBounds(addressCell));
 
             // The first arrow names the first column that explains itself.
             onFx(() -> {
@@ -577,6 +578,9 @@ class AdminDesignSystemFxTest {
             });
             waitForFx(() -> addressCell.getStyleClass().contains(AdminUi.KEYBOARD_FOCUS_CLASS),
                     Duration.ofSeconds(5));
+            assertThat(onFx(() -> textBounds(addressCell)))
+                    .as("marking the cell must not move its text")
+                    .isEqualTo(textBefore);
             Tooltip explanation = onFx(addressCell::getTooltip);
             assertThat(explanation).as("the reached cell has an explanation").isNotNull();
             waitForFx(explanation::isShowing, Duration.ofSeconds(5));
@@ -620,6 +624,13 @@ class AdminDesignSystemFxTest {
                 return true;
             });
         }
+    }
+
+    /** Where the cell's text sits, so a marker that moves it fails instead of looking fine. */
+    private static String textBounds(TableCell<?, ?> cell) {
+        Node text = cell.lookup(".text");
+        javafx.geometry.Bounds bounds = text.localToScene(text.getBoundsInLocal());
+        return bounds.getMinX() + "," + bounds.getMinY() + "," + bounds.getWidth();
     }
 
     private static KeyEvent shortcut(KeyCode code) {
