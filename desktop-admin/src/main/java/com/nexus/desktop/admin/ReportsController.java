@@ -79,7 +79,7 @@ public final class ReportsController {
         for (TableColumn<?, String> column : List.<TableColumn<?, String>>of(reportedColumn,
                 reporterColumn, statusColumn, reasonColumn, createdColumn, evidenceMessageColumn,
                 evidenceContentColumn)) {
-            AdminUi.explainTruncatedText(column);
+            AdminUi.explainTruncatedText(column, i18n);
         }
         reportsTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
         evidenceTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);

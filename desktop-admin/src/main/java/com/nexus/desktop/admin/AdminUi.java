@@ -7,6 +7,7 @@ import javafx.beans.InvalidationListener;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.geometry.Bounds;
 import javafx.geometry.Pos;
+import javafx.scene.AccessibleAttribute;
 import javafx.scene.Node;
 import javafx.scene.chart.BarChart;
 import javafx.scene.chart.CategoryAxis;
@@ -81,9 +82,12 @@ final class AdminUi {
      * stays a plain cell and an empty or reused cell carries no stale explanation into the next row.
      * The shell shows the accounts table in a narrower content area than the workspace does, which is
      * where a full name or an email address stops fitting.
+     *
+     * <p>The column also describes the cell the keyboard reaches, so a screen reader hears the
+     * column, the whole value and whether the screen is clipping it.
      */
-    static <T> void explainTruncatedText(TableColumn<T, String> column) {
-        column.setCellFactory(ignored -> new TruncatingTextCell<>());
+    static <T> void explainTruncatedText(TableColumn<T, String> column, I18n i18n) {
+        column.setCellFactory(ignored -> new TruncatingTextCell<>(i18n));
         READABLE.add(column);
     }
 
@@ -115,11 +119,15 @@ final class AdminUi {
 
     private static final class TruncatingTextCell<T> extends TableCell<T, String> {
         private final Tooltip tooltip = new Tooltip();
+        private final I18n i18n;
         private Measurement measured;
+        /** Whether this cell is currently described as the keyboard's cursor. */
+        private boolean described;
 
         private final InvalidationListener focusListener = observable -> syncKeyboardFocus();
 
-        private TruncatingTextCell() {
+        private TruncatingTextCell(I18n i18n) {
+            this.i18n = i18n;
             tooltip.setWrapText(true);
             tooltip.setMaxWidth(TOOLTIP_WRAP_WIDTH);
             // The keyboard's cursor is painted here rather than by JavaFX: a table keeps focus on
@@ -135,18 +143,39 @@ final class AdminUi {
             syncKeyboardFocus();
         }
 
-        /** Marks the cell the keyboard has reached, and shows what a clipped cell cannot. */
+        /**
+         * Marks the cell the keyboard has reached, shows what a clipped cell cannot, and says the
+         * same to assistive technology: a screen reader cannot see the mark, so the description is
+         * the cursor's only cue.
+         */
         private void syncKeyboardFocus() {
             boolean reached = isKeyboardFocused();
-            boolean marked = getStyleClass().contains(KEYBOARD_FOCUS_CLASS);
-            if (reached && !marked) getStyleClass().add(KEYBOARD_FOCUS_CLASS);
-            if (!reached && marked) getStyleClass().remove(KEYBOARD_FOCUS_CLASS);
+            boolean wasDescribed = described;
+            described = reached;
             if (!reached) {
-                tooltip.hide();
+                getStyleClass().remove(KEYBOARD_FOCUS_CLASS);
+            } else if (!getStyleClass().contains(KEYBOARD_FOCUS_CLASS)) {
+                getStyleClass().add(KEYBOARD_FOCUS_CLASS);
+            }
+            // Restores the plain value when the cursor leaves this cell.
+            explainIfTruncated();
+            if (reached) {
+                setAccessibleText(description());
+                notifyAccessibleAttributeChanged(AccessibleAttribute.TEXT);
+                showExplanation();
                 return;
             }
-            explainIfTruncated();
-            showExplanation();
+            if (wasDescribed) notifyAccessibleAttributeChanged(AccessibleAttribute.TEXT);
+            tooltip.hide();
+        }
+
+        /** The cursor's description: which column, the whole value, and whether it is clipped. */
+        private String description() {
+            String header = headerText(getTableColumn());
+            String text = getText() == null ? "" : getText();
+            return getTooltip() == tooltip
+                    ? i18n.format("admin.a11y.cellClipped", header, text, i18n.get("admin.a11y.clipped"))
+                    : i18n.format("admin.a11y.cell", header, text);
         }
 
         private boolean isKeyboardFocused() {
@@ -196,13 +225,14 @@ final class AdminUi {
             if (!preview.equals(tooltip.getText())) tooltip.setText(preview);
             if (getTooltip() != tooltip) setTooltip(tooltip);
             // The cell keeps the whole value for assistive technology; only the hover is shortened.
-            setAccessibleText(text);
+            // The cursor's own description, once it is here, is the more specific text.
+            if (!described) setAccessibleText(text);
         }
 
         private void clearExplanation() {
             tooltip.hide();
             if (getTooltip() != null) setTooltip(null);
-            setAccessibleText(null);
+            if (!described) setAccessibleText(null);
         }
 
         /**

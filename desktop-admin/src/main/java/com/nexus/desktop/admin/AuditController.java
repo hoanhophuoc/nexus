@@ -42,7 +42,7 @@ public final class AuditController {
         // action or an actor ID stops fitting; a hover then explains the value.
         for (TableColumn<?, String> column : List.<TableColumn<?, String>>of(whenColumn, actionColumn,
                 actorColumn, targetColumn)) {
-            AdminUi.explainTruncatedText(column);
+            AdminUi.explainTruncatedText(column, i18n);
         }
         auditTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
         AdminUi.keyboardReadable(auditTable);

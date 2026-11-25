@@ -50,7 +50,7 @@ public final class RegistrationsController {
         // name or an email address stops fitting; a hover then explains the value.
         for (TableColumn<?, String> column : List.<TableColumn<?, String>>of(usernameColumn,
                 fullNameColumn, emailColumn, statusColumn, createdColumn)) {
-            AdminUi.explainTruncatedText(column);
+            AdminUi.explainTruncatedText(column, i18n);
         }
         registrationsTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
         AdminUi.keyboardReadable(registrationsTable);

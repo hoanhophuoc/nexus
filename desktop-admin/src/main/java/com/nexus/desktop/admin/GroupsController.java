@@ -54,7 +54,7 @@ public final class GroupsController {
         // group name or a member's name stops fitting; a hover then explains the value.
         for (TableColumn<?, String> column : List.<TableColumn<?, String>>of(nameColumn, createdColumn,
                 memberUsernameColumn, memberFullNameColumn, memberRoleColumn, memberJoinedColumn)) {
-            AdminUi.explainTruncatedText(column);
+            AdminUi.explainTruncatedText(column, i18n);
         }
         groupsTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
         membersTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);

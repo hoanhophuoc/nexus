@@ -118,7 +118,7 @@ public final class AccountsController {
         for (TableColumn<?, String> column : List.<TableColumn<?, String>>of(usernameColumn,
                 fullNameColumn, emailColumn, statusColumn, historyWhenColumn, historyUserColumn,
                 friendUsernameColumn, friendFullNameColumn, friendAddressColumn)) {
-            AdminUi.explainTruncatedText(column);
+            AdminUi.explainTruncatedText(column, i18n);
         }
         AdminUi.bind(friendUsernameColumn, User::getUsername);
         AdminUi.bind(friendFullNameColumn, User::getFullName);

@@ -21,6 +21,7 @@ import javafx.scene.control.Tooltip;
 import javafx.scene.input.Clipboard;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
+import javafx.scene.layout.VBox;
 import javafx.scene.paint.Paint;
 import javafx.stage.Stage;
 import org.junit.jupiter.api.Test;
@@ -40,6 +41,7 @@ import static com.nexus.desktop.shared.testing.FxThread.waitForFx;
 
 class AdminDesignSystemFxTest {
     private static final String BASE = "com.nexus.desktop.admin.i18n.messages";
+    private static final I18n ENGLISH = new I18n(BASE, Locale.ENGLISH);
     /** The width the shell gives a workspace; narrower than any screen mounted on its own. */
     private static final int NARROW_WIDTH = 640;
     private static final int NARROW_HEIGHT = 620;
@@ -406,7 +408,7 @@ class AdminDesignSystemFxTest {
             TableView<String> loaded = new TableView<>(FXCollections.observableArrayList(token));
             TableColumn<String, String> column = new TableColumn<>("Email");
             AdminUi.bind(column, value -> value);
-            AdminUi.explainTruncatedText(column);
+            AdminUi.explainTruncatedText(column, ENGLISH);
             loaded.getColumns().add(column);
             loaded.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
             inspectorReference.set(AdminUi.keyboardReadable(loaded));
@@ -488,7 +490,7 @@ class AdminDesignSystemFxTest {
                     FXCollections.observableArrayList(longMessage, "short"));
             TableColumn<String, String> column = new TableColumn<>();
             AdminUi.bind(column, value -> value);
-            AdminUi.explainTruncatedText(column);
+            AdminUi.explainTruncatedText(column, ENGLISH);
             table.getColumns().add(column);
             table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
             Stage stage = new Stage();
@@ -549,7 +551,7 @@ class AdminDesignSystemFxTest {
                     FXCollections.observableArrayList(value, "short"));
             TableColumn<String, String> column = new TableColumn<>("Address");
             AdminUi.bind(column, cell -> cell);
-            AdminUi.explainTruncatedText(column);
+            AdminUi.explainTruncatedText(column, ENGLISH);
             AdminUi.wrapHeader(column);
             loaded.getColumns().add(column);
             loaded.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
@@ -620,10 +622,10 @@ class AdminDesignSystemFxTest {
                     FXCollections.observableArrayList(clippedValue));
             TableColumn<String, String> address = new TableColumn<>("Address");
             AdminUi.bind(address, value -> value);
-            AdminUi.explainTruncatedText(address);
+            AdminUi.explainTruncatedText(address, ENGLISH);
             TableColumn<String, String> state = new TableColumn<>("State");
             AdminUi.bind(state, value -> "ok");
-            AdminUi.explainTruncatedText(state);
+            AdminUi.explainTruncatedText(state, ENGLISH);
             loaded.getColumns().addAll(List.of(address, state));
             loaded.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
             inspectorReference.set(AdminUi.keyboardReadable(loaded));
@@ -694,6 +696,93 @@ class AdminDesignSystemFxTest {
             assertThat(inspector.getText())
                     .as("the row inspector still names every column")
                     .isEqualTo("Address: " + clippedValue + "\nState: ok");
+        } finally {
+            onFx(() -> {
+                stageReference.get().close();
+                return true;
+            });
+        }
+    }
+
+    /**
+     * A screen reader cannot see the mark, so the cursor has to say where it is: the column, the
+     * whole value, and whether the screen is showing only part of it. Leaving the cell takes the
+     * description away again, so the next cell is described on its own terms.
+     */
+    @Test
+    void theCursorDescribesTheCellToAssistiveTechnology() throws Exception {
+        String clippedValue = "Mallory Q. Reported-Example, 3 Report Lane, Apartment 14";
+        AtomicReference<Stage> stageReference = new AtomicReference<>();
+        AtomicReference<Button> outsideReference = new AtomicReference<>();
+        TableView<String> table = onFx(() -> {
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            TableView<String> loaded = new TableView<>(FXCollections.observableArrayList(clippedValue));
+            TableColumn<String, String> address = new TableColumn<>("Address");
+            AdminUi.bind(address, value -> value);
+            AdminUi.explainTruncatedText(address, ENGLISH);
+            TableColumn<String, String> state = new TableColumn<>("State");
+            AdminUi.bind(state, value -> "ok");
+            AdminUi.explainTruncatedText(state, ENGLISH);
+            loaded.getColumns().addAll(List.of(address, state));
+            loaded.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+            AdminUi.keyboardReadable(loaded);
+            // A second control gives the table somewhere to lose focus to.
+            Button outside = new Button("elsewhere");
+            outsideReference.set(outside);
+            VBox root = new VBox(loaded, outside);
+            VBox.setVgrow(loaded, javafx.scene.layout.Priority.ALWAYS);
+            Stage stage = new Stage();
+            stageReference.set(stage);
+            Scene scene = new Scene(root, 200, 200);
+            theme.apply(scene);
+            AdminViewLoader.applyStylesheet(scene);
+            stage.setScene(scene);
+            stage.show();
+            loaded.applyCss();
+            loaded.layout();
+            loaded.requestFocus();
+            loaded.getSelectionModel().selectFirst();
+            return loaded;
+        });
+        try {
+            TableCell<?, ?> addressCell = onFx(() -> cellWithText(table, clippedValue));
+            TableCell<?, ?> stateCell = onFx(() -> cellWithText(table, "ok"));
+            assertThat(addressCell.getAccessibleText())
+                    .as("before the cursor arrives, a clipped cell reads as its whole value")
+                    .isEqualTo(clippedValue);
+
+            onFx(() -> {
+                table.fireEvent(key(KeyCode.RIGHT));
+                return true;
+            });
+            waitForFx(() -> addressCell.getStyleClass().contains(AdminUi.KEYBOARD_FOCUS_CLASS),
+                    Duration.ofSeconds(5));
+            assertThat(onFx(addressCell::getAccessibleText))
+                    .as("the cursor names the column, the whole value and the clipping")
+                    .isEqualTo("Address: " + clippedValue + " (clipped)");
+
+            onFx(() -> {
+                table.fireEvent(key(KeyCode.RIGHT));
+                return true;
+            });
+            waitForFx(() -> stateCell.getStyleClass().contains(AdminUi.KEYBOARD_FOCUS_CLASS),
+                    Duration.ofSeconds(5));
+            assertThat(onFx(stateCell::getAccessibleText))
+                    .as("a cell that fits is named without claiming a clipping")
+                    .isEqualTo("State: ok");
+            assertThat(onFx(addressCell::getAccessibleText))
+                    .as("the cell the cursor left goes back to the plain whole value")
+                    .isEqualTo(clippedValue);
+
+            onFx(() -> {
+                outsideReference.get().requestFocus();
+                return true;
+            });
+            waitForFx(() -> !table.isFocused(), Duration.ofSeconds(5));
+            assertThat(onFx(stateCell::getAccessibleText))
+                    .as("leaving the table clears the cursor's description")
+                    .isNull();
         } finally {
             onFx(() -> {
                 stageReference.get().close();
