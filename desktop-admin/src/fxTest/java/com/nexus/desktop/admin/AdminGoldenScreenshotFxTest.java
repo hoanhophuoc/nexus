@@ -4,13 +4,18 @@ import com.nexus.desktop.shared.ui.I18n;
 import com.nexus.desktop.shared.ui.Theme;
 import com.nexus.desktop.shared.ui.ThemeManager;
 import javafx.application.Platform;
+import javafx.collections.FXCollections;
+import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.DatePicker;
 import javafx.scene.control.Label;
+import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
 import javafx.scene.control.TextField;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyEvent;
 import javafx.scene.image.PixelReader;
 import javafx.scene.image.WritableImage;
 import javafx.scene.SnapshotParameters;
@@ -609,6 +614,86 @@ class AdminGoldenScreenshotFxTest {
         root.applyCss();
         root.layout();
         clearFocus(root);
+    }
+
+    /**
+     * The F2 row inspector lives in a window with a scene of its own, so no screen golden above can
+     * cover it: a snapshot of the table's scene does not contain the popup, and the popup's palette
+     * is exactly what used to go wrong (a content node keeps the colours it was built under). These
+     * two captures are of the popup's own root, in both themes.
+     */
+    @Test
+    void rowInspectorMatchesGoldensInLightAndDark() throws Exception {
+        String clipped = "Mallory Q. Reported-Example, 3 Report Lane, Apartment 14";
+        AtomicReference<Stage> stageReference = new AtomicReference<>();
+        AtomicReference<ThemeManager> themeReference = new AtomicReference<>();
+        AtomicReference<AdminUi.RowInspector> inspectorReference = new AtomicReference<>();
+        TableView<String> table = onFx(() -> {
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            themeReference.set(theme);
+            TableView<String> loaded = new TableView<>(FXCollections.observableArrayList(clipped));
+            TableColumn<String, String> address = new TableColumn<>("Address");
+            AdminUi.bind(address, value -> value);
+            AdminUi.explainTruncatedText(address, new I18n(BASE, Locale.ENGLISH));
+            loaded.getColumns().add(address);
+            TableColumn<String, String> state = new TableColumn<>("State");
+            AdminUi.bind(state, value -> "active");
+            loaded.getColumns().add(state);
+            TableColumn<String, String> lastSeen = new TableColumn<>("Last seen");
+            AdminUi.bind(lastSeen, value -> "2026-11-24 18:20");
+            loaded.getColumns().add(lastSeen);
+            loaded.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+            inspectorReference.set(AdminUi.keyboardReadable(loaded));
+            Stage stage = new Stage();
+            stageReference.set(stage);
+            Scene scene = new Scene(loaded, 420, 200);
+            theme.apply(scene);
+            AdminViewLoader.applyStylesheet(scene);
+            stage.setScene(scene);
+            stage.show();
+            loaded.applyCss();
+            loaded.layout();
+            clearFocus(loaded);
+            loaded.getSelectionModel().selectFirst();
+            return loaded;
+        });
+        try {
+            AdminUi.RowInspector inspector = inspectorReference.get();
+            onFx(() -> {
+                table.fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED, "", "", KeyCode.F2,
+                        false, false, false, false));
+                return true;
+            });
+            waitForFx(inspector::isShowing, Duration.ofSeconds(5));
+            assertGolden(popupSnapshot(inspector), "row-inspector-light.png");
+
+            onFx(() -> {
+                themeReference.get().setTheme(Theme.DARK);
+                themeReference.get().apply(stageReference.get().getScene());
+                return true;
+            });
+            // The popup is a window of its own; it is restyled through its owner, and the class is
+            // the only visible part of that.
+            waitForFx(() -> inspector.text().getStyleClass().contains("theme-dark"),
+                    Duration.ofSeconds(5));
+            assertGolden(popupSnapshot(inspector), "row-inspector-dark.png");
+        } finally {
+            onFx(() -> {
+                stageReference.get().close();
+                return true;
+            });
+        }
+    }
+
+    /** The popup's own window, not the table's scene, which is where its palette lives. */
+    private static WritableImage popupSnapshot(AdminUi.RowInspector inspector) {
+        return onFx(() -> {
+            Parent root = inspector.text().getScene().getRoot();
+            root.applyCss();
+            root.layout();
+            return root.snapshot(new SnapshotParameters(), null);
+        });
     }
 
     /** True while a detail pane still shows its placeholder instead of the loaded count. */
