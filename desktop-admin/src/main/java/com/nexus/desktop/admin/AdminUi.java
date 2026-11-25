@@ -121,7 +121,6 @@ final class AdminUi {
         private boolean measuredTruncated;
 
         private final InvalidationListener focusListener = observable -> syncKeyboardFocus();
-        private TableView<T> listeningTo;
 
         private TruncatingTextCell() {
             tooltip.setWrapText(true);
@@ -131,17 +130,11 @@ final class AdminUi {
             tableViewProperty().addListener((observable, previous, table) -> listenTo(table));
         }
 
+        /** Follows the table's cursor; a cell belongs to one table for its whole life. */
         private void listenTo(TableView<T> table) {
-            if (listeningTo == table) return;
-            if (listeningTo != null) {
-                listeningTo.getFocusModel().focusedCellProperty().removeListener(focusListener);
-                listeningTo.focusedProperty().removeListener(focusListener);
-            }
-            listeningTo = table;
-            if (table != null) {
-                table.getFocusModel().focusedCellProperty().addListener(focusListener);
-                table.focusedProperty().addListener(focusListener);
-            }
+            if (table == null) return;
+            table.getFocusModel().focusedCellProperty().addListener(focusListener);
+            table.focusedProperty().addListener(focusListener);
             syncKeyboardFocus();
         }
 
@@ -279,7 +272,7 @@ final class AdminUi {
      * @return the row inspector, which the caller may hold for its own tests or hints; it is only
      *     shown on F2, so it is deliberately not installed as the table's hover tooltip.
      */
-    static Tooltip keyboardReadable(TableView<?> table) {
+    static <T> Tooltip keyboardReadable(TableView<T> table) {
         Tooltip inspector = new Tooltip();
         inspector.setWrapText(true);
         inspector.setMaxWidth(TOOLTIP_WRAP_WIDTH);
@@ -314,11 +307,11 @@ final class AdminUi {
     }
 
     /** Moves the keyboard's cursor to the neighbouring column that explains itself. */
-    private static void moveToCell(TableView<?> table, KeyEvent event, boolean forward) {
+    private static <T> void moveToCell(TableView<T> table, KeyEvent event, boolean forward) {
         int row = table.getSelectionModel().getSelectedIndex();
         if (row < 0) row = table.getFocusModel().getFocusedIndex();
         if (row < 0) return;
-        TablePosition<?, ?> focused = table.getFocusModel().getFocusedCell();
+        TablePosition<T, ?> focused = table.getFocusModel().getFocusedCell();
         int from = focused == null ? -1 : focused.getColumn();
         int next = neighbour(table, from, forward);
         if (next < 0) return;
@@ -327,7 +320,7 @@ final class AdminUi {
     }
 
     /** The next column in {@code direction} that explains itself, or -1 at the edge. */
-    private static int neighbour(TableView<?> table, int from, boolean forward) {
+    private static <T> int neighbour(TableView<T> table, int from, boolean forward) {
         int step = forward ? 1 : -1;
         for (int index = from < 0 ? (forward ? 0 : table.getColumns().size() - 1) : from + step;
                 index >= 0 && index < table.getColumns().size(); index += step) {
@@ -336,13 +329,11 @@ final class AdminUi {
         return -1;
     }
 
-    /** Focuses one cell; the raw cast is the price of driving a wildcard table's focus model. */
-    @SuppressWarnings({ "unchecked", "rawtypes" })
-    private static void focusCell(TableView<?> table, int row, int column) {
-        ((TableView) table).getFocusModel().focus(row, table.getColumns().get(column));
+    private static <T> void focusCell(TableView<T> table, int row, int column) {
+        table.getFocusModel().focus(row, table.getColumns().get(column));
     }
 
-    private static void showRowInspector(TableView<?> table, Tooltip inspector, KeyEvent event) {
+    private static <T> void showRowInspector(TableView<T> table, Tooltip inspector, KeyEvent event) {
         String values = rowText(table, true);
         if (values.isEmpty() || inspector.isShowing()) {
             inspector.hide();
@@ -355,7 +346,7 @@ final class AdminUi {
     }
 
     /** Copies the focused cell, falling back to the whole row when no cell is focused. */
-    private static void copyForKeyboard(TableView<?> table, KeyEvent event) {
+    private static <T> void copyForKeyboard(TableView<T> table, KeyEvent event) {
         String value = focusedCellValue(table);
         if (value == null) value = rowText(table, false);
         if (value.isEmpty()) return;
@@ -366,19 +357,19 @@ final class AdminUi {
     }
 
     /** The focused cell's whole value, or null while the keyboard has only a row. */
-    private static String focusedCellValue(TableView<?> table) {
-        TablePosition<?, ?> focused = table.getFocusModel().getFocusedCell();
+    private static <T> String focusedCellValue(TableView<T> table) {
+        TablePosition<T, ?> focused = table.getFocusModel().getFocusedCell();
         if (focused == null || focused.getColumn() < 0) return null;
         Object value = table.getColumns().get(focused.getColumn()).getCellData(focused.getRow());
         return value == null ? "" : value.toString();
     }
 
     /** The selected row as text, labelled with the column headers when asked. */
-    private static String rowText(TableView<?> table, boolean withHeaders) {
+    private static <T> String rowText(TableView<T> table, boolean withHeaders) {
         int row = table.getSelectionModel().getSelectedIndex();
         if (row < 0 || row >= table.getItems().size()) return "";
         StringBuilder text = new StringBuilder();
-        for (TableColumn<?, ?> column : table.getColumns()) {
+        for (TableColumn<T, ?> column : table.getColumns()) {
             Object value = column.getCellData(row);
             if (value == null || value.toString().isEmpty()) continue;
             if (text.length() > 0) text.append(withHeaders ? '\n' : '\t');
