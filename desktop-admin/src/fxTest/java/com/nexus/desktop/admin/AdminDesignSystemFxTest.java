@@ -16,6 +16,7 @@ import javafx.scene.control.PasswordField;
 import javafx.scene.control.TableCell;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
+import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
 import javafx.scene.input.Clipboard;
@@ -401,7 +402,7 @@ class AdminDesignSystemFxTest {
         assertThat(token.length()).isGreaterThan(AdminUi.BREAK_EVERY * 3);
 
         AtomicReference<Stage> stageReference = new AtomicReference<>();
-        AtomicReference<Tooltip> inspectorReference = new AtomicReference<>();
+        AtomicReference<AdminUi.RowInspector> inspectorReference = new AtomicReference<>();
         TableView<String> table = onFx(() -> {
             ThemeManager theme = new ThemeManager();
             theme.setTheme(Theme.LIGHT);
@@ -543,7 +544,7 @@ class AdminDesignSystemFxTest {
     void aKeyboardUserCanReadAndCopyTheSelectedRow() throws Exception {
         String value = "Mallory Q. Reported-Example, 3 Report Lane, Apartment 14";
         AtomicReference<Stage> stageReference = new AtomicReference<>();
-        AtomicReference<Tooltip> inspectorReference = new AtomicReference<>();
+        AtomicReference<AdminUi.RowInspector> inspectorReference = new AtomicReference<>();
         TableView<String> table = onFx(() -> {
             ThemeManager theme = new ThemeManager();
             theme.setTheme(Theme.LIGHT);
@@ -570,7 +571,7 @@ class AdminDesignSystemFxTest {
             return loaded;
         });
         try {
-            Tooltip inspector = inspectorReference.get();
+            AdminUi.RowInspector inspector = inspectorReference.get();
             assertThat(inspector).as("the mount built the row inspector").isNotNull();
             assertThat(inspector.isShowing()).as("nothing is shown before the shortcut").isFalse();
 
@@ -579,7 +580,7 @@ class AdminDesignSystemFxTest {
                 return true;
             });
             waitForFx(inspector::isShowing, Duration.ofSeconds(5));
-            assertThat(inspector.getText())
+            assertThat(inspector.text().getText())
                     .as("the whole row, labelled, rather than one clipped cell")
                     .isEqualTo("Address: " + value);
 
@@ -614,7 +615,7 @@ class AdminDesignSystemFxTest {
     void theKeyboardWalksCellsAndCopiesTheFocusedOne() throws Exception {
         String clippedValue = "Mallory Q. Reported-Example, 3 Report Lane, Apartment 14";
         AtomicReference<Stage> stageReference = new AtomicReference<>();
-        AtomicReference<Tooltip> inspectorReference = new AtomicReference<>();
+        AtomicReference<AdminUi.RowInspector> inspectorReference = new AtomicReference<>();
         TableView<String> table = onFx(() -> {
             ThemeManager theme = new ThemeManager();
             theme.setTheme(Theme.LIGHT);
@@ -687,13 +688,13 @@ class AdminDesignSystemFxTest {
             assertThat(onFx(() -> Clipboard.getSystemClipboard().getString())).isEqualTo("ok");
 
             // The row stays one F2 away.
-            Tooltip inspector = inspectorReference.get();
+            AdminUi.RowInspector inspector = inspectorReference.get();
             onFx(() -> {
                 table.fireEvent(key(KeyCode.F2));
                 return true;
             });
             waitForFx(inspector::isShowing, Duration.ofSeconds(5));
-            assertThat(inspector.getText())
+            assertThat(inspector.text().getText())
                     .as("the row inspector still names every column")
                     .isEqualTo("Address: " + clippedValue + "\nState: ok");
         } finally {
@@ -783,6 +784,101 @@ class AdminDesignSystemFxTest {
             assertThat(onFx(stateCell::getAccessibleText))
                     .as("leaving the table clears the cursor's description")
                     .isNull();
+        } finally {
+            onFx(() -> {
+                stageReference.get().close();
+                return true;
+            });
+        }
+    }
+
+    /**
+     * The row fallback has to be usable, not only visible: a tooltip cannot take focus, scroll or
+     * have its text selected, so F2 opens a real text area. The caret lands inside it, the whole row
+     * is there, a row taller than the window is capped and scrolls, a selection can be copied with
+     * the platform's shortcut, and F2 closes it and gives the table its keyboard back.
+     */
+    @Test
+    void theRowInspectorTakesFocusScrollsAndCopies() throws Exception {
+        String value = "Mallory Q. Reported-Example, 3 Report Lane, Apartment 14";
+        AtomicReference<Stage> stageReference = new AtomicReference<>();
+        AtomicReference<AdminUi.RowInspector> inspectorReference = new AtomicReference<>();
+        int fields = 12;
+        TableView<String> table = onFx(() -> {
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            TableView<String> loaded = new TableView<>(FXCollections.observableArrayList(value));
+            for (int index = 0; index < fields; index++) {
+                int field = index + 1;
+                TableColumn<String, String> column = new TableColumn<>("Field " + field);
+                AdminUi.bind(column, row -> "value " + field + " for " + row.substring(0, 12));
+                loaded.getColumns().add(column);
+            }
+            loaded.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+            inspectorReference.set(AdminUi.keyboardReadable(loaded));
+            Stage stage = new Stage();
+            stageReference.set(stage);
+            Scene scene = new Scene(loaded, 420, 200);
+            theme.apply(scene);
+            AdminViewLoader.applyStylesheet(scene);
+            stage.setScene(scene);
+            stage.show();
+            loaded.applyCss();
+            loaded.layout();
+            loaded.requestFocus();
+            loaded.getSelectionModel().selectFirst();
+            return loaded;
+        });
+        try {
+            AdminUi.RowInspector inspector = inspectorReference.get();
+            assertThat(inspector.isShowing()).as("nothing is shown before F2").isFalse();
+
+            onFx(() -> {
+                table.fireEvent(key(KeyCode.F2));
+                return true;
+            });
+            waitForFx(inspector::isShowing, Duration.ofSeconds(5));
+            TextArea text = inspector.text();
+            waitForFx(text::isFocused, Duration.ofSeconds(5));
+            assertThat(text.isEditable())
+                    .as("read-only, so a stray keystroke cannot lose the row")
+                    .isFalse();
+            String shown = onFx(text::getText);
+            assertThat(shown)
+                    .as("the whole row, every column labelled")
+                    .startsWith("Field 1: value 1 for ")
+                    .contains("\nField " + fields + ": value " + fields + " for ");
+            assertThat(onFx(() -> {
+                text.applyCss();
+                text.layout();
+                return text.lookup(".scroll-pane") != null;
+            })).as("longer than the window, so the text area brings its own scrolling")
+                    .isTrue();
+            Double prefHeight = onFx(text::getPrefHeight);
+            assertThat(prefHeight).as("capped instead of growing with the row")
+                    .isLessThanOrEqualTo(180.0);
+
+            // A part of the row, not only all of it: selecting and copying is what a tooltip could
+            // not offer.
+            onFx(() -> {
+                text.selectRange(0, "Field 1: value 1 for".length());
+                return true;
+            });
+            assertThat(onFx(text::getSelectedText)).isEqualTo("Field 1: value 1 for");
+            onFx(() -> {
+                text.fireEvent(shortcut(KeyCode.C));
+                return true;
+            });
+            assertThat(onFx(() -> Clipboard.getSystemClipboard().getString()))
+                    .as("the platform's copy shortcut takes the selection")
+                    .isEqualTo("Field 1: value 1 for");
+
+            onFx(() -> {
+                text.fireEvent(key(KeyCode.F2));
+                return true;
+            });
+            waitForFx(() -> !inspector.isShowing(), Duration.ofSeconds(5));
+            waitForFx(table::isFocused, Duration.ofSeconds(5));
         } finally {
             onFx(() -> {
                 stageReference.get().close();

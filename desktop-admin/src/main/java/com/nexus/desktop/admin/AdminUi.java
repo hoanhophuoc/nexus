@@ -9,6 +9,7 @@ import javafx.geometry.Bounds;
 import javafx.geometry.Pos;
 import javafx.scene.AccessibleAttribute;
 import javafx.scene.Node;
+import javafx.scene.Scene;
 import javafx.scene.chart.BarChart;
 import javafx.scene.chart.CategoryAxis;
 import javafx.scene.chart.NumberAxis;
@@ -17,6 +18,7 @@ import javafx.scene.control.TableCell;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TablePosition;
 import javafx.scene.control.TableView;
+import javafx.scene.control.TextArea;
 import javafx.scene.control.Tooltip;
 import javafx.scene.input.Clipboard;
 import javafx.scene.input.ClipboardContent;
@@ -27,6 +29,7 @@ import javafx.scene.layout.Priority;
 import javafx.scene.text.Font;
 import javafx.scene.text.Text;
 import javafx.scene.text.TextAlignment;
+import javafx.stage.Popup;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -297,15 +300,15 @@ final class AdminUi {
      * explanation, and the copy shortcut takes that cell's whole value.
      *
      * <p>F2 and the row copy stay as the fallback for the whole row, because a reader may want the
-     * row as a unit, and because F2 already worked before the keyboard could name one cell.
+     * row as a unit, and because F2 already worked before the keyboard could name one cell. F2
+     * opens it in the {@link RowInspector}, which unlike a tooltip can be entered, scrolled and
+     * copied from.
      *
      * @return the row inspector, which the caller may hold for its own tests or hints; it is only
      *     shown on F2, so it is deliberately not installed as the table's hover tooltip.
      */
-    static <T> Tooltip keyboardReadable(TableView<T> table) {
-        Tooltip inspector = new Tooltip();
-        inspector.setWrapText(true);
-        inspector.setMaxWidth(TOOLTIP_WRAP_WIDTH);
+    static <T> RowInspector keyboardReadable(TableView<T> table) {
+        RowInspector inspector = new RowInspector();
         table.addEventHandler(KeyEvent.KEY_PRESSED, event -> {
             switch (event.getCode()) {
                 case RIGHT -> moveToCell(table, event, true);
@@ -330,10 +333,76 @@ final class AdminUi {
             if (row == null || row.intValue() < 0 || focused == null || focused.getColumn() < 0) return;
             focusCell(table, row.intValue(), focused.getColumn());
         });
+        // Focus moving into the inspector's own window leaves its owner window's focus owner on the
+        // table, so this closes the inspector only when the keyboard left the table for a sibling.
         table.focusedProperty().addListener((observable, wasFocused, focused) -> {
-            if (!focused) inspector.hide();
+            if (focused || table.getScene() == null) return;
+            Node owner = table.getScene().getFocusOwner();
+            if (owner != null && owner != table) inspector.hide();
         });
         return inspector;
+    }
+
+    /**
+     * The F2 row inspector: the whole row over a read-only text area in a small window of its own.
+     * A {@link Tooltip} cannot take focus, scroll or have its text selected, so a long row could be
+     * neither finished nor partly copied; here the keyboard moves the caret and the selection, the
+     * arrows and page keys scroll, the platform's copy shortcuts work as everywhere else, and F2 or
+     * Escape closes it and hands the keyboard back to the table.
+     */
+    static final class RowInspector {
+        private final Popup popup = new Popup();
+        private final TextArea text = new TextArea();
+
+        private RowInspector() {
+            text.setEditable(false);
+            text.setWrapText(true);
+            text.setPrefWidth(TOOLTIP_WRAP_WIDTH);
+            // The keyboard opened it, so the keyboard has to be able to close it from inside.
+            text.addEventHandler(KeyEvent.KEY_PRESSED, event -> {
+                if (event.getCode() == KeyCode.F2) {
+                    event.consume();
+                    hide();
+                }
+            });
+            popup.getContent().add(text);
+            popup.setAutoHide(true);
+            popup.setHideOnEscape(true);
+            popup.setAutoFix(true);
+            // The caret is inside the window, so closing it has to hand the keyboard back to the
+            // table rather than to whichever node the owner window chose next.
+            popup.setOnHidden(event -> {
+                Scene scene = popup.getOwnerWindow() == null ? null : popup.getOwnerWindow().getScene();
+                if (scene != null && scene.getWindow() != null && scene.getWindow().isFocused()
+                        && scene.getFocusOwner() != null) {
+                    scene.getFocusOwner().requestFocus();
+                }
+            });
+        }
+
+        /** The read-only text; the caret, the selection and the copy shortcut all live here. */
+        TextArea text() {
+            return text;
+        }
+
+        boolean isShowing() {
+            return popup.isShowing();
+        }
+
+        void show(Node anchor, String value) {
+            Bounds bounds = anchor.localToScreen(anchor.getBoundsInLocal());
+            if (bounds == null) return;
+            text.setText(value);
+            // A one-column row must not open a box the height of the window; a longer one scrolls.
+            text.setPrefHeight(Math.min(180, 52 + 20.0 * value.split("\n", -1).length));
+            popup.show(anchor, bounds.getMinX(), bounds.getMinY() + 28);
+            text.requestFocus();
+            text.positionCaret(0);
+        }
+
+        void hide() {
+            popup.hide();
+        }
     }
 
     /** Moves the keyboard's cursor to the neighbouring column that explains itself. */
@@ -363,16 +432,14 @@ final class AdminUi {
         table.getFocusModel().focus(row, table.getColumns().get(column));
     }
 
-    private static <T> void showRowInspector(TableView<T> table, Tooltip inspector, KeyEvent event) {
-        String values = rowText(table, true);
-        if (values.isEmpty() || inspector.isShowing()) {
-            inspector.hide();
-        } else {
-            inspector.setText(values);
-            Bounds bounds = table.localToScreen(table.getBoundsInLocal());
-            if (bounds != null) inspector.show(table, bounds.getMinX(), bounds.getMinY() + 28);
-        }
+    private static <T> void showRowInspector(TableView<T> table, RowInspector inspector, KeyEvent event) {
         event.consume();
+        if (inspector.isShowing()) {
+            inspector.hide();
+            return;
+        }
+        String values = rowText(table, true);
+        if (!values.isEmpty()) inspector.show(table, values);
     }
 
     /** Copies the focused cell, falling back to the whole row when no cell is focused. */
