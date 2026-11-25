@@ -115,10 +115,7 @@ final class AdminUi {
 
     private static final class TruncatingTextCell<T> extends TableCell<T, String> {
         private final Tooltip tooltip = new Tooltip();
-        private String measuredText;
-        private Font measuredFont;
-        private double measuredWidth = Double.NaN;
-        private boolean measuredTruncated;
+        private Measurement measured;
 
         private final InvalidationListener focusListener = observable -> syncKeyboardFocus();
 
@@ -244,19 +241,22 @@ final class AdminUi {
             return broken.toString();
         }
 
+        /** The last measurement, so a layout pass that changed nothing measures nothing. */
+        private record Measurement(String text, Font font, double width, boolean truncated) {
+        }
+
         /** Whether {@code text} is wider than the room the cell has, measured once per size. */
         private boolean isTruncated(String text, double available) {
             Font font = getFont();
-            if (text.equals(measuredText) && font == measuredFont && available == measuredWidth) {
-                return measuredTruncated;
+            if (measured != null && measured.text().equals(text)
+                    && measured.font() == font && measured.width() == available) {
+                return measured.truncated();
             }
             Text measure = new Text(text);
             measure.setFont(font);
-            measuredText = text;
-            measuredFont = font;
-            measuredWidth = available;
-            measuredTruncated = measure.getLayoutBounds().getWidth() > available + 0.5;
-            return measuredTruncated;
+            measured = new Measurement(text, font, available,
+                    measure.getLayoutBounds().getWidth() > available + 0.5);
+            return measured.truncated();
         }
     }
 
@@ -308,8 +308,8 @@ final class AdminUi {
 
     /** Moves the keyboard's cursor to the neighbouring column that explains itself. */
     private static <T> void moveToCell(TableView<T> table, KeyEvent event, boolean forward) {
-        int row = table.getSelectionModel().getSelectedIndex();
-        if (row < 0) row = table.getFocusModel().getFocusedIndex();
+        int row = Math.max(table.getSelectionModel().getSelectedIndex(),
+                table.getFocusModel().getFocusedIndex());
         if (row < 0) return;
         TablePosition<T, ?> focused = table.getFocusModel().getFocusedCell();
         int from = focused == null ? -1 : focused.getColumn();
