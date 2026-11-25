@@ -3,6 +3,7 @@ package com.nexus.desktop.admin;
 import com.nexus.desktop.shared.ui.I18n;
 import com.nexus.desktop.shared.ui.UiComponents;
 import com.nexus.sdk.model.GroupMember;
+import javafx.beans.InvalidationListener;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.geometry.Bounds;
 import javafx.geometry.Pos;
@@ -13,6 +14,7 @@ import javafx.scene.chart.NumberAxis;
 import javafx.scene.control.Label;
 import javafx.scene.control.TableCell;
 import javafx.scene.control.TableColumn;
+import javafx.scene.control.TablePosition;
 import javafx.scene.control.TableView;
 import javafx.scene.control.Tooltip;
 import javafx.scene.input.Clipboard;
@@ -29,7 +31,10 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.function.Function;
 
 /** Shared table, placeholder, chart and formatting helpers for admin screens. */
@@ -79,7 +84,12 @@ final class AdminUi {
      */
     static <T> void explainTruncatedText(TableColumn<T, String> column) {
         column.setCellFactory(ignored -> new TruncatingTextCell<>());
+        READABLE.add(column);
     }
+
+    /** The columns that explain themselves; the keyboard walks exactly these. */
+    private static final Set<TableColumn<?, ?>> READABLE =
+            Collections.newSetFromMap(new WeakHashMap<>());
 
     /**
      * An explanation can hold free text (a report reason, a submitted message), so it wraps at a
@@ -94,6 +104,9 @@ final class AdminUi {
      */
     static final int TOOLTIP_PREVIEW_CHARS = 200;
 
+    /** The style class that marks the cell the keyboard has reached; see {@code admin.css}. */
+    static final String KEYBOARD_FOCUS_CLASS = "admin-cell-focus";
+
     private static final class TruncatingTextCell<T> extends TableCell<T, String> {
         private final Tooltip tooltip = new Tooltip();
         private String measuredText;
@@ -101,9 +114,61 @@ final class AdminUi {
         private double measuredWidth = Double.NaN;
         private boolean measuredTruncated;
 
+        private final InvalidationListener focusListener = observable -> syncKeyboardFocus();
+        private TableView<T> listeningTo;
+
         private TruncatingTextCell() {
             tooltip.setWrapText(true);
             tooltip.setMaxWidth(TOOLTIP_WRAP_WIDTH);
+            // The keyboard's cursor is painted here rather than by JavaFX: a table keeps focus on
+            // the control, so the cell it has reached has to mark itself from the focus model.
+            tableViewProperty().addListener((observable, previous, table) -> listenTo(table));
+        }
+
+        private void listenTo(TableView<T> table) {
+            if (listeningTo == table) return;
+            if (listeningTo != null) {
+                listeningTo.getFocusModel().focusedCellProperty().removeListener(focusListener);
+                listeningTo.focusedProperty().removeListener(focusListener);
+            }
+            listeningTo = table;
+            if (table != null) {
+                table.getFocusModel().focusedCellProperty().addListener(focusListener);
+                table.focusedProperty().addListener(focusListener);
+            }
+            syncKeyboardFocus();
+        }
+
+        /** Marks the cell the keyboard has reached, and shows what a clipped cell cannot. */
+        private void syncKeyboardFocus() {
+            boolean reached = isKeyboardFocused();
+            boolean marked = getStyleClass().contains(KEYBOARD_FOCUS_CLASS);
+            if (reached && !marked) getStyleClass().add(KEYBOARD_FOCUS_CLASS);
+            if (!reached && marked) getStyleClass().remove(KEYBOARD_FOCUS_CLASS);
+            if (!reached) {
+                tooltip.hide();
+                return;
+            }
+            explainIfTruncated();
+            showExplanation();
+        }
+
+        private boolean isKeyboardFocused() {
+            TableView<T> table = getTableView();
+            if (table == null || !table.isFocused() || isEmpty() || getTableColumn() == null) return false;
+            TablePosition<T, ?> focused = table.getFocusModel().getFocusedCell();
+            return focused != null
+                    && focused.getRow() == getIndex()
+                    && focused.getColumn() >= 0
+                    && table.getColumns().get(focused.getColumn()) == getTableColumn();
+        }
+
+        /** Shows the explanation for the cell the keyboard reached; hover installs it by itself. */
+        private void showExplanation() {
+            if (getTooltip() != tooltip || tooltip.isShowing()) return;
+            Bounds bounds = localToScreen(getBoundsInLocal());
+            if (bounds == null) return;
+            tooltip.show(this, bounds.getMinX(), bounds.getMaxY() + 2);
         }
 
         @Override
@@ -113,6 +178,7 @@ final class AdminUi {
             tooltip.hide();
             setText(empty ? null : item);
             explainIfTruncated();
+            syncKeyboardFocus();
         }
 
         @Override
@@ -171,12 +237,12 @@ final class AdminUi {
 
     /**
      * Gives a table the keyboard path to the values the narrow pane clips. A JavaFX table keeps the
-     * keyboard on rows, not cells, so both gestures work on the selected row: F2 shows every column
-     * in full, and the copy shortcut takes the row as tab-separated text for pasting into a ticket.
+     * keyboard on the control rather than on a cell, so the navigation is installed here: the
+     * arrows walk the columns that explain themselves, the focused cell is marked and shows its own
+     * explanation, and the copy shortcut takes that cell's whole value.
      *
-     * <p>This is the pointer-free counterpart of the per-cell hover explanation, not a replacement
-     * for it: the tooltip still names one clipped value, while F2 answers "what does this row
-     * actually say" without needing a steady hand.
+     * <p>F2 and the row copy stay as the fallback for the whole row, because a reader may want the
+     * row as a unit, and because F2 already worked before the keyboard could name one cell.
      *
      * @return the row inspector, which the caller may hold for its own tests or hints; it is only
      *     shown on F2, so it is deliberately not installed as the table's hover tooltip.
@@ -186,36 +252,97 @@ final class AdminUi {
         inspector.setWrapText(true);
         inspector.setMaxWidth(TOOLTIP_WRAP_WIDTH);
         table.addEventHandler(KeyEvent.KEY_PRESSED, event -> {
-            if (event.getCode() == KeyCode.ESCAPE && inspector.isShowing()) {
-                inspector.hide();
-                event.consume();
-                return;
-            }
-            if (event.getCode() == KeyCode.F2) {
-                String values = rowText(table, true);
-                if (values.isEmpty() || inspector.isShowing()) {
-                    inspector.hide();
-                } else {
-                    inspector.setText(values);
-                    Bounds bounds = table.localToScreen(table.getBoundsInLocal());
-                    if (bounds != null) inspector.show(table, bounds.getMinX(), bounds.getMinY() + 28);
+            switch (event.getCode()) {
+                case RIGHT -> moveToCell(table, event, true);
+                case LEFT -> moveToCell(table, event, false);
+                case ESCAPE -> {
+                    if (inspector.isShowing()) {
+                        inspector.hide();
+                        event.consume();
+                    }
                 }
-                event.consume();
-                return;
+                case F2 -> showRowInspector(table, inspector, event);
+                case C -> {
+                    if (event.isShortcutDown()) copyForKeyboard(table, event);
+                }
+                default -> { }
             }
-            if (event.isShortcutDown() && event.getCode() == KeyCode.C) {
-                String values = rowText(table, false);
-                if (values.isEmpty()) return;
-                ClipboardContent content = new ClipboardContent();
-                content.putString(values);
-                Clipboard.getSystemClipboard().setContent(content);
-                event.consume();
-            }
+        });
+        // The arrows move the selection; the focused cell has to follow it, or the marked cell and
+        // the copy would still name the row the reader left.
+        table.getSelectionModel().selectedIndexProperty().addListener((observable, was, row) -> {
+            TablePosition<?, ?> focused = table.getFocusModel().getFocusedCell();
+            if (row == null || row.intValue() < 0 || focused == null || focused.getColumn() < 0) return;
+            focusCell(table, row.intValue(), focused.getColumn());
         });
         table.focusedProperty().addListener((observable, wasFocused, focused) -> {
             if (!focused) inspector.hide();
         });
         return inspector;
+    }
+
+    /** Moves the keyboard's cursor to the neighbouring column that explains itself. */
+    private static void moveToCell(TableView<?> table, KeyEvent event, boolean forward) {
+        int row = table.getSelectionModel().getSelectedIndex();
+        if (row < 0) row = table.getFocusModel().getFocusedIndex();
+        if (row < 0) return;
+        TablePosition<?, ?> focused = table.getFocusModel().getFocusedCell();
+        int from = focused == null ? -1 : focused.getColumn();
+        int next = forward ? nextReadable(table, from) : previousReadable(table, from);
+        if (next < 0) return;
+        focusCell(table, row, next);
+        event.consume();
+    }
+
+    /** Focuses one cell; the raw cast is the price of driving a wildcard table's focus model. */
+    @SuppressWarnings({ "unchecked", "rawtypes" })
+    private static void focusCell(TableView<?> table, int row, int column) {
+        ((TableView) table).getFocusModel().focus(row, table.getColumns().get(column));
+    }
+
+    private static int nextReadable(TableView<?> table, int from) {
+        for (int index = from + 1; index < table.getColumns().size(); index++) {
+            if (READABLE.contains(table.getColumns().get(index))) return index;
+        }
+        return -1;
+    }
+
+    private static int previousReadable(TableView<?> table, int from) {
+        for (int index = from < 0 ? table.getColumns().size() - 1 : from - 1; index >= 0; index--) {
+            if (READABLE.contains(table.getColumns().get(index))) return index;
+        }
+        return -1;
+    }
+
+    private static void showRowInspector(TableView<?> table, Tooltip inspector, KeyEvent event) {
+        String values = rowText(table, true);
+        if (values.isEmpty() || inspector.isShowing()) {
+            inspector.hide();
+        } else {
+            inspector.setText(values);
+            Bounds bounds = table.localToScreen(table.getBoundsInLocal());
+            if (bounds != null) inspector.show(table, bounds.getMinX(), bounds.getMinY() + 28);
+        }
+        event.consume();
+    }
+
+    /** Copies the focused cell, falling back to the whole row when no cell is focused. */
+    private static void copyForKeyboard(TableView<?> table, KeyEvent event) {
+        String value = focusedCellValue(table);
+        if (value == null) value = rowText(table, false);
+        if (value.isEmpty()) return;
+        ClipboardContent content = new ClipboardContent();
+        content.putString(value);
+        Clipboard.getSystemClipboard().setContent(content);
+        event.consume();
+    }
+
+    /** The focused cell's whole value, or null while the keyboard has only a row. */
+    private static String focusedCellValue(TableView<?> table) {
+        TablePosition<?, ?> focused = table.getFocusModel().getFocusedCell();
+        if (focused == null || focused.getColumn() < 0) return null;
+        Object value = table.getColumns().get(focused.getColumn()).getCellData(focused.getRow());
+        return value == null ? "" : value.toString();
     }
 
     /** The selected row as text, labelled with the column headers when asked. */

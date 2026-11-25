@@ -527,6 +527,105 @@ class AdminDesignSystemFxTest {
         }
     }
 
+    /**
+     * The keyboard can name one cell, not only a row: the arrows walk the columns that explain
+     * themselves, the reached cell is marked and shows its explanation, and the copy shortcut takes
+     * that cell's value. F2 still opens the whole row as the fallback.
+     */
+    @Test
+    void theKeyboardWalksCellsAndCopiesTheFocusedOne() throws Exception {
+        String clippedValue = "Mallory Q. Reported-Example, 3 Report Lane, Apartment 14";
+        AtomicReference<Stage> stageReference = new AtomicReference<>();
+        AtomicReference<Tooltip> inspectorReference = new AtomicReference<>();
+        TableView<String> table = onFx(() -> {
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            TableView<String> loaded = new TableView<>(
+                    FXCollections.observableArrayList(clippedValue));
+            TableColumn<String, String> address = new TableColumn<>("Address");
+            AdminUi.bind(address, value -> value);
+            AdminUi.explainTruncatedText(address);
+            TableColumn<String, String> state = new TableColumn<>("State");
+            AdminUi.bind(state, value -> "ok");
+            AdminUi.explainTruncatedText(state);
+            loaded.getColumns().addAll(List.of(address, state));
+            loaded.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+            inspectorReference.set(AdminUi.keyboardReadable(loaded));
+            Stage stage = new Stage();
+            stageReference.set(stage);
+            Scene scene = new Scene(loaded, 200, 160);
+            theme.apply(scene);
+            AdminViewLoader.applyStylesheet(scene);
+            stage.setScene(scene);
+            stage.show();
+            loaded.applyCss();
+            loaded.layout();
+            loaded.requestFocus();
+            loaded.getSelectionModel().selectFirst();
+            return loaded;
+        });
+        try {
+            TableCell<?, ?> addressCell = onFx(() -> cellWithText(table, clippedValue));
+            TableCell<?, ?> stateCell = onFx(() -> cellWithText(table, "ok"));
+            assertThat(addressCell).as("the clipped cell is rendered").isNotNull();
+            assertThat(stateCell).as("the neighbouring cell is rendered").isNotNull();
+
+            // The first arrow names the first column that explains itself.
+            onFx(() -> {
+                table.fireEvent(key(KeyCode.RIGHT));
+                return true;
+            });
+            waitForFx(() -> addressCell.getStyleClass().contains(AdminUi.KEYBOARD_FOCUS_CLASS),
+                    Duration.ofSeconds(5));
+            Tooltip explanation = onFx(addressCell::getTooltip);
+            assertThat(explanation).as("the reached cell has an explanation").isNotNull();
+            waitForFx(explanation::isShowing, Duration.ofSeconds(5));
+
+            onFx(() -> {
+                table.fireEvent(shortcut(KeyCode.C));
+                return true;
+            });
+            assertThat(onFx(() -> Clipboard.getSystemClipboard().getString()))
+                    .as("the copy shortcut takes the reached cell, not the row")
+                    .isEqualTo(clippedValue);
+
+            // The next arrow moves the cursor on, taking the explanation with it.
+            onFx(() -> {
+                table.fireEvent(key(KeyCode.RIGHT));
+                return true;
+            });
+            waitForFx(() -> stateCell.getStyleClass().contains(AdminUi.KEYBOARD_FOCUS_CLASS),
+                    Duration.ofSeconds(5));
+            waitForFx(() -> !explanation.isShowing(), Duration.ofSeconds(5));
+            assertThat(addressCell.getStyleClass()).doesNotContain(AdminUi.KEYBOARD_FOCUS_CLASS);
+            onFx(() -> {
+                table.fireEvent(shortcut(KeyCode.C));
+                return true;
+            });
+            assertThat(onFx(() -> Clipboard.getSystemClipboard().getString())).isEqualTo("ok");
+
+            // The row stays one F2 away.
+            Tooltip inspector = inspectorReference.get();
+            onFx(() -> {
+                table.fireEvent(key(KeyCode.F2));
+                return true;
+            });
+            waitForFx(inspector::isShowing, Duration.ofSeconds(5));
+            assertThat(inspector.getText())
+                    .as("the row inspector still names every column")
+                    .isEqualTo("Address: " + clippedValue + "\nState: ok");
+        } finally {
+            onFx(() -> {
+                stageReference.get().close();
+                return true;
+            });
+        }
+    }
+
+    private static KeyEvent shortcut(KeyCode code) {
+        return new KeyEvent(KeyEvent.KEY_PRESSED, "", "", code, false, true, false, false);
+    }
+
     private static KeyEvent key(KeyCode code) {
         return new KeyEvent(KeyEvent.KEY_PRESSED, "", "", code, false, false, false, false);
     }

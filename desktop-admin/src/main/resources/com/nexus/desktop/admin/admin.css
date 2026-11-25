@@ -150,6 +150,12 @@
     -fx-border-color: transparent;
 }
 
+/* The keyboard's cursor. JavaFX keeps focus on the table rather than on the cell it has reached, so
+   the cell marks itself; the border is already reserved above, so nothing shifts when it appears. */
+.admin-table .table-cell.admin-cell-focus {
+    -fx-border-color: -color-accent;
+}
+
 .admin-table .table-row-cell:selected .table-cell {
     -fx-text-fill: -color-text;
 }
