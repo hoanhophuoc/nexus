@@ -636,13 +636,11 @@ class AdminGoldenScreenshotFxTest {
             TableColumn<String, String> address = new TableColumn<>("Address");
             AdminUi.bind(address, value -> value);
             AdminUi.explainTruncatedText(address, new I18n(BASE, Locale.ENGLISH));
-            loaded.getColumns().add(address);
             TableColumn<String, String> state = new TableColumn<>("State");
             AdminUi.bind(state, value -> "active");
-            loaded.getColumns().add(state);
             TableColumn<String, String> lastSeen = new TableColumn<>("Last seen");
             AdminUi.bind(lastSeen, value -> "2026-11-24 18:20");
-            loaded.getColumns().add(lastSeen);
+            loaded.getColumns().addAll(address, state, lastSeen);
             loaded.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
             inspectorReference.set(AdminUi.keyboardReadable(loaded));
             Stage stage = new Stage();
@@ -654,7 +652,6 @@ class AdminGoldenScreenshotFxTest {
             stage.show();
             loaded.applyCss();
             loaded.layout();
-            clearFocus(loaded);
             loaded.getSelectionModel().selectFirst();
             return loaded;
         });

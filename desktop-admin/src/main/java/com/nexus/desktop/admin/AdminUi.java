@@ -9,7 +9,6 @@ import javafx.geometry.Bounds;
 import javafx.geometry.Pos;
 import javafx.scene.AccessibleAttribute;
 import javafx.scene.Node;
-import javafx.scene.Scene;
 import javafx.scene.chart.BarChart;
 import javafx.scene.chart.CategoryAxis;
 import javafx.scene.chart.NumberAxis;
@@ -30,6 +29,7 @@ import javafx.scene.text.Font;
 import javafx.scene.text.Text;
 import javafx.scene.text.TextAlignment;
 import javafx.stage.Popup;
+import javafx.stage.Window;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -372,10 +372,10 @@ final class AdminUi {
             // The caret is inside the window, so closing it has to hand the keyboard back to the
             // table rather than to whichever node the owner window chose next.
             popup.setOnHidden(event -> {
-                Scene scene = popup.getOwnerWindow() == null ? null : popup.getOwnerWindow().getScene();
-                if (scene != null && scene.getWindow() != null && scene.getWindow().isFocused()
-                        && scene.getFocusOwner() != null) {
-                    scene.getFocusOwner().requestFocus();
+                Window owner = popup.getOwnerWindow();
+                if (owner == null || !owner.isFocused() || owner.getScene() == null) return;
+                if (owner.getScene().getFocusOwner() != null) {
+                    owner.getScene().getFocusOwner().requestFocus();
                 }
             });
         }
@@ -394,7 +394,7 @@ final class AdminUi {
             if (bounds == null) return;
             text.setText(value);
             // A one-column row must not open a box the height of the window; a longer one scrolls.
-            text.setPrefHeight(Math.min(180, 52 + 20.0 * value.split("\n", -1).length));
+            text.setPrefHeight(Math.min(180, 52 + 20.0 * value.split("\n").length));
             popup.show(anchor, bounds.getMinX(), bounds.getMinY() + 28);
             text.requestFocus();
             text.positionCaret(0);
