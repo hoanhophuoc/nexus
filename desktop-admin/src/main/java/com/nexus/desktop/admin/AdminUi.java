@@ -31,6 +31,7 @@ import javafx.scene.text.TextAlignment;
 import javafx.stage.Popup;
 import javafx.stage.Window;
 
+import java.text.BreakIterator;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -258,14 +259,21 @@ final class AdminUi {
         /**
          * Inserts a zero-width break opportunity inside a run of characters a space never ends — a
          * long email, a path — which is the one case the wrap width cannot bound on its own.
+         *
+         * <p>The run is counted in grapheme clusters, not in characters: a break inside one splits
+         * what a reader sees as a single character — a family emoji becomes two people, an accented
+         * letter loses its accent — so a break may only land where {@link BreakIterator} sees a
+         * boundary.
          */
         private static String withBreakOpportunities(String text) {
+            BreakIterator clusters = BreakIterator.getCharacterInstance();
+            clusters.setText(text);
             StringBuilder broken = new StringBuilder(text.length() + 8);
             int run = 0;
-            for (int index = 0; index < text.length(); index++) {
-                char value = text.charAt(index);
-                broken.append(value);
-                run = Character.isWhitespace(value) ? 0 : run + 1;
+            for (int start = clusters.first(), end = clusters.next();
+                    end != BreakIterator.DONE; start = end, end = clusters.next()) {
+                broken.append(text, start, end);
+                run = Character.isWhitespace(text.charAt(start)) ? 0 : run + 1;
                 if (run == BREAK_EVERY) {
                     broken.append(BREAK_OPPORTUNITY);
                     run = 0;

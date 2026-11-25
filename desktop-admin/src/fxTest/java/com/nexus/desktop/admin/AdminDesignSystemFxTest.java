@@ -461,6 +461,86 @@ class AdminDesignSystemFxTest {
         }
     }
 
+    /**
+     * A break inside a grapheme cluster splits one visible character into two: a family emoji
+     * becomes two people, a letter loses its accent. The popup's breaks are counted in clusters, so
+     * every one of them has to sit where a reader sees a boundary — and the value that is copied
+     * stays whole, breaks and all left behind.
+     */
+    @Test
+    void breakOpportunitiesRespectGraphemeBoundaries() throws Exception {
+        String family = "\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67\u200D\uD83D\uDC66";
+        String flag = "\uD83C\uDDFB\uD83C\uDDF3";
+        String accented = "e\u0301";
+        // 36 plain characters put the joined sequence across the 40th character, which is exactly
+        // where a character-counted break would land inside it: this sample fails the old rule.
+        String token = "a".repeat(36) + family + flag + accented + "@example.test";
+        assertThat(token).as("the sample has no space to break at").doesNotContain(" ");
+
+        AtomicReference<Stage> stageReference = new AtomicReference<>();
+        TableView<String> table = onFx(() -> {
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            TableView<String> loaded = new TableView<>(FXCollections.observableArrayList(token));
+            TableColumn<String, String> column = new TableColumn<>("Contact");
+            AdminUi.bind(column, value -> value);
+            AdminUi.explainTruncatedText(column, ENGLISH);
+            loaded.getColumns().add(column);
+            loaded.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+            Stage stage = new Stage();
+            stageReference.set(stage);
+            Scene scene = new Scene(loaded, 200, 140);
+            theme.apply(scene);
+            AdminViewLoader.applyStylesheet(scene);
+            stage.setScene(scene);
+            stage.show();
+            loaded.applyCss();
+            loaded.layout();
+            return loaded;
+        });
+        try {
+            TableCell<?, ?> cell = onFx(() -> cellWithText(table, token));
+            assertThat(cell).as("the value is rendered and clipped").isNotNull();
+            Tooltip hover = cell.getTooltip();
+            assertThat(hover).as("a clipped value explains itself").isNotNull();
+            String popup = hover.getText();
+            assertThat(withoutBreaks(popup)).as("the popup still carries the whole value")
+                    .isEqualTo(token);
+            assertThat(popup).as("the joiner sequence and the flag stay whole")
+                    .contains(family).contains(flag).contains(accented);
+            assertThat(popup.split("\u200D", -1).length)
+                    .as("no break is inserted next to a joiner")
+                    .isEqualTo(token.split("\u200D", -1).length);
+
+            String[] pieces = popup.split(String.valueOf(AdminUi.BREAK_OPPORTUNITY));
+            assertThat(pieces.length).as("a run this long has break opportunities").isGreaterThan(1);
+            assertThat(String.join("", pieces)).isEqualTo(token);
+            for (String piece : pieces) {
+                assertThat(piece).as("no break next to another one").isNotEmpty();
+                int first = piece.codePointAt(0);
+                assertThat(Character.getType(first))
+                        .as("a piece never starts with a combining mark")
+                        .isNotIn((int) Character.NON_SPACING_MARK,
+                                (int) Character.COMBINING_SPACING_MARK,
+                                (int) Character.ENCLOSING_MARK);
+                assertThat(first).as("a piece never starts inside a joined sequence")
+                        .isNotEqualTo(0x200D).isNotEqualTo(0xFE0F);
+                assertThat(piece.codePointBefore(piece.length()))
+                        .as("a piece never ends on a joiner")
+                        .isNotEqualTo(0x200D);
+                assertThat(Character.isLowSurrogate(piece.charAt(0)))
+                        .as("a piece never starts on half a surrogate pair").isFalse();
+                assertThat(Character.isHighSurrogate(piece.charAt(piece.length() - 1)))
+                        .as("a piece never ends on half a surrogate pair").isFalse();
+            }
+        } finally {
+            onFx(() -> {
+                stageReference.get().close();
+                return true;
+            });
+        }
+    }
+
     /** The text without the invisible break opportunities the popup adds. */
     private static String withoutBreaks(String text) {
         return text.replace(String.valueOf(AdminUi.BREAK_OPPORTUNITY), "");
