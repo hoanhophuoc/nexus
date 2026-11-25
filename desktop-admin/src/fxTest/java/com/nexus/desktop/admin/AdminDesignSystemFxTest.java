@@ -388,6 +388,82 @@ class AdminDesignSystemFxTest {
     }
 
     /**
+     * The cap was added for values that run past the window, and an address or a path that never
+     * offers a space is exactly that: the popup has to break inside the token, while the value the
+     * screen reader hears and the value the copy shortcut takes stay untouched.
+     */
+    @Test
+    void anUnbrokenTokenStaysInsideTheTooltipWidth() throws Exception {
+        String token = "very.long.unbroken.mailbox.segment.".repeat(5) + "@subdomain.example.test";
+        assertThat(token).as("the sample has no space to break at").doesNotContain(" ");
+        assertThat(token.length()).isGreaterThan(AdminUi.BREAK_EVERY * 3);
+
+        AtomicReference<Stage> stageReference = new AtomicReference<>();
+        AtomicReference<Tooltip> inspectorReference = new AtomicReference<>();
+        TableView<String> table = onFx(() -> {
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            TableView<String> loaded = new TableView<>(FXCollections.observableArrayList(token));
+            TableColumn<String, String> column = new TableColumn<>("Email");
+            AdminUi.bind(column, value -> value);
+            AdminUi.explainTruncatedText(column);
+            loaded.getColumns().add(column);
+            loaded.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+            inspectorReference.set(AdminUi.keyboardReadable(loaded));
+            Stage stage = new Stage();
+            stageReference.set(stage);
+            Scene scene = new Scene(loaded, 220, 140);
+            theme.apply(scene);
+            AdminViewLoader.applyStylesheet(scene);
+            stage.setScene(scene);
+            stage.show();
+            loaded.applyCss();
+            loaded.layout();
+            loaded.requestFocus();
+            loaded.getSelectionModel().selectFirst();
+            return loaded;
+        });
+        try {
+            TableCell<?, ?> cell = onFx(() -> cellWithText(table, token));
+            assertThat(cell).as("the unbroken value is rendered and clipped").isNotNull();
+            Tooltip hover = cell.getTooltip();
+            assertThat(hover).as("a clipped value explains itself").isNotNull();
+            assertThat(hover.getText()).as("the popup offers breaks inside the token")
+                    .contains(String.valueOf(AdminUi.BREAK_OPPORTUNITY));
+            assertThat(withoutBreaks(hover.getText()))
+                    .as("and the popup still carries the whole value")
+                    .isEqualTo(token);
+            assertThat(cell.getAccessibleText())
+                    .as("the accessible text is the value itself, without breaks")
+                    .isEqualTo(token);
+
+            double[] size = shownSize(hover, cell);
+            assertThat(size[0]).as("the popup wraps inside its width: %s px", size[0])
+                    .isLessThanOrEqualTo(AdminUi.TOOLTIP_WRAP_WIDTH + 1);
+            assertThat(size[1]).as("and stays inside the window: %s px", size[1])
+                    .isLessThan(200);
+
+            onFx(() -> {
+                table.fireEvent(shortcut(KeyCode.C));
+                return true;
+            });
+            assertThat(onFx(() -> Clipboard.getSystemClipboard().getString()))
+                    .as("the copied value never carries the breaks")
+                    .isEqualTo(token);
+        } finally {
+            onFx(() -> {
+                stageReference.get().close();
+                return true;
+            });
+        }
+    }
+
+    /** The text without the invisible break opportunities the popup adds. */
+    private static String withoutBreaks(String text) {
+        return text.replace(String.valueOf(AdminUi.BREAK_OPPORTUNITY), "");
+    }
+
+    /**
      * A value that is a paragraph — a submitted message, a long report reason — cannot be shown in
      * a hover without making the tooltip taller than the window, so the hover keeps its opening
      * words while the cell keeps the whole value as accessible text. The table here is built from
@@ -430,7 +506,7 @@ class AdminDesignSystemFxTest {
             assertThat(cell).as("the long value is rendered in a column that clips it").isNotNull();
             Tooltip hover = cell.getTooltip();
             assertThat(hover).as("a clipped value explains itself on hover").isNotNull();
-            assertThat(hover.getText().length())
+            assertThat(withoutBreaks(hover.getText()).length())
                     .as("the hover keeps only the opening words")
                     .isLessThanOrEqualTo(AdminUi.TOOLTIP_PREVIEW_CHARS + 1);
             assertThat(hover.getText()).as("a shortened hover says so").endsWith("…");

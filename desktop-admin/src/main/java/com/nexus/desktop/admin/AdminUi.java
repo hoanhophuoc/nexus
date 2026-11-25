@@ -104,6 +104,12 @@ final class AdminUi {
      */
     static final int TOOLTIP_PREVIEW_CHARS = 200;
 
+    /** A line-break opportunity the popup honours; it is invisible and never leaves the popup. */
+    static final char BREAK_OPPORTUNITY = '\u200B';
+
+    /** How far a run may go before it needs a break, at the 420 px the popup wraps at. */
+    static final int BREAK_EVERY = 40;
+
     /** The style class that marks the cell the keyboard has reached; see {@code admin.css}. */
     static final String KEYBOARD_FOCUS_CLASS = "admin-cell-focus";
 
@@ -209,12 +215,40 @@ final class AdminUi {
             setAccessibleText(null);
         }
 
-        /** The hover copy for {@code text}: the value itself, or its opening words when it is long. */
+        /**
+         * The hover copy for {@code text}: the value itself, or its opening words when it is long,
+         * with break opportunities added so an address or a path that never offers a space still
+         * wraps. The breaks are invisible and live only in the popup: the accessible text and the
+         * copied value are the untouched value.
+         */
         private static String hoverPreview(String text) {
-            if (text.length() <= TOOLTIP_PREVIEW_CHARS) return text;
+            String preview = text.length() <= TOOLTIP_PREVIEW_CHARS ? text : shorten(text);
+            return withBreakOpportunities(preview);
+        }
+
+        private static String shorten(String text) {
             int cut = text.lastIndexOf(' ', TOOLTIP_PREVIEW_CHARS);
             if (cut < TOOLTIP_PREVIEW_CHARS / 2) cut = TOOLTIP_PREVIEW_CHARS;
             return text.substring(0, cut).stripTrailing() + "…";
+        }
+
+        /**
+         * Inserts a zero-width break opportunity inside a run of characters a space never ends — a
+         * long email, a path — which is the one case the wrap width cannot bound on its own.
+         */
+        private static String withBreakOpportunities(String text) {
+            StringBuilder broken = new StringBuilder(text.length() + 8);
+            int run = 0;
+            for (int index = 0; index < text.length(); index++) {
+                char value = text.charAt(index);
+                broken.append(value);
+                run = Character.isWhitespace(value) ? 0 : run + 1;
+                if (run == BREAK_EVERY) {
+                    broken.append(BREAK_OPPORTUNITY);
+                    run = 0;
+                }
+            }
+            return broken.toString();
         }
 
         /** Whether {@code text} is wider than the room the cell has, measured once per size. */
