@@ -112,10 +112,12 @@ public final class AccountsController {
                 friendUsernameColumn, friendFullNameColumn, friendAddressColumn)) {
             AdminUi.wrapHeader(column);
         }
-        // The identity cells ellipsize in the shell's narrower pane; a hover explains the value that
-        // did not fit, and only that one.
-        for (TableColumn<AdminUser, String> column : List.of(usernameColumn, fullNameColumn,
-                emailColumn, statusColumn)) {
+        // These cells ellipsize in the shell's narrower pane, which the login history and friend
+        // tables share with the identity table; a hover explains the value that did not fit, and
+        // only that one.
+        for (TableColumn<?, String> column : List.<TableColumn<?, String>>of(usernameColumn,
+                fullNameColumn, emailColumn, statusColumn, historyWhenColumn, historyUserColumn,
+                friendUsernameColumn, friendFullNameColumn, friendAddressColumn)) {
             AdminUi.explainTruncatedText(column);
         }
         AdminUi.bind(friendUsernameColumn, User::getUsername);

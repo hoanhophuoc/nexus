@@ -284,7 +284,8 @@ class AdminDesignSystemFxTest {
                     root.layout();
                     return root;
                 });
-                waitForFx(() -> accountsRows(accounts) > 0, Duration.ofSeconds(10));
+                waitForFx(() -> accountsRows(accounts) > 0
+                        && tableRows(accounts, "#historyTable") > 0, Duration.ofSeconds(10));
                 onFx(() -> {
                     accounts.applyCss();
                     accounts.layout();
@@ -308,6 +309,21 @@ class AdminDesignSystemFxTest {
                         .as("a value that fits stays a plain cell").isNull();
                 assertThat(shortValue.getAccessibleText())
                         .as("a value that fits needs no extra accessible text").isNull();
+
+                // The login history pane sits in the same narrow detail column, where the combined
+                // full name and username stops fitting for the same reason.
+                TableCell<?, ?> historyUser = cellWithText(accounts, "#historyTable",
+                        "Alice Example (alice)");
+                assertThat(historyUser).as("the selected account's login history is rendered")
+                        .isNotNull();
+                assertThat(historyUser.getTooltip())
+                        .as("a login history value the pane cannot fit explains itself").isNotNull();
+                assertThat(historyUser.getTooltip().getText())
+                        .as("the whole value, not the clipped prefix")
+                        .isEqualTo("Alice Example (alice)");
+                assertThat(historyUser.getAccessibleText())
+                        .as("assistive technology reads the whole value there too")
+                        .isEqualTo("Alice Example (alice)");
 
                 // The same cell, in a window wide enough for the value: the explanation must go
                 // away rather than staying installed on a reused cell.
@@ -355,7 +371,11 @@ class AdminDesignSystemFxTest {
     }
 
     private static int accountsRows(Parent root) {
-        if (!(root.lookup("#accountsTable") instanceof TableView<?> table)) return 0;
+        return tableRows(root, "#accountsTable");
+    }
+
+    private static int tableRows(Parent root, String tableId) {
+        if (!(root.lookup(tableId) instanceof TableView<?> table)) return 0;
         return table.getItems().size();
     }
 
