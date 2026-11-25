@@ -3,7 +3,7 @@ package com.nexus.desktop.admin;
 import com.nexus.desktop.shared.ui.I18n;
 import com.nexus.desktop.shared.ui.Theme;
 import com.nexus.desktop.shared.ui.ThemeManager;
-import javafx.application.Platform;
+import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
@@ -26,11 +26,8 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
 import java.util.ResourceBundle;
-import java.util.concurrent.Callable;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static com.nexus.desktop.shared.testing.FxThread.onFx;
@@ -38,6 +35,9 @@ import static com.nexus.desktop.shared.testing.FxThread.waitForFx;
 
 class AdminDesignSystemFxTest {
     private static final String BASE = "com.nexus.desktop.admin.i18n.messages";
+    /** The width the shell gives a workspace; narrower than any screen mounted on its own. */
+    private static final int NARROW_WIDTH = 640;
+    private static final int NARROW_HEIGHT = 620;
 
     @Test
     void loginUsesSharedThemeAndLocalizedFxmlWithoutInlineStyling() {
@@ -256,133 +256,101 @@ class AdminDesignSystemFxTest {
      */
     @Test
     void accountCellsExplainValuesOnlyWhenTheyAreTruncated() throws Exception {
-        try (FakeAdminServer server = new FakeAdminServer()) {
-            AtomicReference<Stage> stageReference = new AtomicReference<>();
-            AtomicReference<ThemeManager> themeReference = new AtomicReference<>();
-            AdminAppContext context = onFx(() -> {
-                Stage stage = new Stage();
-                stageReference.set(stage);
-                ThemeManager theme = new ThemeManager();
-                theme.setTheme(Theme.LIGHT);
-                themeReference.set(theme);
-                return new AdminAppContext(stage, server.origin().toString(), theme,
-                        new I18n(BASE, Locale.ENGLISH));
+        try (FakeAdminServer server = new FakeAdminServer();
+             Mounted mounted = mountedScreen(server, AdminViewLoader.ACCOUNTS,
+                     AccountsController::new, NARROW_WIDTH, NARROW_HEIGHT)) {
+            Parent accounts = mounted.root();
+            waitForFx(() -> accountsRows(accounts) > 0
+                    && tableRows(accounts, "#historyTable") > 0
+                    && tableRows(accounts, "#friendsTable") > 0, Duration.ofSeconds(10));
+            onFx(() -> {
+                accounts.applyCss();
+                accounts.layout();
+                return true;
             });
-            // Three blocking HTTP calls, kept off the FX thread like the other admin suites.
-            var signedIn = context.signIn("admin", "correct horse battery staple".toCharArray());
-            Stage stage = stageReference.get();
-            try {
-                Parent accounts = onFx(() -> {
-                    context.activate(signedIn);
-                    Parent root = AdminViewLoader.load(AdminViewLoader.ACCOUNTS,
-                            new AccountsController(context), new I18n(BASE, Locale.ENGLISH));
-                    Scene scene = new Scene(root, 640, 620);
-                    themeReference.get().apply(scene);
-                    AdminViewLoader.applyStylesheet(scene);
-                    stage.setScene(scene);
-                    stage.show();
-                    root.applyCss();
-                    root.layout();
-                    return root;
+
+            TableCell<?, ?> email = cellWithText(accounts, "#accountsTable", "mallory@example.test");
+            assertThat(email).as("the reported account's email cell is rendered").isNotNull();
+            assertThat(email.getTooltip()).as("a value the column cannot fit explains itself")
+                    .isNotNull();
+            assertThat(email.getTooltip().getText())
+                    .as("the tooltip carries the whole value, not the clipped prefix")
+                    .isEqualTo("mallory@example.test");
+            assertThat(email.getAccessibleText())
+                    .as("assistive technology reads the whole value too")
+                    .isEqualTo("mallory@example.test");
+
+            TableCell<?, ?> shortValue = cellWithText(accounts, "#accountsTable", "alice");
+            assertThat(shortValue).as("a short username cell is rendered").isNotNull();
+            assertThat(shortValue.getTooltip())
+                    .as("a value that fits stays a plain cell").isNull();
+            assertThat(shortValue.getAccessibleText())
+                    .as("a value that fits needs no extra accessible text").isNull();
+
+            // The login history pane sits in the same narrow detail column, where the combined
+            // full name and username stops fitting for the same reason.
+            TableCell<?, ?> historyUser = cellWithText(accounts, "#historyTable",
+                    "Alice Example (alice)");
+            assertThat(historyUser).as("the selected account's login history is rendered")
+                    .isNotNull();
+            assertThat(historyUser.getTooltip())
+                    .as("a login history value the pane cannot fit explains itself").isNotNull();
+            assertThat(historyUser.getTooltip().getText())
+                    .as("the whole value, not the clipped prefix")
+                    .isEqualTo("Alice Example (alice)");
+            assertThat(historyUser.getAccessibleText())
+                    .as("assistive technology reads the whole value there too")
+                    .isEqualTo("Alice Example (alice)");
+
+            // The friend list shares that pane: the seeded friend is wide enough to be clipped
+            // in the three narrow columns, so the whole name has to stay reachable.
+            TableCell<?, ?> friendName = cellWithText(accounts, "#friendsTable",
+                    FakeAdminServer.FRIEND_FULL_NAME);
+            assertThat(friendName).as("the selected account's friend is rendered").isNotNull();
+            assertThat(friendName.getTooltip()).as("a friend name the pane cannot fit explains itself")
+                    .isNotNull();
+            assertThat(friendName.getTooltip().getText())
+                    .as("the whole name, not the clipped prefix")
+                    .isEqualTo(FakeAdminServer.FRIEND_FULL_NAME);
+            assertThat(friendName.getAccessibleText())
+                    .as("assistive technology reads the whole name there too")
+                    .isEqualTo(FakeAdminServer.FRIEND_FULL_NAME);
+
+            // The same cell, in a window wide enough for the value: the explanation must go
+            // away rather than staying installed on a reused cell.
+            onFx(() -> {
+                mounted.stage().setWidth(1600);
+                accounts.applyCss();
+                accounts.layout();
+                return true;
+            });
+            // The scene follows the window on the next pulse, so the widened layout is polled
+            // rather than assumed; the message names what was actually still on screen.
+            long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+            String state = "unread";
+            while (System.nanoTime() < deadline) {
+                state = onFx(() -> {
+                    TableView<?> table = (TableView<?>) accounts.lookup("#accountsTable");
+                    TableCell<?, ?> cell = cellWithText(accounts, "#accountsTable",
+                            "mallory@example.test");
+                    return "table " + table.getWidth() + " scene " + accounts.getScene().getWidth()
+                            + " cell " + (cell == null ? "none" : cell.getWidth())
+                            + " tooltip " + (cell == null || cell.getTooltip() == null ? "none"
+                            : cell.getTooltip().getText());
                 });
-                waitForFx(() -> accountsRows(accounts) > 0
-                        && tableRows(accounts, "#historyTable") > 0
-                        && tableRows(accounts, "#friendsTable") > 0, Duration.ofSeconds(10));
-                onFx(() -> {
-                    accounts.applyCss();
-                    accounts.layout();
-                    return true;
-                });
-
-                TableCell<?, ?> email = cellWithText(accounts, "#accountsTable", "mallory@example.test");
-                assertThat(email).as("the reported account's email cell is rendered").isNotNull();
-                assertThat(email.getTooltip()).as("a value the column cannot fit explains itself")
-                        .isNotNull();
-                assertThat(email.getTooltip().getText())
-                        .as("the tooltip carries the whole value, not the clipped prefix")
-                        .isEqualTo("mallory@example.test");
-                assertThat(email.getAccessibleText())
-                        .as("assistive technology reads the whole value too")
-                        .isEqualTo("mallory@example.test");
-
-                TableCell<?, ?> shortValue = cellWithText(accounts, "#accountsTable", "alice");
-                assertThat(shortValue).as("a short username cell is rendered").isNotNull();
-                assertThat(shortValue.getTooltip())
-                        .as("a value that fits stays a plain cell").isNull();
-                assertThat(shortValue.getAccessibleText())
-                        .as("a value that fits needs no extra accessible text").isNull();
-
-                // The login history pane sits in the same narrow detail column, where the combined
-                // full name and username stops fitting for the same reason.
-                TableCell<?, ?> historyUser = cellWithText(accounts, "#historyTable",
-                        "Alice Example (alice)");
-                assertThat(historyUser).as("the selected account's login history is rendered")
-                        .isNotNull();
-                assertThat(historyUser.getTooltip())
-                        .as("a login history value the pane cannot fit explains itself").isNotNull();
-                assertThat(historyUser.getTooltip().getText())
-                        .as("the whole value, not the clipped prefix")
-                        .isEqualTo("Alice Example (alice)");
-                assertThat(historyUser.getAccessibleText())
-                        .as("assistive technology reads the whole value there too")
-                        .isEqualTo("Alice Example (alice)");
-
-                // The friend list shares that pane: the seeded friend is wide enough to be clipped
-                // in the three narrow columns, so the whole name has to stay reachable.
-                TableCell<?, ?> friendName = cellWithText(accounts, "#friendsTable",
-                        FakeAdminServer.FRIEND_FULL_NAME);
-                assertThat(friendName).as("the selected account's friend is rendered").isNotNull();
-                assertThat(friendName.getTooltip()).as("a friend name the pane cannot fit explains itself")
-                        .isNotNull();
-                assertThat(friendName.getTooltip().getText())
-                        .as("the whole name, not the clipped prefix")
-                        .isEqualTo(FakeAdminServer.FRIEND_FULL_NAME);
-                assertThat(friendName.getAccessibleText())
-                        .as("assistive technology reads the whole name there too")
-                        .isEqualTo(FakeAdminServer.FRIEND_FULL_NAME);
-
-                // The same cell, in a window wide enough for the value: the explanation must go
-                // away rather than staying installed on a reused cell.
-                onFx(() -> {
-                    stage.setWidth(1600);
-                    accounts.applyCss();
-                    accounts.layout();
-                    return true;
-                });
-                // The scene follows the window on the next pulse, so the widened layout is polled
-                // rather than assumed; the message names what was actually still on screen.
-                long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
-                String state = "unread";
-                while (System.nanoTime() < deadline) {
-                    state = onFx(() -> {
-                        TableView<?> table = (TableView<?>) accounts.lookup("#accountsTable");
-                        TableCell<?, ?> cell = cellWithText(accounts, "#accountsTable",
-                                "mallory@example.test");
-                        return "table " + table.getWidth() + " scene " + accounts.getScene().getWidth()
-                                + " cell " + (cell == null ? "none" : cell.getWidth())
-                                + " tooltip " + (cell == null || cell.getTooltip() == null ? "none"
-                                : cell.getTooltip().getText());
-                    });
-                    boolean done = Boolean.TRUE.equals(onFx(() -> {
-                        TableCell<?, ?> cell = cellWithText(accounts, "#accountsTable",
-                                "mallory@example.test");
-                        return cell != null && cell.getTooltip() == null;
-                    }));
-                    if (done) break;
-                    Thread.sleep(50);
-                }
-                TableCell<?, ?> wide = cellWithText(accounts, "#accountsTable", "mallory@example.test");
-                assertThat(wide).as("the email cell survives the resize: %s", state).isNotNull();
-                assertThat(wide.getTooltip()).as("a value that now fits has no tooltip: %s", state)
-                        .isNull();
-                assertThat(wide.getAccessibleText()).isNull();
-            } finally {
-                onFx(() -> {
-                    stage.close();
-                    context.close();
-                    return true;
-                });
+                boolean done = Boolean.TRUE.equals(onFx(() -> {
+                    TableCell<?, ?> cell = cellWithText(accounts, "#accountsTable",
+                            "mallory@example.test");
+                    return cell != null && cell.getTooltip() == null;
+                }));
+                if (done) break;
+                Thread.sleep(50);
             }
+            TableCell<?, ?> wide = cellWithText(accounts, "#accountsTable", "mallory@example.test");
+            assertThat(wide).as("the email cell survives the resize: %s", state).isNotNull();
+            assertThat(wide.getTooltip()).as("a value that now fits has no tooltip: %s", state)
+                    .isNull();
+            assertThat(wide.getAccessibleText()).isNull();
         }
     }
 
@@ -392,62 +360,25 @@ class AdminDesignSystemFxTest {
      */
     @Test
     void auditCellsExplainValuesOnlyWhenTheyAreTruncated() throws Exception {
-        try (FakeAdminServer server = new FakeAdminServer()) {
-            AtomicReference<Stage> stageReference = new AtomicReference<>();
-            AtomicReference<ThemeManager> themeReference = new AtomicReference<>();
-            AdminAppContext context = onFx(() -> {
-                Stage stage = new Stage();
-                stageReference.set(stage);
-                ThemeManager theme = new ThemeManager();
-                theme.setTheme(Theme.LIGHT);
-                themeReference.set(theme);
-                return new AdminAppContext(stage, server.origin().toString(), theme,
-                        new I18n(BASE, Locale.ENGLISH));
-            });
-            var signedIn = context.signIn("admin", "correct horse battery staple".toCharArray());
-            Stage stage = stageReference.get();
-            try {
-                Parent audit = onFx(() -> {
-                    context.activate(signedIn);
-                    Parent root = AdminViewLoader.load(AdminViewLoader.AUDIT,
-                            new AuditController(context), new I18n(BASE, Locale.ENGLISH));
-                    Scene scene = new Scene(root, 640, 620);
-                    themeReference.get().apply(scene);
-                    AdminViewLoader.applyStylesheet(scene);
-                    stage.setScene(scene);
-                    stage.show();
-                    root.applyCss();
-                    root.layout();
-                    return root;
-                });
-                waitForFx(() -> tableRows(audit, "#auditTable") > 0, Duration.ofSeconds(10));
-                onFx(() -> {
-                    audit.applyCss();
-                    audit.layout();
-                    return true;
-                });
+        try (FakeAdminServer server = new FakeAdminServer();
+             Mounted mounted = mountedScreen(server, AdminViewLoader.AUDIT,
+                     AuditController::new, NARROW_WIDTH, NARROW_HEIGHT)) {
+            Parent audit = afterFirstRows(mounted.root(), "#auditTable");
 
-                String actor = FakeAdminServer.ADMIN_ID.toString();
-                TableCell<?, ?> actorCell = cellWithText(audit, "#auditTable", actor);
-                assertThat(actorCell).as("the audit event's actor cell is rendered").isNotNull();
-                assertThat(actorCell.getTooltip())
-                        .as("an actor ID the narrow pane cannot fit explains itself").isNotNull();
-                assertThat(actorCell.getTooltip().getText())
-                        .as("the whole ID, not the clipped prefix").isEqualTo(actor);
-                assertThat(actorCell.getAccessibleText())
-                        .as("assistive technology reads the whole ID too").isEqualTo(actor);
+            String actor = FakeAdminServer.ADMIN_ID.toString();
+            TableCell<?, ?> actorCell = cellWithText(audit, "#auditTable", actor);
+            assertThat(actorCell).as("the audit event's actor cell is rendered").isNotNull();
+            assertThat(actorCell.getTooltip())
+                    .as("an actor ID the narrow pane cannot fit explains itself").isNotNull();
+            assertThat(actorCell.getTooltip().getText())
+                    .as("the whole ID, not the clipped prefix").isEqualTo(actor);
+            assertThat(actorCell.getAccessibleText())
+                    .as("assistive technology reads the whole ID too").isEqualTo(actor);
 
-                TableCell<?, ?> actionCell = cellWithText(audit, "#auditTable", "admin.user.lock");
-                assertThat(actionCell).as("the audit event's action cell is rendered").isNotNull();
-                assertThat(actionCell.getTooltip())
-                        .as("an action that fits stays a plain cell").isNull();
-            } finally {
-                onFx(() -> {
-                    stage.close();
-                    context.close();
-                    return true;
-                });
-            }
+            TableCell<?, ?> actionCell = cellWithText(audit, "#auditTable", "admin.user.lock");
+            assertThat(actionCell).as("the audit event's action cell is rendered").isNotNull();
+            assertThat(actionCell.getTooltip())
+                    .as("an action that fits stays a plain cell").isNull();
         }
     }
 
@@ -458,74 +389,104 @@ class AdminDesignSystemFxTest {
      */
     @Test
     void aLongExplanationWrapsAtAReadableWidth() throws Exception {
-        try (FakeAdminServer server = new FakeAdminServer()) {
-            AtomicReference<Stage> stageReference = new AtomicReference<>();
-            AtomicReference<ThemeManager> themeReference = new AtomicReference<>();
-            AdminAppContext context = onFx(() -> {
-                Stage stage = new Stage();
-                stageReference.set(stage);
-                ThemeManager theme = new ThemeManager();
-                theme.setTheme(Theme.LIGHT);
-                themeReference.set(theme);
-                return new AdminAppContext(stage, server.origin().toString(), theme,
-                        new I18n(BASE, Locale.ENGLISH));
-            });
-            var signedIn = context.signIn("admin", "correct horse battery staple".toCharArray());
-            Stage stage = stageReference.get();
-            try {
-                Parent audit = onFx(() -> {
-                    context.activate(signedIn);
-                    Parent root = AdminViewLoader.load(AdminViewLoader.AUDIT,
-                            new AuditController(context), new I18n(BASE, Locale.ENGLISH));
-                    Scene scene = new Scene(root, 640, 620);
-                    themeReference.get().apply(scene);
-                    AdminViewLoader.applyStylesheet(scene);
-                    stage.setScene(scene);
-                    stage.show();
-                    root.applyCss();
-                    root.layout();
-                    return root;
-                });
-                waitForFx(() -> tableRows(audit, "#auditTable") > 0, Duration.ofSeconds(10));
-                onFx(() -> {
-                    audit.applyCss();
-                    audit.layout();
-                    return true;
-                });
+        try (FakeAdminServer server = new FakeAdminServer();
+             Mounted mounted = mountedScreen(server, AdminViewLoader.AUDIT,
+                     AuditController::new, NARROW_WIDTH, NARROW_HEIGHT)) {
+            Parent audit = afterFirstRows(mounted.root(), "#auditTable");
 
-                TableCell<?, ?> actorCell = cellWithText(audit, "#auditTable",
-                        FakeAdminServer.ADMIN_ID.toString());
-                assertThat(actorCell).as("a truncated cell is rendered").isNotNull();
-                Tooltip explanation = actorCell.getTooltip();
-                assertThat(explanation).as("the cell installs its explanation").isNotNull();
-                assertThat(explanation.isWrapText()).as("the explanation wraps").isTrue();
+            TableCell<?, ?> actorCell = cellWithText(audit, "#auditTable",
+                    FakeAdminServer.ADMIN_ID.toString());
+            assertThat(actorCell).as("a truncated cell is rendered").isNotNull();
+            Tooltip explanation = actorCell.getTooltip();
+            assertThat(explanation).as("the cell installs its explanation").isNotNull();
+            assertThat(explanation.isWrapText()).as("the explanation wraps").isTrue();
 
-                double[] shortSize = renderedSize(explanation, actorCell, "admin.user.lock");
-                String longReason = "The reported account sent a long series of direct messages "
-                        + "after being asked to stop, and the reporter submitted the whole "
-                        + "conversation as evidence for this case.";
-                double[] longSize = renderedSize(explanation, actorCell, longReason);
-                assertThat(longSize[0])
-                        .as("a long explanation stays inside its readable width: %s px", longSize[0])
-                        .isLessThanOrEqualTo(AdminUi.TOOLTIP_WRAP_WIDTH + 1);
-                assertThat(longSize[1])
-                        .as("and it grows down instead: %s px against %s px", longSize[1], shortSize[1])
-                        .isGreaterThan(shortSize[1] * 2);
-                assertThat(longSize[1])
-                        .as("the wrapped explanation fits the window height")
-                        .isLessThan(600);
-            } finally {
-                onFx(() -> {
-                    stage.close();
-                    context.close();
-                    return true;
-                });
-            }
+            double[] shortSize = renderedSize(explanation, actorCell, "admin.user.lock");
+            String longReason = "The reported account sent a long series of direct messages "
+                    + "after being asked to stop, and the reporter submitted the whole "
+                    + "conversation as evidence for this case.";
+            double[] longSize = renderedSize(explanation, actorCell, longReason);
+            assertThat(longSize[0])
+                    .as("a long explanation stays inside its readable width: %s px", longSize[0])
+                    .isLessThanOrEqualTo(AdminUi.TOOLTIP_WRAP_WIDTH + 1);
+            assertThat(longSize[1])
+                    .as("and it grows down instead: %s px against %s px", longSize[1], shortSize[1])
+                    .isGreaterThan(shortSize[1] * 2);
+            assertThat(longSize[1])
+                    .as("the wrapped explanation fits the window height")
+                    .isLessThan(600);
         }
     }
 
+    /**
+     * Signs in against the fake server and mounts one admin screen on a window of its own. Every
+     * screen test here needs the same off-thread sign-in, light theme, stylesheet and teardown, so
+     * this keeps that sequence in one place; the caller only names the screen and the window size.
+     */
+    private static Mounted mountedScreen(FakeAdminServer server, String view,
+            Function<AdminAppContext, Object> controller, int width, int height) throws Exception {
+        ThemeManager theme = new ThemeManager();
+        theme.setTheme(Theme.LIGHT);
+        I18n i18n = new I18n(BASE, Locale.ENGLISH);
+        AtomicReference<Stage> stageReference = new AtomicReference<>();
+        AdminAppContext context = onFx(() -> {
+            Stage stage = new Stage();
+            stageReference.set(stage);
+            return new AdminAppContext(stage, server.origin().toString(), theme, i18n);
+        });
+        Stage stage = stageReference.get();
+        try {
+            // Three blocking HTTP calls, kept off the FX thread like the other admin suites.
+            var signedIn = context.signIn("admin", "correct horse battery staple".toCharArray());
+            Parent root = onFx(() -> {
+                context.activate(signedIn);
+                Parent loaded = AdminViewLoader.load(view, controller.apply(context), i18n);
+                Scene scene = new Scene(loaded, width, height);
+                theme.apply(scene);
+                AdminViewLoader.applyStylesheet(scene);
+                stage.setScene(scene);
+                stage.show();
+                loaded.applyCss();
+                loaded.layout();
+                return loaded;
+            });
+            return new Mounted(root, stage, context, theme);
+        } catch (Exception failed) {
+            onFx(() -> {
+                stage.close();
+                context.close();
+                return true;
+            });
+            throw failed;
+        }
+    }
+
+    /** An admin screen on its own window, with the signed-in context behind it. */
+    private record Mounted(Parent root, Stage stage, AdminAppContext context, ThemeManager theme)
+            implements AutoCloseable {
+        @Override
+        public void close() {
+            onFx(() -> {
+                stage.close();
+                context.close();
+                return true;
+            });
+        }
+    }
+
+    /** Waits for a screen's first rows, then lays it out again so the cells are measured. */
+    private static Parent afterFirstRows(Parent root, String tableId) throws Exception {
+        waitForFx(() -> tableRows(root, tableId) > 0, Duration.ofSeconds(10));
+        onFx(() -> {
+            root.applyCss();
+            root.layout();
+            return true;
+        });
+        return root;
+    }
+
     /** Shows {@code explanation} with {@code text} and returns its rendered {width, height}. */
-    private static double[] renderedSize(Tooltip explanation, javafx.scene.Node owner, String text)
+    private static double[] renderedSize(Tooltip explanation, Node owner, String text)
             throws Exception {
         onFx(() -> {
             explanation.hide();
