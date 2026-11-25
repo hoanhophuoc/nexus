@@ -621,10 +621,19 @@ class AdminGoldenScreenshotFxTest {
      * cover it: a snapshot of the table's scene does not contain the popup, and the popup's palette
      * is exactly what used to go wrong (a content node keeps the colours it was built under). These
      * two captures are of the popup's own root, in both themes.
+     *
+     * <p>The sample ends the first line with a single token holding the two shapes a break counted
+     * in characters tears apart: an accented letter written as a base plus a combining mark, and an
+     * emoji written as a base plus a variation selector. The token runs into the wrap column, so the
+     * baseline shows the break leaving both clusters whole instead of splitting either one.
      */
     @Test
     void rowInspectorMatchesGoldensInLightAndDark() throws Exception {
-        String clipped = "Mallory Q. Reported-Example, 3 Report Lane, Apartment 14";
+        // A joined sequence would be the stronger emoji sample, but JavaFX draws one as boxes here
+        // (no ZWJ-capable font is installed), which would capture empty glyphs instead of text.
+        String emoji = "\u2764\uFE0F";
+        String clipped = "Resident, Flat 4, Rehabilitation Wing, Building 3, cafe\u0301" + emoji
+                + " Rehabilitation-Wing-Suite-314, Mallory Q. Reported-Example";
         AtomicReference<Stage> stageReference = new AtomicReference<>();
         AtomicReference<ThemeManager> themeReference = new AtomicReference<>();
         AtomicReference<AdminUi.RowInspector> inspectorReference = new AtomicReference<>();
