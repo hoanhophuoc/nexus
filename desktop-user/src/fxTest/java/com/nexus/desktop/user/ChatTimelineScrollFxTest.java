@@ -75,6 +75,11 @@ class ChatTimelineScrollFxTest {
             realtime.sendText(messageCreated(UUID.randomUUID(), FakeChatServer.FRIEND_ID,
                     "late arrival", "2026-11-09T12:00:00Z"));
             waitForFx(() -> messages(root) == HISTORY + 2, Duration.ofSeconds(10));
+            // The arrival changes the item count on the pulse that also rebuilds the rows, so the
+            // viewport is only measurable once the list has placed them and anything the shell
+            // started moving has stopped. Measuring the count straight away is what made this
+            // assertion depend on how fast the runner's pulses came.
+            settleTimeline(root);
             assertThat(position(root))
                     .as("an arriving message must not pull a reader out of the history")
                     .isLessThan(0.05);
@@ -561,14 +566,27 @@ class ChatTimelineScrollFxTest {
      * Waits for the shell's own move to the newest row to stop changing the viewport. The shell lands
      * on the newest row after mounting and re-applies that move until the list has measured its rows;
      * a test that sets a position mid-move is moved back, so the harness lets the move finish first
-     * instead of measuring against a viewport something else is still steering.
+     * instead of measuring against a viewport something else is still steering. A sample also drives
+     * the layout pass: cells carry the bounds the viewport questions read only once they are placed,
+     * and an arrival changes the item count on the same pulse that rebuilds them.
      */
     private static void settleTimeline(Parent root) throws InterruptedException {
-        double previous = Double.NaN;
+        double previousValue = Double.NaN;
+        int previousIndex = -1;
         for (int attempt = 0; attempt < 30; attempt++) {
-            double current = onFx(() -> scrollBarValue(root));
-            if (!Double.isNaN(previous) && Math.abs(current - previous) < 1e-6) return;
-            previous = current;
+            double[] sample = onFx(() -> {
+                ListView<?> list = timeline(root);
+                if (list == null) return new double[] {-1, -1};
+                list.applyCss();
+                list.layout();
+                return new double[] {scrollBarValue(root), firstVisibleIndex(root)};
+            });
+            if (!Double.isNaN(previousValue) && Math.abs(sample[0] - previousValue) < 1e-6
+                    && (int) sample[1] == previousIndex) {
+                return;
+            }
+            previousValue = sample[0];
+            previousIndex = (int) sample[1];
             Thread.sleep(200);
         }
     }

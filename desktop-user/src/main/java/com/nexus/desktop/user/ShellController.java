@@ -496,6 +496,11 @@ public final class ShellController {
      * reader to a message they were not reading. The lowest index is the row to keep.
      */
     private TimelineAnchor captureTimelineAnchor() {
+        // The cells this reads are placed by a layout pass. One that is still pending leaves them
+        // without bounds, which this reads as "no message at the top" — and that answers the repaint
+        // with a follow to the newest row instead of staying put. Measure what you are about to
+        // decide on, as the moves below do.
+        measureTimeline();
         int top = Integer.MAX_VALUE;
         UUID anchorId = null;
         for (Node cell : messageList.lookupAll(".timeline-cell")) {
