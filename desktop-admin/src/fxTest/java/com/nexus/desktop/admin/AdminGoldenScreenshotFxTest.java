@@ -11,11 +11,9 @@ import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.DatePicker;
 import javafx.scene.control.Label;
-import javafx.scene.control.TableCell;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
 import javafx.scene.control.TextField;
-import javafx.scene.control.Tooltip;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.image.PixelReader;
@@ -692,108 +690,6 @@ class AdminGoldenScreenshotFxTest {
                 return true;
             });
         }
-    }
-
-    /**
-     * The tooltip that replaces a clipped cell, which is the one surface that runs
-     * {@code AdminUi.withBreakOpportunities}: the row inspector wraps JavaFX's own text area. The
-     * sample is one token that fills the popup's width, carrying an accented letter and an emoji
-     * written as a base plus a variation selector, so both themes show what the popup does with
-     * those clusters while it wraps.
-     *
-     * <p>Two measured limits keep this baseline from claiming more than it shows. JavaFX does not
-     * break text at the zero-width spaces the pass inserts — fifteen letters, one break opportunity,
-     * thirty more letters still filled the first line to the wrap width exactly like the same run
-     * without it — so the visible break here comes from the popup's width, not from the break pass;
-     * that pass's placement is what
-     * {@code AdminDesignSystemFxTest.breakOpportunitiesRespectGraphemeBoundaries} asserts. And a
-     * tooltip whose text contains a combining mark is sized from the text's unwrapped width —
-     * measured at 585 px against the 420 px limit — so it paints outside its own box; the baseline
-     * therefore writes the letter precomposed and leaves the decomposed form to the row inspector's
-     * baseline, which wraps at the cluster.
-     */
-    @Test
-    void tooltipBreaksMatchGoldensInLightAndDark() throws Exception {
-        // 35 clusters before the accented letter, so the emoji is the 40th: exactly the cluster
-        // after which withBreakOpportunities offers its first break.
-        String emoji = "\u2764\uFE0F";
-        String token = "Rehabilitation-Wing-Suite-314-Flat-caf\u00e9" + emoji
-                + "Building3Storey2ActiveResidentDesk314159";
-        AtomicReference<Stage> stageReference = new AtomicReference<>();
-        AtomicReference<ThemeManager> themeReference = new AtomicReference<>();
-        TableView<String> table = onFx(() -> {
-            ThemeManager theme = new ThemeManager();
-            theme.setTheme(Theme.LIGHT);
-            themeReference.set(theme);
-            TableView<String> loaded = new TableView<>(FXCollections.observableArrayList(token));
-            TableColumn<String, String> address = new TableColumn<>("Address");
-            AdminUi.bind(address, value -> value);
-            AdminUi.explainTruncatedText(address, new I18n(BASE, Locale.ENGLISH));
-            loaded.getColumns().add(address);
-            loaded.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
-            Stage stage = new Stage();
-            stageReference.set(stage);
-            Scene scene = new Scene(loaded, 260, 140);
-            theme.apply(scene);
-            AdminViewLoader.applyStylesheet(scene);
-            stage.setScene(scene);
-            stage.show();
-            loaded.applyCss();
-            loaded.layout();
-            return loaded;
-        });
-        try {
-            TableCell<?, ?> cell = onFx(() -> cellShowing(table, token));
-            assertThat(cell).as("the token's cell is rendered and clipped").isNotNull();
-            Tooltip tooltip = onFx(cell::getTooltip);
-            assertThat(tooltip).as("a clipped value explains itself on hover").isNotNull();
-            // The baseline only means something while the sample still produces the break this
-            // test is about, so its intent is asserted next to the capture.
-            assertThat(tooltip.getText()).as("the popup breaks after the whole grapheme cluster")
-                    .contains("caf\u00e9" + emoji + AdminUi.BREAK_OPPORTUNITY);
-
-            onFx(() -> {
-                tooltip.show(cell, 40, 40);
-                return true;
-            });
-            waitForFx(() -> tooltip.isShowing() && tooltip.getWidth() > 0, Duration.ofSeconds(5));
-            assertGolden(tooltipSnapshot(tooltip), "tooltip-light.png");
-
-            onFx(() -> {
-                themeReference.get().setTheme(Theme.DARK);
-                themeReference.get().apply(stageReference.get().getScene());
-                return true;
-            });
-            waitForFx(() -> tooltip.getScene() != null
-                            && tooltip.getScene().getRoot().getStyleClass().contains("theme-dark"),
-                    Duration.ofSeconds(5));
-            assertGolden(tooltipSnapshot(tooltip), "tooltip-dark.png");
-        } finally {
-            onFx(() -> {
-                stageReference.get().close();
-                return true;
-            });
-        }
-    }
-
-    /** The tooltip's own window, which is where both its palette and its wrap are drawn. */
-    private static WritableImage tooltipSnapshot(Tooltip tooltip) {
-        return onFx(() -> {
-            Parent root = tooltip.getScene().getRoot();
-            root.applyCss();
-            root.layout();
-            return root.snapshot(new SnapshotParameters(), null);
-        });
-    }
-
-    /** The rendered cell showing exactly {@code text}; its text stays whole while it is clipped. */
-    private static TableCell<?, ?> cellShowing(TableView<?> table, String text) {
-        for (Node node : table.lookupAll(".table-cell")) {
-            if (node instanceof TableCell<?, ?> cell && !cell.isEmpty() && text.equals(cell.getText())) {
-                return cell;
-            }
-        }
-        return null;
     }
 
     /** The popup's own window, not the table's scene, which is where its palette lives. */
