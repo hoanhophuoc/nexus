@@ -392,14 +392,16 @@ class AdminDesignSystemFxTest {
 
     /**
      * The cap was added for values that run past the window, and an address or a path that never
-     * offers a space is exactly that: the popup has to break inside the token, while the value the
-     * screen reader hears and the value the copy shortcut takes stay untouched.
+     * offers a space is exactly that: inside the 420 px width JavaFX wraps the token at its own
+     * glyph boundaries, so the popup bounds it — while the hover text, the value the screen reader
+     * hears and the value the copy shortcut takes stay the untouched value.
      */
     @Test
     void anUnbrokenTokenStaysInsideTheTooltipWidth() throws Exception {
         String token = "very.long.unbroken.mailbox.segment.".repeat(5) + "@subdomain.example.test";
         assertThat(token).as("the sample has no space to break at").doesNotContain(" ");
-        assertThat(token.length()).isGreaterThan(AdminUi.BREAK_EVERY * 3);
+        assertThat(token.length()).as("the sample is far too wide for one line in the popup")
+                .isGreaterThan(AdminUi.TOOLTIP_PREVIEW_CHARS / 2);
 
         AtomicReference<Stage> stageReference = new AtomicReference<>();
         AtomicReference<AdminUi.RowInspector> inspectorReference = new AtomicReference<>();
@@ -431,13 +433,11 @@ class AdminDesignSystemFxTest {
             assertThat(cell).as("the unbroken value is rendered and clipped").isNotNull();
             Tooltip hover = cell.getTooltip();
             assertThat(hover).as("a clipped value explains itself").isNotNull();
-            assertThat(hover.getText()).as("the popup offers breaks inside the token")
-                    .contains(String.valueOf(AdminUi.BREAK_OPPORTUNITY));
-            assertThat(withoutBreaks(hover.getText()))
-                    .as("and the popup still carries the whole value")
+            assertThat(hover.getText())
+                    .as("the popup carries the value itself, with nothing added to it")
                     .isEqualTo(token);
             assertThat(cell.getAccessibleText())
-                    .as("the accessible text is the value itself, without breaks")
+                    .as("the accessible text is the same value")
                     .isEqualTo(token);
 
             double[] size = shownSize(hover, cell);
@@ -451,7 +451,7 @@ class AdminDesignSystemFxTest {
                 return true;
             });
             assertThat(onFx(() -> Clipboard.getSystemClipboard().getString()))
-                    .as("the copied value never carries the breaks")
+                    .as("the copied value is the same value")
                     .isEqualTo(token);
         } finally {
             onFx(() -> {
@@ -462,19 +462,20 @@ class AdminDesignSystemFxTest {
     }
 
     /**
-     * A break inside a grapheme cluster splits one visible character into two: a family emoji
-     * becomes two people, a letter loses its accent. The popup's breaks are counted in clusters, so
-     * every one of them has to sit where a reader sees a boundary — and the value that is copied
-     * stays whole, breaks and all left behind.
+     * A run with no space in it may still carry sequences a reader sees as one character — a joined
+     * family, a flag. Nothing is added to such a value: inside the 420 px width JavaFX wraps the run
+     * at its own glyph boundaries, so the popup bounds it and both sequences stay in the text the
+     * screen reader hears.
+     *
+     * <p>A combining accent is left out of this sample on purpose: a tooltip whose text contains one
+     * is sized from the unwrapped text (a JavaFX limit), so the 420 px width this test is about
+     * would not apply to it.
      */
     @Test
-    void breakOpportunitiesRespectGraphemeBoundaries() throws Exception {
+    void aTokenWithJoinedSequencesStaysInsideTheTooltipWidth() throws Exception {
         String family = "\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67\u200D\uD83D\uDC66";
         String flag = "\uD83C\uDDFB\uD83C\uDDF3";
-        String accented = "e\u0301";
-        // 36 plain characters put the joined sequence across the 40th character, which is exactly
-        // where a character-counted break would land inside it: this sample fails the old rule.
-        String token = "a".repeat(36) + family + flag + accented + "@example.test";
+        String token = "a".repeat(36) + family + flag + "@example.test";
         assertThat(token).as("the sample has no space to break at").doesNotContain(" ");
 
         AtomicReference<Stage> stageReference = new AtomicReference<>();
@@ -503,47 +504,26 @@ class AdminDesignSystemFxTest {
             assertThat(cell).as("the value is rendered and clipped").isNotNull();
             Tooltip hover = cell.getTooltip();
             assertThat(hover).as("a clipped value explains itself").isNotNull();
-            String popup = hover.getText();
-            assertThat(withoutBreaks(popup)).as("the popup still carries the whole value")
+            assertThat(hover.getText())
+                    .as("the popup carries the value itself, with nothing added to it")
                     .isEqualTo(token);
-            assertThat(popup).as("the joiner sequence and the flag stay whole")
-                    .contains(family).contains(flag).contains(accented);
-            assertThat(popup.split("\u200D", -1).length)
-                    .as("no break is inserted next to a joiner")
-                    .isEqualTo(token.split("\u200D", -1).length);
+            assertThat(hover.getText()).as("both joined sequences survive intact")
+                    .contains(family).contains(flag);
+            assertThat(cell.getAccessibleText())
+                    .as("assistive technology reads the same value")
+                    .isEqualTo(token);
 
-            String[] pieces = popup.split(String.valueOf(AdminUi.BREAK_OPPORTUNITY));
-            assertThat(pieces.length).as("a run this long has break opportunities").isGreaterThan(1);
-            assertThat(String.join("", pieces)).isEqualTo(token);
-            for (String piece : pieces) {
-                assertThat(piece).as("no break next to another one").isNotEmpty();
-                int first = piece.codePointAt(0);
-                assertThat(Character.getType(first))
-                        .as("a piece never starts with a combining mark")
-                        .isNotIn((int) Character.NON_SPACING_MARK,
-                                (int) Character.COMBINING_SPACING_MARK,
-                                (int) Character.ENCLOSING_MARK);
-                assertThat(first).as("a piece never starts inside a joined sequence")
-                        .isNotEqualTo(0x200D).isNotEqualTo(0xFE0F);
-                assertThat(piece.codePointBefore(piece.length()))
-                        .as("a piece never ends on a joiner")
-                        .isNotEqualTo(0x200D);
-                assertThat(Character.isLowSurrogate(piece.charAt(0)))
-                        .as("a piece never starts on half a surrogate pair").isFalse();
-                assertThat(Character.isHighSurrogate(piece.charAt(piece.length() - 1)))
-                        .as("a piece never ends on half a surrogate pair").isFalse();
-            }
+            double[] size = shownSize(hover, cell);
+            assertThat(size[0]).as("the popup wraps inside its width: %s px", size[0])
+                    .isLessThanOrEqualTo(AdminUi.TOOLTIP_WRAP_WIDTH + 1);
+            assertThat(size[1]).as("and stays inside the window: %s px", size[1])
+                    .isLessThan(200);
         } finally {
             onFx(() -> {
                 stageReference.get().close();
                 return true;
             });
         }
-    }
-
-    /** The text without the invisible break opportunities the popup adds. */
-    private static String withoutBreaks(String text) {
-        return text.replace(String.valueOf(AdminUi.BREAK_OPPORTUNITY), "");
     }
 
     /**
@@ -589,7 +569,7 @@ class AdminDesignSystemFxTest {
             assertThat(cell).as("the long value is rendered in a column that clips it").isNotNull();
             Tooltip hover = cell.getTooltip();
             assertThat(hover).as("a clipped value explains itself on hover").isNotNull();
-            assertThat(withoutBreaks(hover.getText()).length())
+            assertThat(hover.getText().length())
                     .as("the hover keeps only the opening words")
                     .isLessThanOrEqualTo(AdminUi.TOOLTIP_PREVIEW_CHARS + 1);
             assertThat(hover.getText()).as("a shortened hover says so").endsWith("…");
