@@ -69,7 +69,18 @@ class ChatTimelineScrollFxTest {
             waitForFx(() -> labelsContain(root, "Up to date"), Duration.ofSeconds(10));
 
             settleTimeline(root);
-            scrollToTop(root);
+            // The reader leaves the newest row the way a person does — with the keyboard — so the
+            // shell's follow intent ends with the move. A programmatic scroll does not end it: the
+            // shell is still following, and a later width change (the vertical bar appearing is one)
+            // re-applies the follow and jumps a reader who is reading the history. That is what a
+            // hosted runner measured: the viewport at 31/43 of the history when this assertion ran.
+            pressKey(root, KeyCode.HOME);
+            waitForFx(() -> {
+                ListView<?> list = timeline(root);
+                list.applyCss();
+                list.layout();
+                return firstVisibleIndex(root) == 0;
+            }, Duration.ofSeconds(5));
             assertThat(position(root)).as("the test starts at the oldest message").isLessThan(0.05);
 
             realtime.sendText(messageCreated(UUID.randomUUID(), FakeChatServer.FRIEND_ID,
