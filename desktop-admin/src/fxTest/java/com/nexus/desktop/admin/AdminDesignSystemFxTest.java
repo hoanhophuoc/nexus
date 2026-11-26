@@ -748,19 +748,15 @@ class AdminDesignSystemFxTest {
     }
 
     /**
-     * The marked copies in the dark theme, which is where the popup and the cell really do paint in
-     * different fonts: only the light theme class sets a font, so the tooltip's own label resolves to
-     * a smaller size there. The long value is broken, the short one keeps its single line, and both
-     * popups stay inside the width.
+     * The marked copies in the dark theme. Its theme class carries the same font as the light one, so
+     * the popup paints at 13 px here too: the long value is broken, the short one keeps its single
+     * line, and both popups stay inside the width.
      */
     @Test
     void aMarkedCopyStaysInsideTheTooltipWidthInTheDarkTheme() throws Exception {
         String longToken = "Rehabilitation-Wing-Suite-314-Flat-cafe" + "x\u0304"
                 + "Building3Storey2ActiveResidentDesk314159" + "\u0915\u093F" + "ActiveResidentDesk314159";
-        // Fits the popup's 11.1 px dark font but not the cell's 13 px one, so this value only keeps
-        // its single line if the copy is measured with the tooltip's own font.
-        String shortToken = "Rehabilitation-Wing-Suite-314-Flat-cafe" + "x\u0304"
-                + "Building3Storey2ActiveDes";
+        String shortToken = "Ticket-3145-cafe" + "x\u0304" + "Building3";
         AtomicReference<Stage> stageReference = new AtomicReference<>();
         TableView<String> table = onFx(() -> {
             ThemeManager theme = new ThemeManager();
@@ -797,6 +793,8 @@ class AdminDesignSystemFxTest {
                     .isLessThanOrEqualTo(AdminUi.TOOLTIP_WRAP_WIDTH + 1);
             assertThat(longSize[1]).as("and stays inside the window: %s px", longSize[1])
                     .isLessThan(200);
+            assertThat(shownFontSize(longHover, longCell))
+                    .as("the dark popup paints at the theme's size").isEqualTo(13.0);
 
             TableCell<?, ?> shortCell = onFx(() -> cellWithText(table, shortToken));
             assertThat(shortCell).as("the short value is rendered and clipped").isNotNull();
@@ -1388,6 +1386,24 @@ class AdminDesignSystemFxTest {
         waitForFx(() -> explanation.isShowing() && explanation.getWidth() > 0
                 && explanation.getHeight() > 0, Duration.ofSeconds(5));
         return onFx(() -> new double[] { explanation.getWidth(), explanation.getHeight() });
+    }
+
+    /** Shows {@code explanation} and returns the size its own content label resolves. */
+    private static double shownFontSize(Tooltip explanation, Node owner) throws Exception {
+        onFx(() -> {
+            explanation.show(owner, 40, 40);
+            return true;
+        });
+        waitForFx(() -> explanation.isShowing() && explanation.getScene() != null,
+                Duration.ofSeconds(5));
+        return onFx(() -> {
+            for (javafx.scene.Node node : ((Parent) explanation.getScene().getRoot()).lookupAll("*")) {
+                if (node instanceof Label label && label.getStyleClass().contains("tooltip")) {
+                    return (double) label.getFont().getSize();
+                }
+            }
+            return 0.0;
+        });
     }
 
     private static int accountsRows(Parent root) {

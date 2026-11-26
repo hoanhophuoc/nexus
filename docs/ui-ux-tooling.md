@@ -136,7 +136,10 @@ modules.** The evidence:
   compatibility, licence and packaging gates before touching production modules.
 
 **Re-verified on the branch tip (2026-11-24), from a fresh read of the code plus the runs below.**
-`theme.css` declares the light palette on `.root, .theme-light` and dark on `.theme-dark`.
+`theme.css` declares the light palette on `.root, .theme-light` and dark on `.theme-dark`, and both theme
+classes carry the bundled face at 13 px: a popup root carries only the theme class, never the automatic
+`root` one, so a dark-only palette left dark popups painting in the system face (measured: a dark tooltip
+at 11.1 px against the cell's 13 px).
 `PopupThemes` holds one `ListChangeListener<Window>` for the JVM, keeps managers behind
 `WeakReference`s, and styles a window only when its owner chain reaches a window its manager already
 styled, both on window-added and on `showing`. `ThemeManager` is still the only owner of the
