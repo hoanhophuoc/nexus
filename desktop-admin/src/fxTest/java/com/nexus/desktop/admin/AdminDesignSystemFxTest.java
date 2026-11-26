@@ -526,6 +526,69 @@ class AdminDesignSystemFxTest {
     }
 
     /**
+     * A mark with no precomposed form is what composing cannot fix: NFC leaves it in place, and
+     * JavaFX then refuses to wrap the tooltip at all, sizing the popup from the unwrapped value.
+     * The hover copy is broken into lines by hand instead — with every code point intact — while the
+     * cell keeps the value as submitted for the accessible text and the copy.
+     */
+    @Test
+    void aValueWhoseMarkHasNoPrecomposedFormStaysInsideTheTooltipWidth() throws Exception {
+        String macron = "x\u0304";
+        String vowelSign = "\u0915\u093F";
+        String token = "Rehabilitation-Wing-Suite-314-Flat-cafe" + macron
+                + "Building3Storey2ActiveResidentDesk314159" + vowelSign + "ActiveResidentDesk314159";
+        assertThat(Normalizer.normalize(token, Normalizer.Form.NFC))
+                .as("the sample carries a mark composing cannot remove").isEqualTo(token);
+        assertThat(token).as("the sample has no space to break at").doesNotContain(" ");
+
+        AtomicReference<Stage> stageReference = new AtomicReference<>();
+        TableView<String> table = onFx(() -> {
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            TableView<String> loaded = new TableView<>(FXCollections.observableArrayList(token));
+            TableColumn<String, String> column = new TableColumn<>("Contact");
+            AdminUi.bind(column, value -> value);
+            AdminUi.explainTruncatedText(column, ENGLISH);
+            loaded.getColumns().add(column);
+            loaded.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+            Stage stage = new Stage();
+            stageReference.set(stage);
+            Scene scene = new Scene(loaded, 240, 140);
+            theme.apply(scene);
+            AdminViewLoader.applyStylesheet(scene);
+            stage.setScene(scene);
+            stage.show();
+            loaded.applyCss();
+            loaded.layout();
+            return loaded;
+        });
+        try {
+            TableCell<?, ?> cell = onFx(() -> cellWithText(table, token));
+            assertThat(cell).as("the value is rendered and clipped").isNotNull();
+            Tooltip hover = cell.getTooltip();
+            assertThat(hover).as("a clipped value explains itself").isNotNull();
+            assertThat(hover.getText()).as("the hover copy is broken into lines by hand")
+                    .contains("\n");
+            assertThat(hover.getText().replace("\n", ""))
+                    .as("every code point survives in order").isEqualTo(token);
+            assertThat(cell.getAccessibleText())
+                    .as("assistive technology reads the value as submitted")
+                    .isEqualTo(token);
+
+            double[] size = shownSize(hover, cell);
+            assertThat(size[0]).as("the popup wraps inside its width: %s px", size[0])
+                    .isLessThanOrEqualTo(AdminUi.TOOLTIP_WRAP_WIDTH + 1);
+            assertThat(size[1]).as("and stays inside the window: %s px", size[1])
+                    .isLessThan(200);
+        } finally {
+            onFx(() -> {
+                stageReference.get().close();
+                return true;
+            });
+        }
+    }
+
+    /**
      * A run with no space in it may still carry sequences a reader sees as one character — a joined
      * family, a flag. Nothing is added to such a value: inside the 420 px width JavaFX wraps the run
      * at its own glyph boundaries, so the popup bounds it and both sequences stay in the text the

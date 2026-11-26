@@ -112,6 +112,14 @@ final class AdminUi {
      */
     static final int TOOLTIP_PREVIEW_CHARS = 200;
 
+    /**
+     * How many characters a hover copy may put on one line when it carries a mark JavaFX will not
+     * wrap. 32 was measured on the popup itself across Latin, Devanagari, Han with a macron, a flag
+     * and a joined family: the widest line stayed at 367 px, inside the 420 px width, and a
+     * 200-character value takes seven lines, well inside the height a tooltip may take.
+     */
+    static final int MARKED_LINE_CHARS = 32;
+
     /** The style class that marks the cell the keyboard has reached; see {@code admin.css}. */
     static final String KEYBOARD_FOCUS_CLASS = "admin-cell-focus";
 
@@ -235,18 +243,76 @@ final class AdminUi {
 
         /**
          * The hover copy for {@code text}: the value itself, or its opening words when it is long,
-         * written in its composed form.
+         * written in its composed form and broken into lines where composing could not help.
          *
          * <p>A run that never offers a space — a long email, a path — needs nothing added to wrap:
          * inside {@link #TOOLTIP_WRAP_WIDTH} JavaFX breaks it at its own glyph boundaries. It does
-         * not do that for a value carrying a combining mark: the popup is then sized from the
-         * text's unwrapped width and paints outside its own box, so the copy is composed to NFC
-         * first. Those are the same glyphs in a canonically equivalent string; the cell keeps the
-         * value as submitted for the accessible text and the copy, so neither is rewritten.
+         * not do that for a value carrying a combining mark on a letter: the popup is then sized
+         * from the text's unwrapped width and paints outside its own box. Composing the copy to NFC
+         * clears that mark whenever the letter has a precomposed form, leaving the same glyphs in a
+         * canonically equivalent string; a mark with no precomposed form — a macron on an "x", a
+         * Devanagari vowel sign — survives composition, so those lines are broken by hand. The cell
+         * keeps the value as submitted for the accessible text and the copy, so neither is
+         * rewritten.
          */
         private static String hoverPreview(String text) {
             String composed = Normalizer.normalize(text, Normalizer.Form.NFC);
-            return composed.length() <= TOOLTIP_PREVIEW_CHARS ? composed : shorten(composed);
+            String preview = composed.length() <= TOOLTIP_PREVIEW_CHARS
+                    ? composed : shorten(composed);
+            return breakMarkedLines(preview);
+        }
+
+        /**
+         * Breaks a copy that still carries a combining mark into {@link #MARKED_LINE_CHARS}-character
+         * lines, never between a letter and its mark and never inside a joined sequence. Every code
+         * point survives in order; only the newlines are added. A value with no mark on a letter is
+         * returned untouched, so nothing about it changes.
+         */
+        private static String breakMarkedLines(String text) {
+            if (!carriesMarkOnALetter(text)) return text;
+            StringBuilder broken = new StringBuilder(text.length() + text.length() / MARKED_LINE_CHARS);
+            int sinceBreak = 0;
+            for (int offset = 0; offset < text.length(); ) {
+                int codePoint = text.codePointAt(offset);
+                int width = Character.charCount(codePoint);
+                if (sinceBreak >= MARKED_LINE_CHARS && !attachesToPrevious(codePoint)) {
+                    broken.append('\n');
+                    sinceBreak = 0;
+                }
+                broken.append(text, offset, offset + width);
+                offset += width;
+                sinceBreak++;
+            }
+            return broken.toString();
+        }
+
+        /** A combining mark on a letter: the case that stops JavaFX from wrapping the tooltip. */
+        private static boolean carriesMarkOnALetter(String text) {
+            int base = -1;
+            for (int offset = 0; offset < text.length(); ) {
+                int codePoint = text.codePointAt(offset);
+                if (isMark(codePoint)) {
+                    if (base >= 0 && Character.isLetter(base)) return true;
+                } else {
+                    base = codePoint;
+                }
+                offset += Character.charCount(codePoint);
+            }
+            return false;
+        }
+
+        /**
+         * Whether {@code codePoint} belongs to the glyph before it, so a line must not start there:
+         * a mark, or a joiner and selector that hold a sequence of them together.
+         */
+        private static boolean attachesToPrevious(int codePoint) {
+            return isMark(codePoint) || Character.getType(codePoint) == Character.FORMAT;
+        }
+
+        private static boolean isMark(int codePoint) {
+            int type = Character.getType(codePoint);
+            return type == Character.NON_SPACING_MARK || type == Character.ENCLOSING_MARK
+                    || type == Character.COMBINING_SPACING_MARK;
         }
 
         private static String shorten(String text) {
