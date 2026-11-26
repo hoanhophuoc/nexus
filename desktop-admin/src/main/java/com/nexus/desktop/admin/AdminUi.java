@@ -9,6 +9,7 @@ import javafx.geometry.Bounds;
 import javafx.geometry.Pos;
 import javafx.scene.AccessibleAttribute;
 import javafx.scene.Node;
+import javafx.scene.Scene;
 import javafx.scene.chart.BarChart;
 import javafx.scene.chart.CategoryAxis;
 import javafx.scene.chart.NumberAxis;
@@ -25,6 +26,7 @@ import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.StackPane;
 import javafx.scene.text.Font;
 import javafx.scene.text.Text;
 import javafx.scene.text.TextAlignment;
@@ -36,6 +38,7 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -130,6 +133,9 @@ final class AdminUi {
         private boolean described;
 
         private final InvalidationListener focusListener = observable -> syncKeyboardFocus();
+        /** The tooltip's resolved font, with the stylesheets and theme it was resolved from. */
+        private static Font tooltipFont;
+        private static List<String> tooltipFontKey;
 
         private TruncatingTextCell(I18n i18n) {
             this.i18n = i18n;
@@ -269,9 +275,7 @@ final class AdminUi {
          */
         private String breakMarkedLines(String text) {
             if (!carriesMarkOnALetter(text)) return text;
-            // The hover copy paints at the same text font as the cell it explains; measuring the
-            // copy with it is what makes "does it fit" the question the popup answers.
-            Font font = getFont();
+            Font font = tooltipFont();
             Text measure = new Text();
             measure.setFont(font);
             if (fits(text, measure)) return text;
@@ -328,6 +332,33 @@ final class AdminUi {
                 offset += Character.charCount(codePoint);
             }
             return false;
+        }
+
+        /**
+         * The font the tooltip paints with, resolved from the stylesheets and theme the view is
+         * using rather than borrowed from the cell: the popup's own label carries the theme class,
+         * which is what sets the size, and a table styled larger than the theme still explains
+         * itself in the theme's font. Resolved once per stylesheets and theme.
+         */
+        private Font tooltipFont() {
+            Scene scene = getScene();
+            if (scene == null) return tooltipFont != null ? tooltipFont : getFont();
+            List<String> sheets = scene.getStylesheets();
+            List<String> theme = new ArrayList<>(scene.getRoot().getStyleClass());
+            theme.remove("root");
+            List<String> key = new ArrayList<>(sheets);
+            key.add("|");
+            key.addAll(theme);
+            if (tooltipFont != null && key.equals(tooltipFontKey)) return tooltipFont;
+            Label probe = new Label("");
+            probe.getStyleClass().add("tooltip");
+            probe.getStyleClass().addAll(theme);
+            Scene scratch = new Scene(new StackPane(probe));
+            scratch.getStylesheets().setAll(sheets);
+            probe.applyCss();
+            tooltipFont = probe.getFont();
+            tooltipFontKey = List.copyOf(key);
+            return tooltipFont;
         }
 
         /**

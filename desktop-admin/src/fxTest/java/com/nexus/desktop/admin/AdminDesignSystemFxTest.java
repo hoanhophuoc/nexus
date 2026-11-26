@@ -692,6 +692,62 @@ class AdminDesignSystemFxTest {
     }
 
     /**
+     * The width the copy is measured against is the tooltip's own, not the cell's. A table styled
+     * larger than the theme still explains itself in the theme's font — the popup's label carries
+     * the theme class, which sets the size — so this value fits the tooltip even though it would be
+     * too wide in the cell's larger font, and must not be broken.
+     */
+    @Test
+    void theCopyIsMeasuredWithTheTooltipsFontNotTheCells() throws Exception {
+        String token = "Rehabilitation-Wing-Suite-314-Flat-cafe" + "x\u0304"
+                + "Building3Storey2";
+        AtomicReference<Stage> stageReference = new AtomicReference<>();
+        TableView<String> table = onFx(() -> {
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            TableView<String> loaded = new TableView<>(FXCollections.observableArrayList(token));
+            // Only the cell is bigger; the tooltip keeps the theme's size.
+            loaded.setStyle("-fx-font-size: 18px;");
+            TableColumn<String, String> column = new TableColumn<>("Contact");
+            AdminUi.bind(column, value -> value);
+            AdminUi.explainTruncatedText(column, ENGLISH);
+            loaded.getColumns().add(column);
+            loaded.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+            Stage stage = new Stage();
+            stageReference.set(stage);
+            Scene scene = new Scene(loaded, 240, 160);
+            theme.apply(scene);
+            AdminViewLoader.applyStylesheet(scene);
+            stage.setScene(scene);
+            stage.show();
+            loaded.applyCss();
+            loaded.layout();
+            return loaded;
+        });
+        try {
+            TableCell<?, ?> cell = onFx(() -> cellWithText(table, token));
+            assertThat(cell).as("the value is rendered and clipped").isNotNull();
+            assertThat(cell.getFont().getSize())
+                    .as("the two fonts really differ: the cell draws this larger")
+                    .isGreaterThan(13.5);
+            Tooltip hover = cell.getTooltip();
+            assertThat(hover).as("a clipped value explains itself").isNotNull();
+            assertThat(hover.getText())
+                    .as("measured with the tooltip's font, this copy still fits on one line")
+                    .isEqualTo(token).doesNotContain("\n");
+
+            double[] size = shownSize(hover, cell);
+            assertThat(size[0]).as("the popup holds the copy: %s px", size[0])
+                    .isLessThanOrEqualTo(AdminUi.TOOLTIP_WRAP_WIDTH + 1);
+        } finally {
+            onFx(() -> {
+                stageReference.get().close();
+                return true;
+            });
+        }
+    }
+
+    /**
      * A run with no space in it may still carry sequences a reader sees as one character — a joined
      * family, a flag. Nothing is added to such a value: inside the 420 px width JavaFX wraps the run
      * at its own glyph boundaries, so the popup bounds it and both sequences stay in the text the
