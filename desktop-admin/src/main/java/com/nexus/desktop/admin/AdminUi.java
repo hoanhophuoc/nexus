@@ -31,6 +31,7 @@ import javafx.scene.text.TextAlignment;
 import javafx.stage.Popup;
 import javafx.stage.Window;
 
+import java.text.Normalizer;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -233,13 +234,19 @@ final class AdminUi {
         }
 
         /**
-         * The hover copy for {@code text}: the value itself, or its opening words when it is long.
-         * A run that never offers a space — a long email, a path — needs nothing added: inside the
-         * wrap width JavaFX breaks it at its own glyph boundaries, so the hover text, the accessible
-         * text and the copied value are all the same untouched value.
+         * The hover copy for {@code text}: the value itself, or its opening words when it is long,
+         * written in its composed form.
+         *
+         * <p>A run that never offers a space — a long email, a path — needs nothing added to wrap:
+         * inside {@link #TOOLTIP_WRAP_WIDTH} JavaFX breaks it at its own glyph boundaries. It does
+         * not do that for a value carrying a combining mark: the popup is then sized from the
+         * text's unwrapped width and paints outside its own box, so the copy is composed to NFC
+         * first. Those are the same glyphs in a canonically equivalent string; the cell keeps the
+         * value as submitted for the accessible text and the copy, so neither is rewritten.
          */
         private static String hoverPreview(String text) {
-            return text.length() <= TOOLTIP_PREVIEW_CHARS ? text : shorten(text);
+            String composed = Normalizer.normalize(text, Normalizer.Form.NFC);
+            return composed.length() <= TOOLTIP_PREVIEW_CHARS ? composed : shorten(composed);
         }
 
         private static String shorten(String text) {

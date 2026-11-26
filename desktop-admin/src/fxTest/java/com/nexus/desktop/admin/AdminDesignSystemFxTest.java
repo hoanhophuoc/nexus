@@ -29,6 +29,7 @@ import org.junit.jupiter.api.Test;
 import org.kordamp.ikonli.feather.Feather;
 import org.kordamp.ikonli.javafx.FontIcon;
 
+import java.text.Normalizer;
 import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
@@ -462,14 +463,73 @@ class AdminDesignSystemFxTest {
     }
 
     /**
+     * A value written with a combining mark is the one the cap used to lose: JavaFX sizes a tooltip
+     * carrying one from the text's unwrapped width, so the popup grew to 540 px and painted outside
+     * its own box. The hover copy is composed to NFC before it is measured, which keeps the same
+     * glyphs and lets the popup wrap at 420 px again — while the cell keeps the value as submitted
+     * for the accessible text and the copy.
+     */
+    @Test
+    void aValueWithACombiningMarkStaysInsideTheTooltipWidth() throws Exception {
+        String accented = "cafe\u0301";
+        String emoji = "\u2764\uFE0F";
+        String token = "Rehabilitation-Wing-Suite-314-Flat-" + accented + emoji
+                + "Building3Storey2ActiveResidentDesk314159";
+        assertThat(token).as("the sample writes the accent as a combining mark")
+                .contains("\u0301");
+        assertThat(token).as("the sample has no space to break at").doesNotContain(" ");
+        String composed = Normalizer.normalize(token, Normalizer.Form.NFC);
+
+        AtomicReference<Stage> stageReference = new AtomicReference<>();
+        TableView<String> table = onFx(() -> {
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            TableView<String> loaded = new TableView<>(FXCollections.observableArrayList(token));
+            TableColumn<String, String> column = new TableColumn<>("Contact");
+            AdminUi.bind(column, value -> value);
+            AdminUi.explainTruncatedText(column, ENGLISH);
+            loaded.getColumns().add(column);
+            loaded.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+            Stage stage = new Stage();
+            stageReference.set(stage);
+            Scene scene = new Scene(loaded, 240, 140);
+            theme.apply(scene);
+            AdminViewLoader.applyStylesheet(scene);
+            stage.setScene(scene);
+            stage.show();
+            loaded.applyCss();
+            loaded.layout();
+            return loaded;
+        });
+        try {
+            TableCell<?, ?> cell = onFx(() -> cellWithText(table, token));
+            assertThat(cell).as("the value is rendered and clipped").isNotNull();
+            Tooltip hover = cell.getTooltip();
+            assertThat(hover).as("a clipped value explains itself").isNotNull();
+            assertThat(hover.getText()).as("the hover copy carries the composed letter")
+                    .isEqualTo(composed).doesNotContain("\u0301");
+            assertThat(cell.getAccessibleText())
+                    .as("assistive technology reads the value as submitted")
+                    .isEqualTo(token);
+
+            double[] size = shownSize(hover, cell);
+            assertThat(size[0]).as("the popup wraps inside its width: %s px", size[0])
+                    .isLessThanOrEqualTo(AdminUi.TOOLTIP_WRAP_WIDTH + 1);
+            assertThat(size[1]).as("and stays inside the window: %s px", size[1])
+                    .isLessThan(200);
+        } finally {
+            onFx(() -> {
+                stageReference.get().close();
+                return true;
+            });
+        }
+    }
+
+    /**
      * A run with no space in it may still carry sequences a reader sees as one character — a joined
      * family, a flag. Nothing is added to such a value: inside the 420 px width JavaFX wraps the run
      * at its own glyph boundaries, so the popup bounds it and both sequences stay in the text the
-     * screen reader hears.
-     *
-     * <p>A combining accent is left out of this sample on purpose: a tooltip whose text contains one
-     * is sized from the unwrapped text (a JavaFX limit), so the 420 px width this test is about
-     * would not apply to it.
+     * screen reader hears. The combining-mark case has its own test.
      */
     @Test
     void aTokenWithJoinedSequencesStaysInsideTheTooltipWidth() throws Exception {
