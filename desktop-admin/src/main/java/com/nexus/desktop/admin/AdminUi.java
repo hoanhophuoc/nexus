@@ -133,9 +133,9 @@ final class AdminUi {
         private boolean described;
 
         private final InvalidationListener focusListener = observable -> syncKeyboardFocus();
-        /** The tooltip's resolved font, with the stylesheets and theme it was resolved from. */
+        /** The tooltip's resolved font, and the theme classes it was resolved from. */
         private static Font tooltipFont;
-        private static List<String> tooltipFontKey;
+        private static List<String> tooltipTheme;
 
         private TruncatingTextCell(I18n i18n) {
             this.i18n = i18n;
@@ -335,29 +335,25 @@ final class AdminUi {
         }
 
         /**
-         * The font the tooltip paints with, resolved from the stylesheets and theme the view is
-         * using rather than borrowed from the cell: the popup's own label carries the theme class,
-         * which is what sets the size, and a table styled larger than the theme still explains
-         * itself in the theme's font. Resolved once per stylesheets and theme.
+         * The font the popup paints its copy with. Its own label carries {@code .tooltip} and the
+         * view's theme class, and the theme is what sets the size — so the theme's class is all that
+         * is needed to ask the stylesheets, and the answer is kept until the theme changes.
          */
         private Font tooltipFont() {
             Scene scene = getScene();
-            if (scene == null) return tooltipFont != null ? tooltipFont : getFont();
-            List<String> sheets = scene.getStylesheets();
+            if (scene == null) return getFont();
             List<String> theme = new ArrayList<>(scene.getRoot().getStyleClass());
             theme.remove("root");
-            List<String> key = new ArrayList<>(sheets);
-            key.add("|");
-            key.addAll(theme);
-            if (tooltipFont != null && key.equals(tooltipFontKey)) return tooltipFont;
-            Label probe = new Label("");
-            probe.getStyleClass().add("tooltip");
-            probe.getStyleClass().addAll(theme);
-            Scene scratch = new Scene(new StackPane(probe));
-            scratch.getStylesheets().setAll(sheets);
-            probe.applyCss();
-            tooltipFont = probe.getFont();
-            tooltipFontKey = List.copyOf(key);
+            if (!theme.equals(tooltipTheme)) {
+                Label probe = new Label("");
+                probe.getStyleClass().add("tooltip");
+                probe.getStyleClass().addAll(theme);
+                Scene scratch = new Scene(new StackPane(probe));
+                scratch.getStylesheets().setAll(scene.getStylesheets());
+                probe.applyCss();
+                tooltipFont = probe.getFont();
+                tooltipTheme = List.copyOf(theme);
+            }
             return tooltipFont;
         }
 

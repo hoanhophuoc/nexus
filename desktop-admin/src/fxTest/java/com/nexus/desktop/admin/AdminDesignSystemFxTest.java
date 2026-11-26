@@ -748,6 +748,74 @@ class AdminDesignSystemFxTest {
     }
 
     /**
+     * The marked copies in the dark theme, which is where the popup and the cell really do paint in
+     * different fonts: only the light theme class sets a font, so the tooltip's own label resolves to
+     * a smaller size there. The long value is broken, the short one keeps its single line, and both
+     * popups stay inside the width.
+     */
+    @Test
+    void aMarkedCopyStaysInsideTheTooltipWidthInTheDarkTheme() throws Exception {
+        String longToken = "Rehabilitation-Wing-Suite-314-Flat-cafe" + "x\u0304"
+                + "Building3Storey2ActiveResidentDesk314159" + "\u0915\u093F" + "ActiveResidentDesk314159";
+        // Fits the popup's 11.1 px dark font but not the cell's 13 px one, so this value only keeps
+        // its single line if the copy is measured with the tooltip's own font.
+        String shortToken = "Rehabilitation-Wing-Suite-314-Flat-cafe" + "x\u0304"
+                + "Building3Storey2ActiveDes";
+        AtomicReference<Stage> stageReference = new AtomicReference<>();
+        TableView<String> table = onFx(() -> {
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.DARK);
+            TableView<String> loaded = new TableView<>(
+                    FXCollections.observableArrayList(longToken, shortToken));
+            TableColumn<String, String> column = new TableColumn<>("Contact");
+            AdminUi.bind(column, value -> value);
+            AdminUi.explainTruncatedText(column, ENGLISH);
+            loaded.getColumns().add(column);
+            loaded.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+            Stage stage = new Stage();
+            stageReference.set(stage);
+            // Narrow enough that both values are clipped by their cells, so each explains itself.
+            Scene scene = new Scene(loaded, 120, 160);
+            theme.apply(scene);
+            AdminViewLoader.applyStylesheet(scene);
+            stage.setScene(scene);
+            stage.show();
+            loaded.applyCss();
+            loaded.layout();
+            return loaded;
+        });
+        try {
+            TableCell<?, ?> longCell = onFx(() -> cellWithText(table, longToken));
+            assertThat(longCell).as("the long value is rendered and clipped").isNotNull();
+            Tooltip longHover = longCell.getTooltip();
+            assertThat(longHover).as("a clipped value explains itself").isNotNull();
+            assertThat(longHover.getText()).as("the long copy is broken into lines").contains("\n");
+            assertThat(longHover.getText().replace("\n", ""))
+                    .as("every code point survives in order").isEqualTo(longToken);
+            double[] longSize = shownSize(longHover, longCell);
+            assertThat(longSize[0]).as("the long popup wraps inside its width: %s px", longSize[0])
+                    .isLessThanOrEqualTo(AdminUi.TOOLTIP_WRAP_WIDTH + 1);
+            assertThat(longSize[1]).as("and stays inside the window: %s px", longSize[1])
+                    .isLessThan(200);
+
+            TableCell<?, ?> shortCell = onFx(() -> cellWithText(table, shortToken));
+            assertThat(shortCell).as("the short value is rendered and clipped").isNotNull();
+            Tooltip shortHover = shortCell.getTooltip();
+            assertThat(shortHover).as("a clipped value explains itself").isNotNull();
+            assertThat(shortHover.getText()).as("a copy that fits is not broken")
+                    .isEqualTo(shortToken).doesNotContain("\n");
+            double[] shortSize = shownSize(shortHover, shortCell);
+            assertThat(shortSize[0]).as("the short popup holds the copy: %s px", shortSize[0])
+                    .isLessThanOrEqualTo(AdminUi.TOOLTIP_WRAP_WIDTH + 1);
+        } finally {
+            onFx(() -> {
+                stageReference.get().close();
+                return true;
+            });
+        }
+    }
+
+    /**
      * A run with no space in it may still carry sequences a reader sees as one character — a joined
      * family, a flag. Nothing is added to such a value: inside the 420 px width JavaFX wraps the run
      * at its own glyph boundaries, so the popup bounds it and both sequences stay in the text the
