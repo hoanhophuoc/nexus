@@ -113,12 +113,11 @@ final class AdminUi {
     static final int TOOLTIP_PREVIEW_CHARS = 200;
 
     /**
-     * How many characters a hover copy may put on one line when it carries a mark JavaFX will not
-     * wrap. 32 was measured on the popup itself across Latin, Devanagari, Han with a macron, a flag
-     * and a joined family: the widest line stayed at 367 px, inside the 420 px width, and a
-     * 200-character value takes seven lines, well inside the height a tooltip may take.
+     * The room a tooltip leaves for its copy: {@link #TOOLTIP_WRAP_WIDTH} less the 8 px each side the
+     * theme's {@code .tooltip} padding takes. A copy above this is the one JavaFX will not wrap by
+     * itself once it carries a mark on a letter.
      */
-    static final int MARKED_LINE_CHARS = 32;
+    static final double TOOLTIP_TEXT_WIDTH = TOOLTIP_WRAP_WIDTH - 16;
 
     /** The style class that marks the cell the keyboard has reached; see {@code admin.css}. */
     static final String KEYBOARD_FOCUS_CLASS = "admin-cell-focus";
@@ -255,7 +254,7 @@ final class AdminUi {
          * keeps the value as submitted for the accessible text and the copy, so neither is
          * rewritten.
          */
-        private static String hoverPreview(String text) {
+        private String hoverPreview(String text) {
             String composed = Normalizer.normalize(text, Normalizer.Form.NFC);
             String preview = composed.length() <= TOOLTIP_PREVIEW_CHARS
                     ? composed : shorten(composed);
@@ -263,27 +262,57 @@ final class AdminUi {
         }
 
         /**
-         * Breaks a copy that still carries a combining mark into {@link #MARKED_LINE_CHARS}-character
-         * lines, never between a letter and its mark and never inside a joined sequence. Every code
-         * point survives in order; only the newlines are added. A value with no mark on a letter is
-         * returned untouched, so nothing about it changes.
+         * Breaks a copy that is wider than the tooltip allows and still carries a combining mark, at
+         * the grid the tooltip paints in, never between a letter and its mark and never inside a
+         * joined sequence. A copy that fits on one line is returned untouched, and so is one with no
+         * mark on a letter, so nothing about either changes.
          */
-        private static String breakMarkedLines(String text) {
+        private String breakMarkedLines(String text) {
             if (!carriesMarkOnALetter(text)) return text;
-            StringBuilder broken = new StringBuilder(text.length() + text.length() / MARKED_LINE_CHARS);
-            int sinceBreak = 0;
-            for (int offset = 0; offset < text.length(); ) {
-                int codePoint = text.codePointAt(offset);
-                int width = Character.charCount(codePoint);
-                if (sinceBreak >= MARKED_LINE_CHARS && !attachesToPrevious(codePoint)) {
-                    broken.append('\n');
-                    sinceBreak = 0;
+            // The hover copy paints at the same text font as the cell it explains; measuring the
+            // copy with it is what makes "does it fit" the question the popup answers.
+            Font font = getFont();
+            Text measure = new Text();
+            measure.setFont(font);
+            if (fits(text, measure)) return text;
+            StringBuilder broken = new StringBuilder(text.length() + 8);
+            String rest = text;
+            while (!rest.isEmpty()) {
+                int fitted = 0;
+                int space = -1;
+                for (int cursor = 0; cursor < rest.length(); cursor = nextCluster(rest, cursor)) {
+                    int next = nextCluster(rest, cursor);
+                    measure.setText(rest.substring(0, next));
+                    if (measure.getLayoutBounds().getWidth() > TOOLTIP_TEXT_WIDTH && cursor > 0) break;
+                    fitted = next;
+                    if (rest.charAt(next - 1) == ' ') space = next - 1;
                 }
-                broken.append(text, offset, offset + width);
-                offset += width;
-                sinceBreak++;
+                if (fitted >= rest.length()) {
+                    broken.append(rest);
+                    break;
+                }
+                // A space reads better than the middle of a word, as long as it does not leave the
+                // line mostly empty; otherwise the last cluster that fitted is the break.
+                boolean atSpace = space > fitted / 2;
+                broken.append(rest, 0, atSpace ? space : fitted).append('\n');
+                rest = rest.substring(atSpace ? space + 1 : fitted);
             }
             return broken.toString();
+        }
+
+        /** Whether the whole copy fits the tooltip's own width, so it needs no break at all. */
+        private static boolean fits(String text, Text measure) {
+            measure.setText(text);
+            return measure.getLayoutBounds().getWidth() <= TOOLTIP_TEXT_WIDTH;
+        }
+
+        /** The index just past the cluster that starts at {@code offset}: a base and its marks. */
+        private static int nextCluster(String text, int offset) {
+            int next = offset + Character.charCount(text.codePointAt(offset));
+            while (next < text.length() && attachesToPrevious(text.codePointAt(next))) {
+                next += Character.charCount(text.codePointAt(next));
+            }
+            return next;
         }
 
         /** A combining mark on a letter: the case that stops JavaFX from wrapping the tooltip. */

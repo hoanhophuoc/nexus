@@ -589,6 +589,109 @@ class AdminDesignSystemFxTest {
     }
 
     /**
+     * The hand breaking is only for a copy the tooltip cannot fit: a short value carrying the same
+     * kind of uncomposable mark is left exactly as it is, on one line, with no newline added.
+     */
+    @Test
+    void aShortValueWithAMarkStaysOnOneUnbrokenLine() throws Exception {
+        String token = "Ticket-3145-cafe" + "x\u0304" + "Building3";
+        assertThat(Normalizer.normalize(token, Normalizer.Form.NFC))
+                .as("the sample carries a mark composing cannot remove").isEqualTo(token);
+
+        AtomicReference<Stage> stageReference = new AtomicReference<>();
+        TableView<String> table = onFx(() -> {
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            TableView<String> loaded = new TableView<>(FXCollections.observableArrayList(token));
+            TableColumn<String, String> column = new TableColumn<>("Contact");
+            AdminUi.bind(column, value -> value);
+            AdminUi.explainTruncatedText(column, ENGLISH);
+            loaded.getColumns().add(column);
+            loaded.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+            Stage stage = new Stage();
+            stageReference.set(stage);
+            // Narrow enough that this short value is still clipped by the cell, so it explains itself.
+            Scene scene = new Scene(loaded, 120, 140);
+            theme.apply(scene);
+            AdminViewLoader.applyStylesheet(scene);
+            stage.setScene(scene);
+            stage.show();
+            loaded.applyCss();
+            loaded.layout();
+            return loaded;
+        });
+        try {
+            TableCell<?, ?> cell = onFx(() -> cellWithText(table, token));
+            assertThat(cell).as("the value is rendered and clipped").isNotNull();
+            Tooltip hover = cell.getTooltip();
+            assertThat(hover).as("a clipped value explains itself").isNotNull();
+            assertThat(hover.getText()).as("a copy that fits is not broken")
+                    .isEqualTo(token).doesNotContain("\n");
+            assertThat(cell.getAccessibleText())
+                    .as("assistive technology reads the value as submitted")
+                    .isEqualTo(token);
+
+            double[] size = shownSize(hover, cell);
+            assertThat(size[0]).as("the popup holds the copy: %s px", size[0])
+                    .isLessThanOrEqualTo(AdminUi.TOOLTIP_WRAP_WIDTH + 1);
+        } finally {
+            onFx(() -> {
+                stageReference.get().close();
+                return true;
+            });
+        }
+    }
+
+    /**
+     * A value too wide for the tooltip that does offer spaces breaks at them rather than through the
+     * middle of a word, and rejoining the lines rebuilds the value exactly.
+     */
+    @Test
+    void aValueTooWideForTheTooltipBreaksAtASpace() throws Exception {
+        String token = "Rehabilitation Wing Suite 314 Flat cafe" + "x\u0304"
+                + " with a long body of text that has to wrap somewhere sensible inside the popup";
+        AtomicReference<Stage> stageReference = new AtomicReference<>();
+        TableView<String> table = onFx(() -> {
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            TableView<String> loaded = new TableView<>(FXCollections.observableArrayList(token));
+            TableColumn<String, String> column = new TableColumn<>("Contact");
+            AdminUi.bind(column, value -> value);
+            AdminUi.explainTruncatedText(column, ENGLISH);
+            loaded.getColumns().add(column);
+            loaded.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+            Stage stage = new Stage();
+            stageReference.set(stage);
+            Scene scene = new Scene(loaded, 200, 140);
+            theme.apply(scene);
+            AdminViewLoader.applyStylesheet(scene);
+            stage.setScene(scene);
+            stage.show();
+            loaded.applyCss();
+            loaded.layout();
+            return loaded;
+        });
+        try {
+            TableCell<?, ?> cell = onFx(() -> cellWithText(table, token));
+            assertThat(cell).as("the value is rendered and clipped").isNotNull();
+            Tooltip hover = cell.getTooltip();
+            assertThat(hover).as("a clipped value explains itself").isNotNull();
+            assertThat(hover.getText()).as("the copy is broken into lines").contains("\n");
+            assertThat(hover.getText().replace("\n", " "))
+                    .as("the lines are the value, broken where its spaces were").isEqualTo(token);
+
+            double[] size = shownSize(hover, cell);
+            assertThat(size[0]).as("the popup holds the copy: %s px", size[0])
+                    .isLessThanOrEqualTo(AdminUi.TOOLTIP_WRAP_WIDTH + 1);
+        } finally {
+            onFx(() -> {
+                stageReference.get().close();
+                return true;
+            });
+        }
+    }
+
+    /**
      * A run with no space in it may still carry sequences a reader sees as one character — a joined
      * family, a flag. Nothing is added to such a value: inside the 420 px width JavaFX wraps the run
      * at its own glyph boundaries, so the popup bounds it and both sequences stay in the text the
