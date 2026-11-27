@@ -3,7 +3,6 @@ package com.nexus.desktop.user;
 import com.nexus.desktop.shared.cache.MessageSearchResult;
 import com.nexus.sdk.model.Conversation;
 import javafx.application.Platform;
-import javafx.collections.ListChangeListener;
 import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
@@ -14,7 +13,6 @@ import javafx.scene.control.MenuButton;
 import javafx.scene.control.MenuItem;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
-import javafx.scene.layout.Pane;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 import org.junit.jupiter.api.Test;
@@ -28,6 +26,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 
 import static com.nexus.desktop.shared.testing.FxThread.onFx;
 import static com.nexus.desktop.shared.testing.FxThread.waitForFx;
@@ -572,8 +571,10 @@ class ShellStateFxTest {
     }
 
     private static String rowsOf(Stage stage) {
-        Node rows = stage.getScene().lookup("#messageRows");
-        return rows == null ? "none" : labelsIn(rows).toString();
+        if (!(stage.getScene().lookup("#messageList") instanceof ListView<?> list)) return "none";
+        StringBuilder text = new StringBuilder("[");
+        for (Object item : list.getItems()) text.append(item).append(", ");
+        return text.append(']').toString();
     }
 
     private static boolean statusIs(Stage stage, String text) {
@@ -593,15 +594,16 @@ class ShellStateFxTest {
      * rather than sampled, so a swap that is undone before the next poll still counts.
      */
     private static void watchForLoadingPlaceholder(Stage stage, String loadingText, AtomicBoolean seen) {
-        Node rows = stage.getScene().lookup("#messageRows");
-        if (!(rows instanceof Pane timeline)) throw new AssertionError("The shell has no timeline");
-        timeline.getChildren().addListener((ListChangeListener<Node>) change -> {
-            while (change.next()) {
-                for (Node added : change.getAddedSubList()) {
-                    if (labelsIn(added).contains(loadingText)) seen.set(true);
-                }
-            }
-        });
+        if (!(stage.getScene().lookup("#messageList") instanceof ListView<?> list)) {
+            throw new AssertionError("The shell has no timeline");
+        }
+        Consumer<Node> inspect = placeholder -> {
+            if (placeholder != null && labelsIn(placeholder).contains(loadingText)) seen.set(true);
+        };
+        // Only a change counts. A placeholder already on screen when the watch is installed was put
+        // there by whatever the timeline was doing before this step, not by the refresh the step is
+        // about; recording it would fail the step for a state the refresh did not cause.
+        list.placeholderProperty().addListener((observable, previous, next) -> inspect.accept(next));
     }
 
     private static boolean subtitleIs(Stage stage, String text) {

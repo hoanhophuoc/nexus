@@ -97,7 +97,7 @@ Still open before production adoption:
   tokens do not reach ComboBox/DatePicker popups by themselves. Adoption must apply the shared
   stylesheet to popup scenes and prove it on a rendered control.
 - Focus, keyboard and accessibility behaviour of the AtlantaFX-only controls inside real Nexus
-  screens, and the 5,000-message timeline benchmark that decides on virtualization.
+  screens.
 
 The check runs in the `fx-test` CI job; its screenshots are uploaded as the `ui-spike` artifact.
 

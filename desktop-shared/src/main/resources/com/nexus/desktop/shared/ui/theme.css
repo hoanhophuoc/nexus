@@ -413,18 +413,31 @@
     -fx-text-fill: -color-text;
 }
 
-.message-scroll {
-    -fx-background-color: transparent;
-    -fx-background: transparent;
-    -fx-padding: 0;
-}
-
-.message-scroll > .viewport {
-    -fx-background-color: transparent;
-}
-
+/* The timeline is a virtualized ListView: only the cells it shows are nodes. */
 .message-list {
-    -fx-padding: 20px 22px 8px 22px;
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-padding: 12px 0 4px 0;
+}
+
+.message-list:focused {
+    -fx-border-color: -color-focus-ring;
+    -fx-border-width: 1px;
+    -fx-border-radius: 6px;
+}
+
+.timeline-cell {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-padding: 2px 22px;
+}
+
+/* Selection is not the timeline's interaction: the reader scrolls and acts on a message, so a
+   recycled cell must never paint a selected row. */
+.timeline-cell:filled:selected,
+.timeline-cell:filled:focused,
+.timeline-cell:odd:filled:selected {
+    -fx-background-color: transparent;
 }
 
 .message-row {
