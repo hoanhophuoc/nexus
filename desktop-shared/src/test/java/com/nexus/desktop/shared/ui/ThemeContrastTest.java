@@ -34,6 +34,23 @@ class ThemeContrastTest {
     }
 
     @Test
+    void theLightPaletteIsDeclaredForTheSceneRootAndTheThemeClass() throws IOException {
+        // A popup root carries the theme class; without `.theme-light` in the selector list it
+        // would have no tokens of its own when it is not the scene root.
+        assertThat(stylesheet()).as("light palette selector")
+                .contains(".root, .theme-light {");
+    }
+
+    @Test
+    void bothThemesDeclareTheSameSemanticTokens() throws IOException {
+        Map<String, int[]> light = tokens(".theme-light");
+        Map<String, int[]> dark = tokens(".theme-dark");
+        assertThat(light).as("light palette size").hasSizeGreaterThanOrEqualTo(21);
+        assertThat(light.keySet()).as("tokens declared by both palettes")
+                .containsExactlyInAnyOrderElementsOf(dark.keySet());
+    }
+
+    @Test
     void comboAndDatePickerPopupPairsMeetAaInBothThemes() throws IOException {
         assertPopupContrast("light", ".root");
         assertPopupContrast("dark", ".theme-dark");
@@ -96,13 +113,19 @@ class ThemeContrastTest {
                 .isGreaterThanOrEqualTo(minimum);
     }
 
-    private static Map<String, int[]> tokens(String selector) throws IOException {
-        String css;
+    private static String stylesheet() throws IOException {
         try (InputStream stream = ThemeContrastTest.class.getResourceAsStream(STYLESHEET)) {
             assertThat(stream).as("theme stylesheet resource").isNotNull();
-            css = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+            return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
         }
-        Matcher block = Pattern.compile(Pattern.quote(selector) + "\\s*\\{([^}]*)}")
+    }
+
+    private static Map<String, int[]> tokens(String selector) throws IOException {
+        String css = stylesheet();
+        // The light palette is declared on a selector list (`.root, .theme-light`) so a popup root
+        // that carries the theme class but is not the scene root still resolves its tokens; the
+        // block is the same one, whatever else shares the selector.
+        Matcher block = Pattern.compile(Pattern.quote(selector) + "[^{]*\\{([^}]*)}")
                 .matcher(css);
         assertThat(block.find()).as("CSS block %s", selector).isTrue();
         Matcher token = Pattern.compile(

@@ -3,7 +3,6 @@ package com.nexus.desktop.user;
 import com.nexus.desktop.shared.cache.MessageSearchResult;
 import com.nexus.sdk.model.Conversation;
 import javafx.application.Platform;
-import javafx.collections.ListChangeListener;
 import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
@@ -14,12 +13,13 @@ import javafx.scene.control.MenuButton;
 import javafx.scene.control.MenuItem;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
-import javafx.scene.layout.Pane;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
@@ -28,6 +28,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 
 import static com.nexus.desktop.shared.testing.FxThread.onFx;
 import static com.nexus.desktop.shared.testing.FxThread.waitForFx;
@@ -64,6 +65,40 @@ class ShellStateFxTest {
 
     @Test
     void movesBetweenConversationsAndIgnoresAStaleRealtimeEvent(@TempDir Path home) throws Exception {
+        runShellTable(home);
+    }
+
+    /**
+     * Opt-in stress mode: the same table, repeated in this JVM. It is a separate test so the gate
+     * keeps the suite's 60 second cap on the pass above — this method does not exist for the gate
+     * unless {@code -Dnexus.shellTable.repeat=N} is set, and only then is its own timeout raised.
+     *
+     * <p>Each pass builds a fresh server, socket, window and cache directory, so a race that needs
+     * a particular interleaving, or state left behind by an earlier shell, gets many chances without
+     * a longer wait in any step and without external CPU load.
+     */
+    @Test
+    @EnabledIfSystemProperty(named = "nexus.shellTable.repeat", matches = "\\d+")
+    @org.junit.jupiter.api.Timeout(value = 30, unit = TimeUnit.MINUTES)
+    void repeatedShellTableStress(@TempDir Path home) throws Exception {
+        int iterations = Integer.getInteger("nexus.shellTable.repeat", 1);
+        if (iterations < 1) {
+            throw new IllegalArgumentException("nexus.shellTable.repeat must be at least 1, was " + iterations);
+        }
+        for (int iteration = 1; iteration <= iterations; iteration++) {
+            Path iterationHome = home.resolve("iteration-" + iteration);
+            Files.createDirectories(iterationHome);
+            System.out.println("shell table iteration " + iteration + " of " + iterations);
+            try {
+                runShellTable(iterationHome);
+            } catch (Exception | AssertionError failed) {
+                throw new AssertionError("shell table iteration " + iteration + " of " + iterations
+                        + " failed: " + failed.getMessage(), failed);
+            }
+        }
+    }
+
+    private void runShellTable(Path home) throws Exception {
         String previousHome = System.getProperty("user.home");
         System.setProperty("user.home", home.toString());
         try (FakeChatServer server = new FakeChatServer();
@@ -121,11 +156,7 @@ class ShellStateFxTest {
                                     watchForLoadingPlaceholder(stage, LOADING_MESSAGES, timelineShowedLoading);
                                     Platform.runLater(() -> button(stage, "Group settings").fire());
                                     Window settings = awaitDialog("#nameField");
-                                    Platform.runLater(() -> {
-                                        ((TextField) settings.getScene().lookup("#nameField"))
-                                                .setText(RENAMED_GROUP);
-                                        primaryButton(settings).fire();
-                                    });
+                                    renameWhenReady(settings, RENAMED_GROUP);
                                 },
                                 () -> server.groupName().equals(RENAMED_GROUP)
                                         && titleIs(stage, RENAMED_GROUP)
@@ -397,12 +428,19 @@ class ShellStateFxTest {
                                 () -> server.reports() == 1 && server.reportsWithEvidence() == 1));
 
                 for (Step step : table) {
-                    step.action().run();
+                    try {
+                        step.action().run();
+                    } catch (RuntimeException | AssertionError failed) {
+                        throw new AssertionError("step \"" + step.state() + "\" failed while acting: "
+                                + failed.getMessage() + " (shell: " + shellDiagnostics(stage) + ")",
+                                failed);
+                    }
                     try {
                         waitForFx(step.settled(), Duration.ofSeconds(10));
                     } catch (AssertionError unmet) {
-                        throw new AssertionError(step.state() + ": " + unmet.getMessage()
-                                + " (" + onFx(() -> diagnostics(stage)) + ")", unmet);
+                        throw new AssertionError("step \"" + step.state() + "\" did not settle: "
+                                + unmet.getMessage() + " (shell: " + shellDiagnostics(stage) + ")",
+                                unmet);
                     }
                 }
 
@@ -463,6 +501,21 @@ class ShellStateFxTest {
     private static boolean dialogShowing(String lookupId) {
         return Window.getWindows().stream().anyMatch(window -> window.isShowing()
                 && window.getScene() != null && window.getScene().lookup(lookupId) != null);
+    }
+
+    /**
+     * Renames through the settings dialog once its rename button is enabled. The controller learns
+     * that the signed-in user is an admin from the member list and keeps the action disabled until
+     * then, so this waits for that state — the same readiness a person sees — instead of clicking a
+     * button whose action the dialog would refuse.
+     */
+    private static void renameWhenReady(Window settings, String name) {
+        waitForFx(() -> settings.getScene().lookup("#renameButton") instanceof Button rename
+                && !rename.isDisabled(), Duration.ofSeconds(10));
+        Platform.runLater(() -> {
+            ((TextField) settings.getScene().lookup("#nameField")).setText(name);
+            primaryButton(settings).fire();
+        });
     }
 
     /** A picker's confirm button is the styled primary one; its cancel is the ghost next to it. */
@@ -571,9 +624,27 @@ class ShellStateFxTest {
                 + ", rows " + rowsOf(stage);
     }
 
+    /**
+     * The shell's state for a failure report, or why it could not be read. A run that fails because
+     * the FX thread is stuck cannot answer a diagnostic read either, and losing the failed step to a
+     * second timeout is worse than reporting the step without the shell's labels.
+     */
+    private static String shellDiagnostics(Stage stage) {
+        long start = System.nanoTime();
+        try {
+            String state = onFx(() -> diagnostics(stage));
+            return state + ", FX thread answered in "
+                    + (System.nanoTime() - start) / 1_000_000 + " ms";
+        } catch (AssertionError fxThreadStuck) {
+            return "unavailable, the FX thread did not answer: " + fxThreadStuck.getMessage();
+        }
+    }
+
     private static String rowsOf(Stage stage) {
-        Node rows = stage.getScene().lookup("#messageRows");
-        return rows == null ? "none" : labelsIn(rows).toString();
+        if (!(stage.getScene().lookup("#messageList") instanceof ListView<?> list)) return "none";
+        StringBuilder text = new StringBuilder("[");
+        for (Object item : list.getItems()) text.append(item).append(", ");
+        return text.append(']').toString();
     }
 
     private static boolean statusIs(Stage stage, String text) {
@@ -593,15 +664,16 @@ class ShellStateFxTest {
      * rather than sampled, so a swap that is undone before the next poll still counts.
      */
     private static void watchForLoadingPlaceholder(Stage stage, String loadingText, AtomicBoolean seen) {
-        Node rows = stage.getScene().lookup("#messageRows");
-        if (!(rows instanceof Pane timeline)) throw new AssertionError("The shell has no timeline");
-        timeline.getChildren().addListener((ListChangeListener<Node>) change -> {
-            while (change.next()) {
-                for (Node added : change.getAddedSubList()) {
-                    if (labelsIn(added).contains(loadingText)) seen.set(true);
-                }
-            }
-        });
+        if (!(stage.getScene().lookup("#messageList") instanceof ListView<?> list)) {
+            throw new AssertionError("The shell has no timeline");
+        }
+        Consumer<Node> inspect = placeholder -> {
+            if (placeholder != null && labelsIn(placeholder).contains(loadingText)) seen.set(true);
+        };
+        // Only a change counts. A placeholder already on screen when the watch is installed was put
+        // there by whatever the timeline was doing before this step, not by the refresh the step is
+        // about; recording it would fail the step for a state the refresh did not cause.
+        list.placeholderProperty().addListener((observable, previous, next) -> inspect.accept(next));
     }
 
     private static boolean subtitleIs(Stage stage, String text) {

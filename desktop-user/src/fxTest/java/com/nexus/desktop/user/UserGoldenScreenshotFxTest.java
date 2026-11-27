@@ -11,13 +11,18 @@ import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.SnapshotParameters;
+import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
+import javafx.scene.control.MenuButton;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListView;
+import javafx.scene.control.TextField;
 import javafx.scene.image.PixelReader;
 import javafx.scene.image.WritableImage;
 import javafx.scene.paint.Color;
+import javafx.stage.PopupWindow;
 import javafx.stage.Stage;
+import javafx.stage.Window;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -116,6 +121,85 @@ class UserGoldenScreenshotFxTest {
                 waitForFx(() -> groupSettings.lookup("#membersList") instanceof javafx.scene.control.ListView<?> list
                         && list.getItems().size() == 2, Duration.ofSeconds(10));
                 snapshot(stage, groupSettings, "group-light.png", "group-dark.png", theme, null, i18n);
+            } finally {
+                onFx(() -> {
+                    stage.close();
+                    context.close();
+                    return true;
+                });
+            }
+        } finally {
+            TimeZone.setDefault(previousZone);
+            if (previousHome == null) System.clearProperty("user.home");
+            else System.setProperty("user.home", previousHome);
+        }
+    }
+
+    /**
+     * The popups are scenes of their own, so they get a baseline of their own: the ComboBox list of
+     * the account screen and the message actions menu, each captured while it is open and then
+     * captured again after the theme changes underneath it. A popup that stops repainting renders
+     * the other theme's surface and fails here even though every screen golden still matches.
+     */
+    @Test
+    void openPopupsKeepTheirThemeAcrossAFlip(@TempDir Path home) throws Exception {
+        String previousHome = System.getProperty("user.home");
+        TimeZone previousZone = TimeZone.getDefault();
+        System.setProperty("user.home", home.toString());
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+        try (FakeChatServer server = new FakeChatServer()) {
+            Stage stage = onFx(Stage::new);
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            I18n i18n = new I18n(BASE, Locale.ENGLISH);
+            UserAppContext context = new UserAppContext(stage, server.origin().toString(), false,
+                    null, theme, i18n);
+            context.activate(context.signIn("alice", PASSWORD.toCharArray()));
+            try {
+                Parent account = onFx(() -> mount(stage, theme,
+                        ViewLoader.load(ViewLoader.ACCOUNT, new AccountController(context,
+                                id -> { }, user -> { }, () -> { }, () -> { }), i18n),
+                        960, 720));
+                waitForFx(() -> account.lookup("#friendsList") instanceof ListView<?> list
+                        && !list.getItems().isEmpty(), Duration.ofSeconds(10));
+                ComboBox<?> gender = (ComboBox<?>) onFx(() -> account.lookup("#profileGenderField"));
+                assertThat(gender).as("the account gender choice").isNotNull();
+                Parent comboPopup = openPopup(gender::show, ".list-view");
+                capturePopup(comboPopup, "popup-combo-light.png");
+
+                onFx(() -> {
+                    theme.setTheme(Theme.DARK);
+                    return true;
+                });
+                waitForFx(() -> comboPopup.getStyleClass().contains("theme-dark"),
+                        Duration.ofSeconds(10));
+                capturePopup(comboPopup, "popup-combo-dark.png");
+                onFx(() -> {
+                    gender.hide();
+                    return true;
+                });
+
+                // The shell mounts in the dark theme that is now active, so its menu opens dark and
+                // the capture after the flip proves the light palette arrives while it is open.
+                Parent shell = onFx(() -> mount(stage, theme,
+                        ViewLoader.load(ViewLoader.SHELL, new ShellController(context, () -> { }), i18n),
+                        1180, 760));
+                waitForFx(() -> shell.lookupAll(".message-bubble").size() == 1
+                        && shell.lookup("#statusLabel") instanceof Label status
+                        && i18n.get("shell.connected").equals(status.getText()),
+                        Duration.ofSeconds(10));
+                MenuButton actions = (MenuButton) onFx(() -> shell.lookup(".menu-button"));
+                assertThat(actions).as("the message actions menu").isNotNull();
+                Parent menuPopup = openPopup(actions::show, ".context-menu");
+                capturePopup(menuPopup, "popup-menu-dark.png");
+
+                onFx(() -> {
+                    theme.setTheme(Theme.LIGHT);
+                    return true;
+                });
+                waitForFx(() -> menuPopup.getStyleClass().contains("theme-light"),
+                        Duration.ofSeconds(10));
+                capturePopup(menuPopup, "popup-menu-light.png");
             } finally {
                 onFx(() -> {
                     stage.close();
@@ -231,6 +315,42 @@ class UserGoldenScreenshotFxTest {
     }
 
     /**
+     * The sign-in screen in Vietnamese, which is the first screen of the product and the one whose
+     * longest labels ("Đăng nhập", "Quên mật khẩu?") are not exercised by the English baseline.
+     */
+    @Test
+    void vietnameseLoginMatchesGoldensInLightAndDark(@TempDir Path home) throws Exception {
+        String previousHome = System.getProperty("user.home");
+        TimeZone previousZone = TimeZone.getDefault();
+        System.setProperty("user.home", home.toString());
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+        try (FakeChatServer server = new FakeChatServer()) {
+            Stage stage = onFx(Stage::new);
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            I18n i18n = new I18n(BASE, Locale.forLanguageTag("vi"));
+            UserAppContext context = new UserAppContext(stage, server.origin().toString(), false,
+                    null, theme, i18n);
+            try {
+                Parent login = onFx(() -> mount(stage, theme,
+                        ViewLoader.load(ViewLoader.LOGIN, new LoginController(context, profile -> { }),
+                                i18n), 520, 640));
+                snapshot(stage, login, "login-vi-light.png", "login-vi-dark.png", theme, null, i18n);
+            } finally {
+                onFx(() -> {
+                    stage.close();
+                    context.close();
+                    return true;
+                });
+            }
+        } finally {
+            TimeZone.setDefault(previousZone);
+            if (previousHome == null) System.clearProperty("user.home");
+            else System.setProperty("user.home", previousHome);
+        }
+    }
+
+    /**
      * The same chat shell in Vietnamese. Text is the only intended difference from the English
      * baseline; longer strings that clip, wrap unexpectedly or push the composer out of the window
      * are exactly what a string-only assertion cannot catch.
@@ -317,6 +437,299 @@ class UserGoldenScreenshotFxTest {
             if (previousHome == null) System.clearProperty("user.home");
             else System.setProperty("user.home", previousHome);
         }
+    }
+
+    /**
+     * The account, registration, report and group-settings screens in Vietnamese. These are the
+     * forms whose labels are longest, and none of them had a translated baseline: a clipped button,
+     * a wrapped helper line or a field pushed out of its column is exactly what the English capture
+     * cannot show.
+     */
+    @Test
+    void vietnameseUserScreensMatchGoldensInLightAndDark(@TempDir Path home) throws Exception {
+        String previousHome = System.getProperty("user.home");
+        TimeZone previousZone = TimeZone.getDefault();
+        System.setProperty("user.home", home.toString());
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+        try (FakeChatServer server = new FakeChatServer()) {
+            Stage stage = onFx(Stage::new);
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            I18n i18n = new I18n(BASE, Locale.forLanguageTag("vi"));
+            UserAppContext context = new UserAppContext(stage, server.origin().toString(), false,
+                    null, theme, i18n);
+            context.activate(context.signIn("alice", PASSWORD.toCharArray()));
+            try {
+                Parent account = onFx(() -> mount(stage, theme,
+                        ViewLoader.load(ViewLoader.ACCOUNT, new AccountController(context,
+                                id -> { }, user -> { }, () -> { }, () -> { }), i18n),
+                        960, 720));
+                waitForFx(() -> account.lookup("#friendsList") instanceof ListView<?> list
+                        && !list.getItems().isEmpty(), Duration.ofSeconds(10));
+                snapshot(stage, account, "account-vi-light.png", "account-vi-dark.png", theme, null, i18n);
+
+                Parent register = onFx(() -> mount(stage, theme,
+                        ViewLoader.load(ViewLoader.REGISTER, new RegisterController(context,
+                                username -> { }, () -> { }), i18n), 560, 780));
+                snapshot(stage, register, "register-vi-light.png", "register-vi-dark.png", theme,
+                        null, i18n);
+
+                User target = new User().id(FakeChatServer.FRIEND_ID).username("bob").fullName("Bob");
+                CachedMessage evidence = new CachedMessage(UUID.fromString(
+                        "44444444-4444-4444-8444-444444444444"), FakeChatServer.CONVERSATION_ID,
+                        FakeChatServer.FRIEND_ID, "", "the reported message",
+                        Instant.parse("2026-11-09T10:15:30Z"));
+                Parent report = onFx(() -> mount(stage, theme,
+                        ViewLoader.load(ViewLoader.REPORT, new ReportController(context, target,
+                                List.of(evidence), () -> { }), i18n), 560, 620));
+                snapshot(stage, report, "report-vi-light.png", "report-vi-dark.png", theme, null, i18n);
+
+                Conversation group = context.groups().createGroup("Team",
+                        List.of(FakeChatServer.FRIEND_ID));
+                Parent groupSettings = onFx(() -> mount(stage, theme,
+                        ViewLoader.load(ViewLoader.GROUP_SETTINGS, new GroupSettingsController(context,
+                                group, () -> { }, () -> { }, () -> { }), i18n), 640, 600));
+                waitForFx(() -> groupSettings.lookup("#membersList") instanceof ListView<?> list
+                        && list.getItems().size() == 2, Duration.ofSeconds(10));
+                snapshot(stage, groupSettings, "group-vi-light.png", "group-vi-dark.png", theme,
+                        null, i18n);
+            } finally {
+                onFx(() -> {
+                    stage.close();
+                    context.close();
+                    return true;
+                });
+            }
+        } finally {
+            TimeZone.setDefault(previousZone);
+            if (previousHome == null) System.clearProperty("user.home");
+            else System.setProperty("user.home", previousHome);
+        }
+    }
+
+    /**
+     * The chat shell before any conversation exists: the conversation list's empty state and the empty
+     * chat header. Every other shell baseline opens a chat, so this is the only one that shows them.
+     */
+    @Test
+    void emptyConversationListMatchesGoldensInLightAndDark(@TempDir Path home) throws Exception {
+        String previousHome = System.getProperty("user.home");
+        TimeZone previousZone = TimeZone.getDefault();
+        System.setProperty("user.home", home.toString());
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+        try (FakeChatServer server = new FakeChatServer()) {
+            server.hideDirectConversation();
+            Stage stage = onFx(Stage::new);
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            I18n i18n = new I18n(BASE, Locale.ENGLISH);
+            UserAppContext context = new UserAppContext(stage, server.origin().toString(), false,
+                    null, theme, i18n);
+            context.activate(context.signIn("alice", PASSWORD.toCharArray()));
+            try {
+                Parent shell = onFx(() -> mount(stage, theme,
+                        ViewLoader.load(ViewLoader.SHELL, new ShellController(context, () -> { }), i18n),
+                        1180, 760));
+                waitForFx(() -> labelContaining(shell, i18n.get("shell.noConversations"))
+                                && shell.lookupAll(".message-bubble").isEmpty()
+                                && shell.lookup("#statusLabel") instanceof Label status
+                                && i18n.get("shell.connected").equals(status.getText()),
+                        Duration.ofSeconds(10));
+                snapshot(stage, shell, "shell-empty-light.png", "shell-empty-dark.png", theme, null, i18n);
+            } finally {
+                onFx(() -> {
+                    stage.close();
+                    context.close();
+                    return true;
+                });
+            }
+        } finally {
+            TimeZone.setDefault(previousZone);
+            if (previousHome == null) System.clearProperty("user.home");
+            else System.setProperty("user.home", previousHome);
+        }
+    }
+
+    /**
+     * The search state: a query typed into the sidebar lists the matching cached message in a surface
+     * of its own. It is a different pane from the timeline and had no baseline.
+     */
+    @Test
+    void searchResultsMatchGoldensInLightAndDark(@TempDir Path home) throws Exception {
+        String previousHome = System.getProperty("user.home");
+        TimeZone previousZone = TimeZone.getDefault();
+        System.setProperty("user.home", home.toString());
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+        try (FakeChatServer server = new FakeChatServer()) {
+            server.addDirectMessage("zebra crossing");
+            Stage stage = onFx(Stage::new);
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            I18n i18n = new I18n(BASE, Locale.ENGLISH);
+            UserAppContext context = new UserAppContext(stage, server.origin().toString(), false,
+                    null, theme, i18n);
+            context.activate(context.signIn("alice", PASSWORD.toCharArray()));
+            try {
+                Parent shell = onFx(() -> mount(stage, theme,
+                        ViewLoader.load(ViewLoader.SHELL, new ShellController(context, () -> { }), i18n),
+                        1180, 760));
+                waitForFx(() -> shell.lookupAll(".message-bubble").size() == 2, Duration.ofSeconds(10));
+                onFx(() -> {
+                    ((TextField) shell.lookup("#searchField")).setText("zebra");
+                    return true;
+                });
+                waitForFx(() -> shell.lookup("#searchResults") instanceof ListView<?> results
+                                && results.isVisible() && !results.getItems().isEmpty(),
+                        Duration.ofSeconds(10));
+                snapshot(stage, shell, "shell-search-light.png", "shell-search-dark.png", theme,
+                        FakeChatServer.FRIEND_NAME, i18n);
+            } finally {
+                onFx(() -> {
+                    stage.close();
+                    context.close();
+                    return true;
+                });
+            }
+        } finally {
+            TimeZone.setDefault(previousZone);
+            if (previousHome == null) System.clearProperty("user.home");
+            else System.setProperty("user.home", previousHome);
+        }
+    }
+
+    /**
+     * A message the server refused: the row stays in the timeline as a pending bubble and the status
+     * line says it is saved on this device. Neither the dimmed row nor that copy is in another
+     * baseline.
+     */
+    @Test
+    void refusedMessageStaysPendingInGoldens(@TempDir Path home) throws Exception {
+        String previousHome = System.getProperty("user.home");
+        TimeZone previousZone = TimeZone.getDefault();
+        System.setProperty("user.home", home.toString());
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+        try (FakeChatServer server = new FakeChatServer()) {
+            Stage stage = onFx(Stage::new);
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            I18n i18n = new I18n(BASE, Locale.ENGLISH);
+            UserAppContext context = new UserAppContext(stage, server.origin().toString(), false,
+                    null, theme, i18n);
+            context.activate(context.signIn("alice", PASSWORD.toCharArray()));
+            try {
+                Parent shell = onFx(() -> mount(stage, theme,
+                        ViewLoader.load(ViewLoader.SHELL, new ShellController(context, () -> { }), i18n),
+                        1180, 760));
+                waitForFx(() -> shell.lookupAll(".message-bubble").size() == 1
+                                && shell.lookup("#statusLabel") instanceof Label status
+                                && i18n.get("shell.connected").equals(status.getText()),
+                        Duration.ofSeconds(10));
+                onFx(() -> {
+                    server.failMessageSends();
+                    ((TextField) shell.lookup("#composeField")).setText("still on this device");
+                    ((Button) shell.lookup("#sendButton")).fire();
+                    return true;
+                });
+                waitForFx(() -> shell.lookupAll(".message-bubble.pending").size() == 1
+                                && shell.lookup("#statusLabel") instanceof Label status
+                                && i18n.get("shell.savedLocally").equals(status.getText()),
+                        Duration.ofSeconds(10));
+                snapshot(stage, shell, "shell-pending-light.png", "shell-pending-dark.png", theme,
+                        FakeChatServer.FRIEND_NAME, i18n);
+            } finally {
+                onFx(() -> {
+                    stage.close();
+                    context.close();
+                    return true;
+                });
+            }
+        } finally {
+            TimeZone.setDefault(previousZone);
+            if (previousHome == null) System.clearProperty("user.home");
+            else System.setProperty("user.home", previousHome);
+        }
+    }
+
+    /**
+     * The reconnect state: the realtime socket drops and the re-sync behind the new connection fails,
+     * which is when the shell says it cannot catch up and takes the status dot offline. The failure is
+     * a real one — the fake server drops the socket and then refuses the conversation list — so the
+     * baseline records the shell's own copy rather than a label written by the test.
+     */
+    @Test
+    void failedReconnectMatchesGoldensInLightAndDark(@TempDir Path home) throws Exception {
+        String previousHome = System.getProperty("user.home");
+        TimeZone previousZone = TimeZone.getDefault();
+        System.setProperty("user.home", home.toString());
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+        try (FakeChatServer server = new FakeChatServer();
+             FakeWebSocketServer realtime = new FakeWebSocketServer()) {
+            Stage stage = onFx(Stage::new);
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            I18n i18n = new I18n(BASE, Locale.ENGLISH);
+            UserAppContext context = new UserAppContext(stage, server.origin().toString(), true,
+                    realtime.uri(), theme, i18n);
+            context.activate(context.signIn("alice", PASSWORD.toCharArray()));
+            try {
+                Parent shell = onFx(() -> mount(stage, theme,
+                        ViewLoader.load(ViewLoader.SHELL, new ShellController(context, () -> { }), i18n),
+                        1180, 760));
+                waitForFx(() -> shell.lookupAll(".message-bubble").size() == 1
+                                && shell.lookup("#statusLabel") instanceof Label status
+                                && i18n.get("shell.connected").equals(status.getText()),
+                        Duration.ofSeconds(10));
+                realtime.awaitClient(TimeUnit.SECONDS, 10);
+                // Refuse the list first: a reconnect that lands before the outage exists would
+                // re-sync successfully and leave the shell saying it is up to date.
+                server.failConversationList();
+                realtime.closeClient();
+                waitForFx(() -> shell.lookup("#statusLabel") instanceof Label status
+                                && i18n.get("shell.reconnectRetry").equals(status.getText()),
+                        Duration.ofSeconds(20));
+                snapshot(stage, shell, "shell-reconnect-light.png", "shell-reconnect-dark.png",
+                        theme, FakeChatServer.FRIEND_NAME, i18n);
+            } finally {
+                onFx(() -> {
+                    stage.close();
+                    context.close();
+                    return true;
+                });
+            }
+        } finally {
+            TimeZone.setDefault(previousZone);
+            if (previousHome == null) System.clearProperty("user.home");
+            else System.setProperty("user.home", previousHome);
+        }
+    }
+
+    /** Opens a control's popup and returns the live popup root that carries the marker. */
+    private static Parent openPopup(Runnable show, String marker) {
+        onFx(() -> {
+            show.run();
+            return true;
+        });
+        waitForFx(() -> popupContaining(marker) != null, Duration.ofSeconds(10));
+        return popupContaining(marker);
+    }
+
+    private static Parent popupContaining(String marker) {
+        for (Window window : Window.getWindows()) {
+            if (!(window instanceof PopupWindow) || !window.isShowing()) continue;
+            Parent root = window.getScene() == null ? null : window.getScene().getRoot();
+            if (root != null && root.lookup(marker) != null) return root;
+        }
+        return null;
+    }
+
+    /** Captures the popup itself: it lives in a window of its own, so the stage capture misses it. */
+    private static void capturePopup(Parent popup, String name) throws Exception {
+        WritableImage image = onFx(() -> {
+            popup.applyCss();
+            popup.layout();
+            return popup.snapshot(new SnapshotParameters(), null);
+        });
+        assertGolden(image, name);
     }
 
     /** Selects a conversation by name once the shell's own refresh has listed it. */

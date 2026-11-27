@@ -59,7 +59,7 @@
                     </columns>
                 </TableView>
             </VBox>
-            <VBox spacing="6">
+            <VBox spacing="6" styleClass="admin-split-pane-below">
                 <Label fx:id="evidenceTitle" styleClass="admin-section-title" text="%admin.reports.evidenceTitle"/>
                 <Label fx:id="evidenceStatus" styleClass="admin-status" text="%admin.reports.evidenceHint"
                        wrapText="true"/>

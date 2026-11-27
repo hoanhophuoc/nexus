@@ -61,29 +61,58 @@ final class FakeWebSocketServer implements AutoCloseable {
     }
 
     private void accept() {
-        try {
-            Socket socket = listener.accept();
-            client = socket;
-            InputStream input = socket.getInputStream();
-            String headers = readHeaders(input);
-            String key = header(headers, "Sec-WebSocket-Key");
-            if (key == null) {
-                socket.close();
+        // One connection at a time, but not one connection in total: after a client drops, the
+        // listener stays open so a reconnect is answered by a fresh handshake. Without the loop a
+        // reconnecting client's second connection sat in the backlog unanswered, which made a
+        // reconnect impossible to exercise.
+        while (!closed) {
+            Socket socket;
+            try {
+                socket = listener.accept();
+            } catch (IOException listenerClosed) {
                 return;
             }
-            output = socket.getOutputStream();
-            output.write(("HTTP/1.1 101 Switching Protocols\r\n"
-                    + "Upgrade: websocket\r\n"
-                    + "Connection: Upgrade\r\n"
-                    + "Sec-WebSocket-Accept: " + acceptKey(key) + "\r\n\r\n")
-                    .getBytes(StandardCharsets.US_ASCII));
-            output.flush();
-            connected.countDown();
-            consumeFrames(input);
-        } catch (IOException exception) {
-            if (!closed) {
-                // The client may drop the socket during test teardown.
+            client = socket;
+            try {
+                InputStream input = socket.getInputStream();
+                String headers = readHeaders(input);
+                String key = header(headers, "Sec-WebSocket-Key");
+                if (key == null) {
+                    socket.close();
+                    continue;
+                }
+                OutputStream stream = socket.getOutputStream();
+                stream.write(("HTTP/1.1 101 Switching Protocols\r\n"
+                        + "Upgrade: websocket\r\n"
+                        + "Connection: Upgrade\r\n"
+                        + "Sec-WebSocket-Accept: " + acceptKey(key) + "\r\n\r\n")
+                        .getBytes(StandardCharsets.US_ASCII));
+                stream.flush();
+                synchronized (this) {
+                    output = stream;
+                }
+                connected.countDown();
+                consumeFrames(input);
+            } catch (IOException exception) {
+                if (closed) return;
+                // A client that drops mid-handshake leaves the listener open for the next attempt.
             }
+        }
+    }
+
+    /**
+     * Drops the connected client the way a network failure does, keeping the listener open. The
+     * client's reconnect then reaches the same endpoint instead of a listener that is gone.
+     */
+    synchronized void closeClient() {
+        Socket active = client;
+        client = null;
+        output = null;
+        if (active == null) return;
+        try {
+            active.close();
+        } catch (IOException ignored) {
+            // Dropping the test's own client is best effort.
         }
     }
 

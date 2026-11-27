@@ -4,7 +4,7 @@
 > Scope: `desktop-user`, `desktop-admin`, and reusable UI in `desktop-shared`  
 > Runtime baseline: JDK 27, JavaFX 27.0.1, FXML, JavaFX CSS, Gradle  
 > Owner: Nexus maintainers  
-> Last reviewed: 2026-11-14
+> Last reviewed: 2026-11-24
 
 This document is the canonical product-specific visual and interaction contract for Nexus. It is deliberately native-desktop-first. It is not a web design system translated into JavaFX. When this document and a generic design skill disagree, this document and verified JavaFX 27 behavior take precedence.
 
@@ -133,7 +133,7 @@ Use a consistent spacing scale derived from 4px increments. Preferred steps are 
 - Use semantic `styleClass` values and shared CSS. Avoid long inline `Node.setStyle(...)` strings.
 - Load FXML and stylesheets with fail-fast error handling and useful diagnostic context. Never silently show a blank screen after a loading error.
 - Keep FXML, CSS, fonts and images under the package-aligned resource paths required by the repository.
-- Do not change application behavior, permissions, API contracts, encryption or moderation policy as a side effect of visual work.
+- Disable an action while the permission or target it needs is still loading, instead of accepting the click and then refusing it silently. A button that looks available has to be one whose action the controller will carry out; `GroupSettingsController` keeps rename and the member actions disabled until the member list says whether the signed-in user is an admin.
 
 ### 4.2 Native behavior and keyboard
 
@@ -158,10 +158,54 @@ Use a consistent spacing scale derived from 4px increments. Preferred steps are 
 ### 4.4 Real-time chat experience
 
 - The message timeline and conversation list are the primary visual hierarchy. Do not let decorative dashboard-style cards compete with them.
-- Use virtualized JavaFX controls for potentially large conversation/message collections; do not create an unbounded scene graph of nodes for message history. The shell still renders the open conversation as a `ScrollPane` over a `VBox`; a realistic-history benchmark and the virtualization decision remain outstanding.
+- Use virtualized JavaFX controls for potentially large conversation/message collections; do not create an unbounded scene graph of nodes for message history. The chat timeline is a `ListView<TimelineItem>` (`Day`, `Bubble`, `Pending`) whose cell factory builds row nodes on demand, so the scene graph stays bounded however long the history is. `ScrollPane` over a `VBox` was measured and rejected: at 1,000 messages it held 13,021 row nodes, appended at p95 1,969 ms and rebuilt at p95 2,111 ms, and the 5,000-message run exhausted the test JVM.
 - Prefer public JavaFX APIs such as `ListView` with a carefully designed `cellFactory` when they satisfy variable message heights, grouping, selection, accessibility and scroll anchoring. Do not import internal implementation classes such as `com.sun.javafx.scene.control.skin.VirtualFlow`; internal APIs are not a stable extension point.
 - Preserve scroll position when older messages load. Auto-scroll only when the user is already at the bottom or explicitly requests it.
-- The implemented timeline contract: an update that only appends to the end of the loaded history adds rows without touching the ones above them; an update that rewrites or reorders the history rebuilds it and restores the message, and its offset, that sat at the top of the viewport; the newest row is followed only when the reader was already there or when the row is one the user just sent. A revealed search hit is positioned from the hit's own bounds, never from its index in the timeline.
+- The implemented timeline contract: an update that only appends to the end of the loaded history adds rows without touching the ones above them; an update that rewrites or reorders the history rebuilds it and restores the message that sat at the top of the viewport, by message id — the anchor is an id and not a pixel offset on purpose, because `ListView` addresses content with `scrollTo(int)` and the pixels between rows belong to the internal `VirtualFlow`. The anchored row is therefore put back flush with the top of the viewport: the reader keeps the message they were reading, and a tall row that had scrolled partly above the edge has that part brought back into view. `ChatTimelineScrollFxTest` asserts this with a long wrapped row, and the scrollbar's own thumb drag and track click are driven as real mouse input to prove that neither an arrival after a drag nor one after a track click pulls the reader back; the newest row is followed only when the reader was already there (read from the list's scroll position, not from a recycled cell's bounds) or when the row is one the user just sent, and a follow the shell already started is not cancelled by an arrival that lands while the move to the newest row is still being re-applied — the scroll bar read mid-move is not the reader leaving the bottom. A move re-applies itself after measuring the rows it just gained rather than on a wall-clock budget, so a loaded machine lengthens it in time without ending it early; the anchor restore of a rebuilt timeline follows the same rule. A revealed search hit is positioned by its row index in the list, with one row of room above it.
+
+**Timeline budget and measured result.** `:desktop-user:fxTest --tests
+*TimelineBenchmarkFxTest` writes `desktop-user/build/timeline-benchmark.md` and fails the build when
+the 5,000-message budgets are missed. The node budgets are what fails if the timeline goes back to
+building one node per message; the timing budgets alone could pass by luck on a fast run. The
+pulse budget is set above the measured spread rather than at it: nine runs put the 5,000-message p95
+between 58 and 113 ms, so a 100 ms ceiling failed on healthy runs. The fixture carries alternating
+senders, long and short bodies, a date separator every 30 messages and three queued rows that stay
+pending through the measured phases.
+
+The block below repeats the report and is read back by the same test, so it is verified rather than
+hand-copied: the budget sentence must equal the benchmark's budget constants, the table's header
+and history sizes must equal the report's, and each budgeted cell must stay within a factor of
+three (or 25 ms, whichever is larger) of the run that produced the report, with node counts within
+a quarter. Timing cells are compared from 500 messages up: at 100 messages class loading and the
+JIT dominate, so the row is reported but its timings are not gated (append p95 has measured between
+12 and 74 ms there); its node counts, like every row's, are compared. A table left behind by an older timeline — the `ScrollPane`+`VBox` one had 13,021 row
+nodes and appends near 2,000 ms — therefore fails the build. Timings move between runs, most of all
+at 100 messages, which absorbs JIT warm-up; refresh the block from
+`desktop-user/build/timeline-benchmark.md` only when the timeline itself changed. This machine is
+Linux, JDK 27.0.1, JavaFX 27.0.1, Xvfb 1280x1024.
+
+<!-- timeline-benchmark:begin -->
+Budget at 5,000 messages: render <= 800 ms, append p95 <= 50 ms, rebuild p95 <= 900 ms, resize p95 <= 150 ms, pulse gap p95 <= 150 ms, worst pulse gap <= 500 ms, message rows <= 60 and scene nodes <= 500.
+
+| messages | render ms | append p95 ms | delivery p95 ms | rebuild p95 ms | resize p95 ms | reveal ms | pulse p95 ms | pulse max ms | row nodes | scene nodes | heap delta MB |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 100 | 178 | 58 | 98 | 28 | 74 | 1 | 94 | 152 | 7 | 304 | 81 |
+| 500 | 100 | 18 | 13 | 28 | 65 | 1 | 37 | 86 | 8 | 317 | 69 |
+| 1,000 | 75 | 26 | 9 | 32 | 62 | 3 | 62 | 78 | 8 | 314 | 118 |
+| 5,000 | 80 | 11 | 25 | 36 | 60 | 1 | 69 | 94 | 7 | 303 | 109 |
+<!-- timeline-benchmark:end -->
+
+`delivery p95` is the part before the timeline: the socket round trip plus the encrypted cache's
+whole-file persist. It is reported, not budgeted, because it is a data-layer cost; the append
+budget measures the timeline's own work from the row entering the model to it being painted.
+`pulse p95` and `pulse max` are the gaps between animation pulses recorded across the whole measured
+run — a gap is how long the reader kept seeing the previous frame — and they are what a stall shows
+up as: a burst of arrivals that each rebuild the list, as ten back-to-back pushes do here, is the
+current worst case at 5,000 messages. `heap delta MB` is the used heap with the history in the
+timeline minus the used heap before that size was opened (each size after its own collection, so a
+row is that size's cost and not the sizes before it). It is reported, not budgeted, because garbage
+collection timing makes it too noisy to gate a build on, and it can be negative when a run collects
+more than it retains.
 - Make pending, sent, failed, retrying and incoming states distinguishable without confusing them with encryption or delivery guarantees.
 - Keep composer focus, keyboard send behavior, multiline entry, attachments and error recovery predictable.
 - Presence and unread indicators must not rely on color alone.
@@ -178,6 +222,8 @@ Use a consistent spacing scale derived from 4px increments. Preferred steps are 
 - Preserve audit context: actor, action, target, time and reason where the backend contract supplies them.
 - Avoid decorative charts that do not support an operational decision.
 - Never conceal destructive consequences behind vague labels such as “Proceed” or “OK”.
+- An identity table that is shown both full width and inside the shell's narrower content area must keep every column readable at the narrow width. The accounts table does this with three rules. A row action is an icon-only button carrying its words as accessible text and tooltip (`Icons.describe`), because two labelled buttons need about 140 px and pushed the action column past the edge in the shell. A column header wraps through `AdminUi.wrapHeader` instead of ending in an ellipsis. A data cell may still shorten with an ellipsis, but the shortened value has to stay readable: every text cell of the admin tables shown in that area (accounts identity, login history and friends, reports and its evidence, groups and their members, registrations, audit) installs a tooltip only while its text is actually wider than the cell, carrying the whole value as both the hover text and the accessible text, wrapped at 420 px and shortened to its opening 200 characters when the value is a paragraph, because wrapping bounds the width but not the height. A run that never offers a space — a long email, a path — is wrapped by JavaFX at its own glyph boundaries inside the 420 px width, so the popup bounds it with nothing added to the value. A hover copy that carries a combining mark on a letter is composed to NFC first — the same glyphs — because JavaFX otherwise sizes the popup from the text's unwrapped width; a mark with no precomposed form survives composition, so a copy that is still wider than the tooltip is broken by hand at its spaces, or between extended grapheme clusters when it has none, while a copy that fits stays on one line; the boundaries come from the JDK's `BreakIterator`, so a letter keeps its marks, a zero-width-joiner sequence stays one glyph and a regional-indicator flag its pair, and a cluster class newer than the JDK's bundled Unicode data would not be recognised; the copy is measured with the font the popup paints rather than the cell's — the tooltip's own label carries the theme class, which sets the one bundled face at 13 px in both themes — so a table styled larger than the theme still explains itself on one line. The accessible text and the copied value stay the value as submitted. A pointer is not required to reach any of it: a JavaFX table keeps focus on the control rather than on a cell, so `AdminUi.keyboardReadable` drives the focus itself — the arrows walk the columns that explain themselves, the reached cell is marked with `admin-cell-focus` and shows its own explanation, and the copy shortcut takes that cell's whole value. F2 and the row copy stay as the fallback for the whole row: F2 opens it in `AdminUi.RowInspector`, a small window over a read-only text area rather than a tooltip, so the caret and the selection move, a row taller than the window scrolls, the platform's copy shortcuts take a part of it and F2 or Escape returns the keyboard to the table — a tooltip can offer none of that. The inspector is a window of its own with a scene of its own, so the screen goldens cannot cover its palette: `AdminGoldenScreenshotFxTest.rowInspectorMatchesGoldensInLightAndDark` pins the popup's own window in both themes. The reached cell also describes itself to assistive technology — the column's header, the whole value, and that the screen is clipping it — because a screen reader cannot see the `admin-cell-focus` border, and the description is cleared when the cursor leaves the cell or the table.
+- A form control must be as wide as its longest value, not its English one. The registration form lets the gender list take the space the date field does not need, because “Không muốn tiết lộ” was ellipsized in the half-width column that “Prefer not to say” fitted.
 
 ## 5. Motion and perceived performance
 
@@ -195,6 +241,8 @@ Guidelines:
 - Test motion while messages arrive quickly, while a user scrolls and while a window is resized.
 - If multiple screens need the same motion behavior, centralize it in a small `MotionPresets` helper in `desktop-shared`; do not create an animation framework for one transition. Suggested starting ranges are 110–160ms for micro-feedback and 180–260ms for meaningful panel/view transitions. `Interpolator.SPLINE(0.22, 1.0, 0.36, 1.0)` may be evaluated as an ease-out curve, but timings and easing are hypotheses to review on the real app—not universal rules.
 - Provide a central `nexus.ui.animations.enabled=false` switch for deterministic FX tests and a reduced-motion preference for users. When disabled, complete the state change synchronously rather than leaving a transition half-finished. Make transitions cancellable and restore node state on completion, cancellation and disposal.
+- **Motion decision (2026-11-18):** the shipped desktop UI currently contains no JavaFX animation — no `Transition`, `Timeline` or animated property in `desktop-shared`, `desktop-user` or `desktop-admin`. Every state change (theme flip, timeline update, badge, status, dialog) is applied synchronously, so there is no motion to reduce and no `MotionPresets` helper or animation switch has been added for a single unused transition. The guidance above stays the contract for the first transition that is introduced; at that point it must ship with the reduced-motion switch and the motion tests, not before.
+- **Motion review (2026-11-24):** the completion review asked whether any repeated transition genuinely improves the product. None does. The flows that change most often are the chat timeline (a row appended or a list rebuilt) and admin table loads; both are read by scanning, and delaying either would make the data arrive later than the event that caused it, which is the opposite of the precision the admin client exists for. The only candidate left is a fade on a rebuilt timeline, which would animate a surface the reader may be reading and would have to be excluded in exactly the virtualized case that matters. The decision is therefore to add no motion: no helper, no switch, and no animation property. The `nexus.ui.animations.enabled` switch remains unconfigured because there is nothing to gate; the first real transition still has to arrive with it and with deterministic FX coverage.
 - Do not promise 60fps from a preset. Measure frame pacing and input responsiveness on the supported OS/hardware matrix.
 - Do not automatically set `Node.cache=true` and `CacheHint.SPEED` for every animation. JavaFX documents that `SPEED` favors cached-bitmap rendering and may reduce visual quality. Use it only for an expensive node after a measured improvement; restore its previous cache hint in every completion/cancellation path. See the [JavaFX 27 CacheHint API](https://openjfx.io/javadoc/27/javafx.graphics/javafx/scene/CacheHint.html).
 
@@ -205,6 +253,7 @@ Every new or materially changed screen must be reviewed in both English and Viet
 Checklist:
 - Visible labels, accessible text and meaningful accessible roles for interactive controls.
 - Icon-only controls have accessible names and tooltips.
+- A clipped value is readable and copyable without a pointer, not only on hover.
 - Keyboard focus order is logical; focus remains visible and is restored after dialogs.
 - Controls are not operable by color or hover alone.
 - Text/background contrast is measured on rendered JavaFX skins in both themes and relevant states.
@@ -290,14 +339,22 @@ The repository already maintains `golden` and `golden-ci` PNG baselines and FX s
 - The comparison allows 0.75% of pixels to differ, with a per-channel delta of 16 — roughly 6,700 pixels of a 1180×760 capture. That absorbs the difference between a developer Linux run and the hosted runner, and is loose enough to miss a small real regression: treat a result near the threshold as a failure under review.
 - `golden/` is generated on a developer machine and `golden-ci/` on the hosted Linux runner; several English baselines already differ between the two within that tolerance. A new baseline is committed to both directories from one reviewed capture and confirmed again on the runner.
 - Every primary chat surface has both an English and a Vietnamese baseline, so a translated string that clips or reflows is caught by the image rather than only by a bundle assertion.
-- Extend coverage for the main chat shell, conversation timeline, composer, message states, connection/reconnect states, group flows and admin operational views where they are not yet covered.
+- The chat states that are not a settled conversation have baselines of their own, in both themes: an empty conversation list (`shell-empty-*`), search results in the sidebar (`shell-search-*`), a message the server refused that stays queued (`shell-pending-*`, with the "saved on this device" status line) and a realtime reconnect that could not re-sync (`shell-reconnect-*`, with the offline status dot). Each state is reached through the real path rather than a label set by the test: the fake server hides the conversation for the empty list, refuses sends for the queued row, and drops the WebSocket and then refuses the conversation list for the reconnect.
+- Every admin workspace has a baseline: accounts, reports, analytics, audit, groups, registrations, sign-in and the shell, each in LIGHT and DARK, and each also in Vietnamese in both themes — so a translated toolbar, table header, section title or action label that clips or reflows is caught by an image rather than only by a bundle assertion. Analytics is captured at 1180x1120 instead of the 1180x780 working window because it is the one admin screen taller than the window; a shorter capture would record a scroll position rather than the screen. Its year and date fields are pinned, like the registration range, so a baseline cannot move with the calendar.
+- The user sign-in, chat shell and group chat have English and Vietnamese baselines in both themes, and so do the primary form surfaces: account, registration, report and group settings. The chat states listed above (`shell-empty-*`, `shell-search-*`, `shell-pending-*`, `shell-reconnect-*`) and the popups are captured in both themes in English, which is enough because their copy is short, theme-driven status text rather than a translated layout.
+- A new baseline is one reviewed capture committed to both `golden/` and `golden-ci/` and confirmed again on the hosted runner. The reconnect baseline's socket drop lives in the test WebSocket server, which now keeps its listener open after a client disconnects so a reconnect reaches a real handshake.
 - Protect tests against machine-dependent font rendering, locale, timezone, focus and animation timing.
 
 Current known FX test classes include:
 - `desktop-user/.../DesignSystemFxTest.java`
 - `desktop-user/.../RenderedControlContrastFxTest.java`
+- `desktop-user/.../PopupKeyboardFxTest.java`
+- `desktop-user/.../PopupThemeFxTest.java`
+- `desktop-user/.../TimelineBenchmarkFxTest.java`
 - `desktop-user/.../UserGoldenScreenshotFxTest.java`
 - `desktop-admin/.../AdminDesignSystemFxTest.java`
+- `desktop-admin/.../AdminKeyboardFxTest.java`
+- `desktop-admin/.../RenderedAdminContrastFxTest.java`
 - `desktop-admin/.../AdminGoldenScreenshotFxTest.java`
 
 Always inspect the current test tree before relying on this list; it will evolve.

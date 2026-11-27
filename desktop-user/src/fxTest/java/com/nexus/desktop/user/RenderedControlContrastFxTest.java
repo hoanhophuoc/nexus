@@ -24,8 +24,6 @@ import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.cell.PropertyValueFactory;
-import javafx.scene.layout.Background;
-import javafx.scene.layout.BackgroundFill;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
@@ -46,6 +44,10 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static com.nexus.desktop.shared.testing.FxThread.onFx;
+import static com.nexus.desktop.shared.testing.RenderedContrast.assertEqualsColor;
+import static com.nexus.desktop.shared.testing.RenderedContrast.effectiveBackground;
+import static com.nexus.desktop.shared.testing.RenderedContrast.measure;
+import static com.nexus.desktop.shared.testing.RenderedContrast.textFill;
 
 /**
  * Contrast checks against JavaFX skins that have actually been laid out.
@@ -417,39 +419,6 @@ class RenderedControlContrastFxTest {
                 .findFirst().orElse(null);
     }
 
-    private static Color textFill(Node node) {
-        Node text = node.lookup(".text");
-        if (text instanceof Text rendered && rendered.getFill() instanceof Color colour) {
-            return colour;
-        }
-        if (node instanceof Labeled labeled && labeled.getTextFill() instanceof Color colour) {
-            return colour;
-        }
-        throw new AssertionError("No rendered text fill on " + node);
-    }
-
-    private static Color effectiveBackground(Region region, Color fallback) {
-        Background background = region.getBackground();
-        if (background != null) {
-            for (BackgroundFill fill : background.getFills()) {
-                if (fill.getFill() instanceof Color colour && colour.getOpacity() >= 0.99) {
-                    return colour;
-                }
-            }
-        }
-        Parent parent = region.getParent();
-        while (parent instanceof Region parentRegion) {
-            Color resolved = effectiveBackground(parentRegion, null);
-            if (resolved != null) return resolved;
-            parent = parentRegion.getParent();
-        }
-        return fallback;
-    }
-
-    private static Color effectiveBackground(Node node, Color fallback) {
-        return node instanceof Region region ? effectiveBackground(region, fallback) : fallback;
-    }
-
     private static boolean pseudo(Node node, String name) {
         return node.getPseudoClassStates().contains(PseudoClass.getPseudoClass(name));
     }
@@ -461,44 +430,6 @@ class RenderedControlContrastFxTest {
             if (popupScene != null && popupScene.getRoot() != null) return popupScene.getRoot();
         }
         throw new AssertionError("No showing JavaFX popup found");
-    }
-
-    private static void measure(Theme theme, String label, Color foreground, Color background,
-                                double minimum) {
-        assertThat(foreground).as("%s %s foreground", theme, label).isNotNull();
-        assertThat(background).as("%s %s background", theme, label).isNotNull();
-        double ratio = contrast(foreground, background);
-        System.out.printf("[contrast] %-5s %-30s %.2f:1%n", theme, label, ratio);
-        assertThat(ratio).as("%s %s contrast %.2f:1", theme, label, ratio)
-                .isGreaterThanOrEqualTo(minimum);
-    }
-
-    private static void assertEqualsColor(String label, Color actual, Color expected) {
-        assertThat(actual).as(label)
-                .usingComparator((first, second) -> {
-                    if (first == null || second == null) return first == second ? 0 : 1;
-                    double delta = Math.abs(first.getRed() - second.getRed())
-                            + Math.abs(first.getGreen() - second.getGreen())
-                            + Math.abs(first.getBlue() - second.getBlue());
-                    return delta < 0.01 ? 0 : 1;
-                })
-                .isEqualTo(expected);
-    }
-
-    private static double contrast(Color first, Color second) {
-        double lighter = Math.max(luminance(first), luminance(second));
-        double darker = Math.min(luminance(first), luminance(second));
-        return (lighter + 0.05) / (darker + 0.05);
-    }
-
-    private static double luminance(Color colour) {
-        return 0.2126 * channel(colour.getRed())
-                + 0.7152 * channel(colour.getGreen())
-                + 0.0722 * channel(colour.getBlue());
-    }
-
-    private static double channel(double value) {
-        return value <= 0.04045 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
     }
 
 }

@@ -19,8 +19,10 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -54,6 +56,7 @@ final class FakeChatServer implements AutoCloseable {
     private final Set<UUID> blocked = ConcurrentHashMap.newKeySet();
     private final List<String> deletedScopes = new CopyOnWriteArrayList<>();
     private final Map<UUID, String> memberRoles = new ConcurrentHashMap<>();
+    private volatile CountDownLatch groupMembersGate;
     private final Set<UUID> removedMembers = ConcurrentHashMap.newKeySet();
     private volatile String loginUsername;
     private volatile String loginPassword;
@@ -67,6 +70,8 @@ final class FakeChatServer implements AutoCloseable {
     private volatile int reportsWithEvidence;
     private volatile int passwordChanges;
     private volatile int passwordResetRequests;
+    private volatile boolean messageSendsFail;
+    private volatile boolean conversationListFails;
     private volatile int clearedHistories;
     private volatile int friendRemovals;
     private volatile int blockedRequestAttempts;
@@ -130,6 +135,18 @@ final class FakeChatServer implements AutoCloseable {
     String groupName() { return groupName; }
     /** Renames the group the way another session would: the next conversation list carries it. */
     void renameGroup(String name) { this.groupName = name; }
+
+    /**
+     * Holds the next group member list response until {@link #releaseGroupMembers()}. The settings
+     * dialog learns from that response whether this account may rename or manage the group, so a
+     * held response keeps the loading state on screen for a test to assert on.
+     */
+    void holdGroupMembers() { this.groupMembersGate = new CountDownLatch(1); }
+
+    void releaseGroupMembers() {
+        CountDownLatch gate = groupMembersGate;
+        if (gate != null) gate.countDown();
+    }
     Map<UUID, String> memberRoles() { return Map.copyOf(memberRoles); }
     Set<UUID> removedMembers() { return Set.copyOf(removedMembers); }
     int incomingRequestCount() { return incomingRequests.size(); }
@@ -174,6 +191,24 @@ final class FakeChatServer implements AutoCloseable {
     /** Makes the group conversation exist without driving the create-group dialog. */
     void groupExists() {
         groupCreated = true;
+    }
+
+    /**
+     * Refuses every message send, so a queued row stays queued for the rest of the fixture. The
+     * shell flushes its queue when the socket connects, and that flush is scheduled on the network
+     * thread at a moment the test cannot order itself against; a refused send is what makes "this
+     * row is still waiting" a fact rather than a race won by a fast machine.
+     */
+    void failMessageSends() {
+        messageSendsFail = true;
+    }
+
+    /**
+     * Refuses the conversation list, as an outage does. The realtime reconnect re-syncs through the
+     * same call, so this is what turns "the reconnect could not catch up" from a race into a fact.
+     */
+    void failConversationList() {
+        conversationListFails = true;
     }
 
     void hideDirectConversation() {
@@ -402,6 +437,10 @@ final class FakeChatServer implements AutoCloseable {
             respondJson(exchange, 405, "{}");
             return;
         }
+        if (conversationListFails) {
+            respondJson(exchange, 503, "{\"error\":\"conversation list unavailable\"}");
+            return;
+        }
         String direct = """
                 {"id":"%s","name":"%s","type":"direct","createdAt":"2026-11-07T10:00:00Z"}
                 """.formatted(CONVERSATION_ID, FRIEND_NAME);
@@ -450,6 +489,10 @@ final class FakeChatServer implements AutoCloseable {
         String content = jsonText(readText(exchange), "content");
         if (content == null || content.isBlank()) {
             respondJson(exchange, 400, "{}");
+            return;
+        }
+        if (messageSendsFail) {
+            respondJson(exchange, 503, "{}");
             return;
         }
         sentContents.add(content);
@@ -551,6 +594,14 @@ final class FakeChatServer implements AutoCloseable {
             return;
         }
         if (path.endsWith("/members") && "GET".equals(method)) {
+            CountDownLatch gate = groupMembersGate;
+            if (gate != null) {
+                try {
+                    gate.await(10, TimeUnit.SECONDS);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+            }
             // The account first, then the friend it invited, then whoever was added since: the
             // pickers narrow this list themselves.
             java.util.ArrayList<UUID> members = new java.util.ArrayList<>();

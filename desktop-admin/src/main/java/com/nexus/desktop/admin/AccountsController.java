@@ -1,6 +1,7 @@
 package com.nexus.desktop.admin;
 
 import com.nexus.desktop.shared.ui.I18n;
+import com.nexus.desktop.shared.ui.Icons;
 import com.nexus.sdk.model.AdminSetUserLockRequest;
 import com.nexus.sdk.model.AdminUser;
 import com.nexus.sdk.model.AdminUserPage;
@@ -25,6 +26,7 @@ import javafx.scene.control.TextField;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.util.StringConverter;
+import org.kordamp.ikonli.feather.Feather;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -103,6 +105,21 @@ public final class AccountsController {
         AdminUi.bindAction(actionColumn, this::actionButtons);
         AdminUi.bind(historyWhenColumn, entry -> AdminUi.time(entry.getOccurredAt(), i18n));
         AdminUi.bind(historyUserColumn, entry -> entry.getFullName() + " (" + entry.getUsername() + ")");
+        // The same table is shown full width and inside the shell, and the Vietnamese headers are the
+        // longer case; a wrapped header stays readable in both instead of ending in an ellipsis.
+        for (TableColumn<?, ?> column : List.of(usernameColumn, fullNameColumn, emailColumn,
+                statusColumn, actionColumn, historyWhenColumn, historyUserColumn,
+                friendUsernameColumn, friendFullNameColumn, friendAddressColumn)) {
+            AdminUi.wrapHeader(column);
+        }
+        // These cells ellipsize in the shell's narrower pane, which the login history and friend
+        // tables share with the identity table; a hover explains the value that did not fit, and
+        // only that one.
+        for (TableColumn<?, String> column : List.<TableColumn<?, String>>of(usernameColumn,
+                fullNameColumn, emailColumn, statusColumn, historyWhenColumn, historyUserColumn,
+                friendUsernameColumn, friendFullNameColumn, friendAddressColumn)) {
+            AdminUi.explainTruncatedText(column, i18n);
+        }
         AdminUi.bind(friendUsernameColumn, User::getUsername);
         AdminUi.bind(friendFullNameColumn, User::getFullName);
         AdminUi.bind(friendAddressColumn, User::getAddress);
@@ -110,6 +127,9 @@ public final class AccountsController {
         accountsTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
         historyTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
         friendsTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+        for (TableView<?> table : List.of(accountsTable, historyTable, friendsTable)) {
+            AdminUi.keyboardReadable(table);
+        }
         accountsTable.setAccessibleText(i18n.get("admin.accounts.title"));
         historyTable.setAccessibleText(i18n.get("admin.accounts.loginHistoryTitle"));
         friendsTable.setAccessibleText(i18n.get("admin.accounts.friendListTitle"));
@@ -172,24 +192,38 @@ public final class AccountsController {
         loadUsers(null);
     }
 
+    /**
+     * The row's two actions as icons, so they stay inside the identity table at every pane width.
+     * Two labelled buttons need about 140 px, which the same table does not have when the shell shows
+     * it in a narrower content area: the action column used to run past the edge there. An icon-only
+     * button still carries its words, as accessible text and as the hover tooltip, through
+     * {@link Icons#describe}.
+     */
     private HBox actionButtons(AdminUser user) {
-        Button edit = new Button(i18n.get("admin.accounts.edit"));
-        edit.getStyleClass().add("secondary-button");
-        edit.setAccessibleText(i18n.format("admin.accounts.editAccessible", user.getUsername()));
+        Button edit = iconAction(Feather.EDIT_2, "secondary-button",
+                i18n.format("admin.accounts.editAccessible", user.getUsername()));
         edit.setOnAction(event -> {
             accountsTable.getSelectionModel().select(user);
             showUser(user);
             fullNameField.requestFocus();
         });
         boolean locked = user.getStatus() == AdminUser.StatusEnum.LOCKED;
-        Button lock = new Button(i18n.get(locked ? "admin.accounts.unlock" : "admin.accounts.lock"));
-        lock.getStyleClass().add(locked ? "secondary-button" : "danger-button");
-        lock.setAccessibleText(i18n.format(locked ? "admin.accounts.unlockAccessible"
-                : "admin.accounts.lockAccessible", user.getUsername()));
+        Button lock = iconAction(locked ? Feather.UNLOCK : Feather.LOCK,
+                locked ? "secondary-button" : "danger-button",
+                i18n.format(locked ? "admin.accounts.unlockAccessible"
+                        : "admin.accounts.lockAccessible", user.getUsername()));
         lock.setOnAction(event -> requestLockToggle(user));
         HBox box = new HBox(6, edit, lock);
         box.getStyleClass().add("admin-action-row");
         return box;
+    }
+
+    private static Button iconAction(Feather icon, String styleClass, String description) {
+        Button button = new Button();
+        button.getStyleClass().addAll(styleClass, "admin-icon-action");
+        Icons.set(button, icon);
+        Icons.describe(button, description);
+        return button;
     }
 
     private void loadUsers(UUID preferredId) {

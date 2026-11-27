@@ -38,7 +38,14 @@ public final class AuditController {
                 ? i18n.get("admin.audit.deletedActor") : event.getActorId().toString());
         AdminUi.bind(targetColumn, event -> event.getTargetId() == null
                 ? "" : event.getTargetId().toString());
+        // The shell shows this screen in a narrower content area than the workspace does, where an
+        // action or an actor ID stops fitting; a hover then explains the value.
+        for (TableColumn<?, String> column : List.<TableColumn<?, String>>of(whenColumn, actionColumn,
+                actorColumn, targetColumn)) {
+            AdminUi.explainTruncatedText(column, i18n);
+        }
         auditTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+        AdminUi.keyboardReadable(auditTable);
         auditTable.setAccessibleText(i18n.get("admin.audit.title"));
         reloadButton.setOnAction(event -> load());
         load();

@@ -1,6 +1,6 @@
 # CI/CD
 
-Five workflows live in `.github/workflows`. Everything they enforce is reproducible locally with
+Six workflows live in `.github/workflows`. Everything they enforce is reproducible locally with
 the commands below.
 
 ## `ci.yml` — pull requests and main
@@ -9,12 +9,29 @@ the commands below.
 | --- | --- | --- |
 | Build, unit & integration tests | `check-ga-pins.sh`, `gaOnlyCheck`, `check-image-pins.sh`, `:desktop-shared:test`, `:desktop-user:test`, `:desktop-admin:test`, `:server:test`, `:server:integrationTest`, the JavaFX coverage artifact, coverage report and `coverageVerification`, SonarQube when a token is configured | A pre-release pin, a floating image, a failing test, or coverage below the floor in any of the four product modules |
 | Database identity pre-flight | `./scripts/test-database-identity.sh` against a throwaway PostgreSQL | Any documented exit status of `check-database-identity.sh` changes, including a rejected password or an unreachable host being reported as a fresh install |
-| JavaFX FXML tests | `xvfb-run -a -s "-screen 0 1280x1024x24" ./gradlew :desktop-user:fxTest :desktop-admin:fxTest`, then `:ui-spike:spikeCheck` | FXML or controller wiring breaks, a golden drifts, or the AtlantaFX/Ikonli proof of concept stops passing |
+| JavaFX FXML tests | `xvfb-run -a -s "-screen 0 1280x1024x24" ./gradlew :desktop-user:fxTest :desktop-admin:fxTest`, then `:ui-spike:spikeCheck` | FXML or controller wiring breaks, a light/dark or English/Vietnamese golden drifts, the chat timeline misses its render/append/rebuild/resize/pulse-gap budgets (`desktop-user/build/timeline-benchmark.md`), or the AtlantaFX/Ikonli proof of concept stops passing |
 | Live user journey (isolated Docker) | `./scripts/live-journey.sh`, then verifies no temporary container, volume or network survived | The end-to-end journey fails, or it leaks Docker resources |
 | Linux app image | Builds the desktop packaging output on Linux, then runs `scripts/verify-app-image.sh --image <dir> --launch` on both images | A packaging step fails, an image is missing a jar the app needs, or its launcher exits instead of showing its first window |
 
 The JavaFX job pins Xvfb's screen at 1280x1024, because the toolkit default is 640x480 and the
 goldens capture scenes up to 1184x784; pinned, the display is never the limit on a stage.
+
+The timeline benchmark rewrites `desktop-user/build/timeline-benchmark.md` on every run of that
+job, and the job uploads it as the `timeline-benchmark` artifact (also inside `fx-test-reports`).
+The report is therefore the measurement the tested commit produced, not a table copied into the
+design document: the suite fails the build when the 5,000-message budgets are missed, and the table
+in `docs/ui-ux-design-system.md` is verified against the same run.
+
+The shell-state table in `ShellStateFxTest` has an opt-in stress mode:
+`JAVA_TOOL_OPTIONS=-Dnexus.shellTable.repeat=600 xvfb-run -a ./gradlew :desktop-user:fxTest
+--tests '*ShellStateFxTest' --rerun` runs the table that many times in one JVM, each pass with a
+fresh server, socket, window and cache directory. It is a separate test that the property enables,
+so the normal pass keeps the suite's 60 second cap and the gate above is unchanged; only the
+stress test's own timeout is raised. It exists because the only historic failure of this table was
+a ten-second wait in the step loop that external CPU load could not reproduce.
+
+The same mode runs in its own workflow, [`shell-stress.yml`](#shell-stressyml--on-demand), so
+triggering it never re-runs the build, the live journey or the packaging.
 
 The same job runs `xvfb-run -a ./gradlew :ui-spike:spikeCheck`, the AtlantaFX/Ikonli proof of
 concept. It is a check rather than a demo: it fails on a bundled font that stops loading, a Nexus
@@ -31,16 +48,21 @@ Without that data the module reports were empty, SonarQube counted both UI modul
 and the project sat at 38%. With it they measure 85.12% and 84.78% of lines, and the project reports
 74.0% coverage. Across the four product modules and both desktop suites the
 aggregate report — the one the bundle floor is checked against — measures 85.56% of lines and 61.11%
-of branches, above both bundle floors (83% and 58%). Summing the four per-module reports
-instead gives 76.46% and 54.16%, because a module's report only credits its own suites:
-`com.nexus.desktop.shared/ui` reads as 11 covered lines of 191 in the shared report but 175 of 191 in
-the aggregate, since the desktop FX suites are what exercise it. The package floors are rounded down
-the same way.
+of branches, above both bundle floors (83% and 58%). Summing the four per-module reports instead
+reads lower, because a module's report only credits the suites it names. The shared module is the one
+the difference used to hide the most: the theme manager and the popup theme propagation only run with
+a toolkit, so the suites that exercise `com.nexus.desktop.shared/ui` are the two clients' JavaFX
+suites. Its own report now reads both clients' `fxTest.exec` files when the artifact is present, so
+SonarQube credits that code from the module it lives in and not only from the aggregate. The package
+floors are rounded down the same way.
 
 SonarQube measures the same four product modules as `coverageModules`: `ui-spike`, the AtlantaFX
 proof of concept no product module references, and `fx-test-support`, the harness the JavaFX suites
 run on, are excluded from its coverage through `sonar.coverage.exclusions`. Counting them measured
-the tooling rather than the product and held the quality gate at 65% of new code.
+the tooling rather than the product and held the quality gate at 65% of new code. The shared module's
+own report has to include the clients' JavaFX exec data for the same reason: without it, every new
+line in `PopupThemes`, `ThemeManager` or `ConfirmDialog` was judged uncovered new code even though
+the JavaFX suites run it.
 
 Both `coverageReport` and the gate depend on `coverageDataCheck`, which refuses the measurement when
 an exec file is missing, older than the sources of the module it covers, or written by a suite that
@@ -177,6 +199,35 @@ Container references must carry an exact version tag or a `@sha256:` digest. The
 
 The build image stays on Gradle 9.8.2 because Docker Hub publishes no `9.9.1-jdk27` tag; the
 wrapper inside it runs 9.9.1, which is what compiles the project.
+
+## `shell-stress.yml` — on demand
+
+The state table in `ShellStateFxTest` runs once in the `fx-test` job. This workflow repeats it in a
+single JVM, each pass with a fresh server, socket, window and cache directory, because the only
+historic failure of that table was a ten second wait in the step loop that external CPU load could
+not reproduce. It holds nothing else, so triggering it never re-runs the build, the live journey or
+the packaging.
+
+| Job | Runs | Fails when |
+| --- | --- | --- |
+| Shell-state stress (on demand) | `xvfb-run -a -s "-screen 0 1280x1024x24" ./gradlew --no-daemon :desktop-user:fxTest --tests '*ShellStateFxTest' --rerun` with `JAVA_TOOL_OPTIONS=-Dnexus.shellTable.repeat=<shell_repeat>`, 600 passes unless the input says otherwise | Any pass of the state table fails; the surefire XML and the HTML report are uploaded as `shell-stress-reports` either way |
+
+Start it from the Actions tab (**Run workflow**, optionally lowering `shell_repeat`) or with
+`gh workflow run shell-stress.yml --ref <branch> -f shell_repeat=600`. GitHub resolves a dispatch
+against the default branch, so before this file is merged that command answers `HTTP 404: workflow
+shell-stress.yml not found on the default branch` even with a `--ref` to the branch that carries it.
+Until then the `labeled` trigger reaches the same job from a pull request: add the repository's
+`shell-stress` label (`gh pr edit <number> --add-label shell-stress`) and the job starts from that
+branch's copy of the file, repeating the table 20 times because a label event carries no dispatch
+input. Removing and re-adding the label starts another pass, and nothing else in the pull request
+runs the job, so labelling an ordinary pull request costs one stress run and nothing more. It
+uploads the reports even
+when it fails, so the next real failure keeps the iteration number, the step that did not settle, the
+shell diagnostics and the FX-thread responsiveness that the failure message carries — the evidence
+the historic failure lost. At 600 passes it took 18 m 36 s locally; a `shell_repeat=20` run took
+2 min 18 s on GitHub's runner, so the job's budget is 60 minutes instead of the 20 the main JavaFX
+job uses. Its own concurrency group means a push that cancels an in-progress CI run leaves a stress
+run alone.
 
 ## `codeql.yml` and `dependency-review.yml`
 

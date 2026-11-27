@@ -35,6 +35,16 @@ final class FakeAdminServer implements AutoCloseable {
     static final String USERNAME = "alice";
     static final String FULL_NAME = "Alice Example";
     static final String EMAIL = "alice@example.test";
+    // The detail pane that lists friends is the narrow half of the split view, so a friend whose
+    // name and address fit there would leave the truncation explanation untested. This record is
+    // returned only by the friend list, so the admin tables that show the seeded accounts keep
+    // their existing widths and rows.
+    static final UUID FRIEND_ID = UUID.fromString("77777777-7777-4777-8777-777777777777");
+    static final String FRIEND_FULL_NAME = "Bartholomew O'Example-Whitmore";
+    static final String FRIEND_ADDRESS = "48 Long Example Boulevard, Apartment 12B";
+    private static final UserRecord FRIEND = new UserRecord(FRIEND_ID, "bartholomew",
+            FRIEND_FULL_NAME, "bartholomew@example.test", FRIEND_ADDRESS,
+            LocalDate.of(1988, 2, 17), "other");
 
     private final HttpServer server;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
@@ -257,12 +267,7 @@ final class FakeAdminServer implements AutoCloseable {
             respondJson(exchange, 405, "{}");
             return;
         }
-        UserRecord friend;
-        synchronized (this) {
-            friend = users.values().stream()
-                    .filter(record -> !record.id.equals(userId))
-                    .findFirst().orElse(null);
-        }
+        UserRecord friend = hasUser(userId) ? FRIEND : null;
         String friendJson = friend == null ? "" : """
                 {"id":"%s","username":"%s","fullName":"%s","address":"%s",
                  "birthDate":"%s","gender":"%s","presence":"online"}

@@ -1,7 +1,6 @@
 package com.nexus.desktop.shared.ui;
 
 import javafx.geometry.Insets;
-import javafx.application.Platform;
 import javafx.scene.Node;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
@@ -24,8 +23,6 @@ public final class ConfirmDialog {
                                String confirmText, String cancelText, boolean dangerous) {
         Dialog<ButtonType> dialog = new Dialog<>();
         if (owner != null) dialog.initOwner(owner);
-        Node previousFocus = owner != null && owner.getScene() != null
-                ? owner.getScene().getFocusOwner() : null;
         dialog.setTitle(title);
         dialog.setResizable(true);
         Label heading = new Label(title);
@@ -54,15 +51,12 @@ public final class ConfirmDialog {
             cancelButton.setId("confirmDialogCancel");
             cancelButton.getStyleClass().add("ghost-button");
         }
-        Node cancelFocus = cancelButton;
         dialog.setOnShown(event -> {
-            if (cancelFocus != null) cancelFocus.requestFocus();
-        });
-        dialog.setOnHidden(event -> {
-            Platform.runLater(() -> {
-                if (owner != null) owner.requestFocus();
-                if (previousFocus != null) previousFocus.requestFocus();
-            });
+            // The dialog owns its own scene, which no application scene styles; styling it here
+            // also covers a dialog opened without an owner window. Focus goes to the safe action,
+            // never the destructive one; closing restores owner-window focus without help.
+            if (theme != null) theme.apply(dialog.getDialogPane().getScene());
+            if (cancelButton != null) cancelButton.requestFocus();
         });
         if (theme != null) theme.apply(dialog.getDialogPane());
         Optional<ButtonType> choice = dialog.showAndWait();
