@@ -16,6 +16,7 @@ import com.nexus.sdk.model.User;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
+import javafx.event.EventTarget;
 import javafx.fxml.FXML;
 import javafx.geometry.Bounds;
 import javafx.geometry.Orientation;
@@ -204,10 +205,15 @@ public final class ShellController {
                 i18n.get("shell.noMessages"), i18n.get("shell.noMessagesHint"), null, null));
 
         // A reader who scrolls away from the newest row is no longer following it. A wheel scroll,
-        // a pressed scrollbar thumb or track and a keyboard move are all started by the reader, so
-        // each clears the same intent; a programmatic scroll fires none of them.
+        // a press on the list's own scroll bar and a keyboard move are all started by the reader, so
+        // each clears the same intent; a programmatic scroll fires none of them. The press is checked
+        // by its ancestry because a filter sees every press its descendants receive: a click on a
+        // message's action menu, on a bubble or on any other control inside a cell is a click on
+        // content, not a scroll, and must leave the follow intent alone.
         messageList.addEventFilter(ScrollEvent.SCROLL, event -> stopFollowing());
-        messageList.addEventFilter(MouseEvent.MOUSE_PRESSED, event -> stopFollowing());
+        messageList.addEventFilter(MouseEvent.MOUSE_PRESSED, event -> {
+            if (isTimelineScrollBarPress(event.getTarget())) stopFollowing();
+        });
         messageList.addEventFilter(KeyEvent.KEY_PRESSED, event -> {
             if (!SCROLL_KEYS.contains(event.getCode())) return;
             stopFollowing();
@@ -573,6 +579,31 @@ public final class ShellController {
         followTail = true;
         followInFlight = true;
         followToLatest(VIEWPORT_PASS_LIMIT);
+    }
+
+    /**
+     * True when the press landed on the timeline's own vertical scroll bar or on a node inside it —
+     * its thumb, its track or an arrow button. Only that press means the reader is scrolling; a press
+     * on a message row, a bubble's action menu or any other control inside a cell is a click on the
+     * content and must not end the follow.
+     */
+    private boolean isTimelineScrollBarPress(EventTarget target) {
+        ScrollBar bar = timelineScrollBar();
+        if (bar == null || !(target instanceof Node pressed)) return false;
+        for (Node node = pressed; node != null; node = node.getParent()) {
+            if (node == bar) return true;
+        }
+        return false;
+    }
+
+    /** The timeline's vertical scroll bar, the node a reader's drag and track clicks land on. */
+    private ScrollBar timelineScrollBar() {
+        for (Node node : messageList.lookupAll(".scroll-bar")) {
+            if (node instanceof ScrollBar bar && bar.getOrientation() == Orientation.VERTICAL) {
+                return bar;
+            }
+        }
+        return null;
     }
 
     /** The reader took over: no follow runs and none is treated as in flight. */

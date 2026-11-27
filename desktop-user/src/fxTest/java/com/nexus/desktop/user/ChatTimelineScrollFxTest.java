@@ -13,6 +13,7 @@ import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
+import javafx.scene.control.MenuButton;
 import javafx.scene.control.ScrollBar;
 import javafx.scene.control.TextField;
 import javafx.scene.input.KeyCode;
@@ -342,6 +343,63 @@ class ChatTimelineScrollFxTest {
             waitForFx(() -> atBottom(root), Duration.ofSeconds(5));
             assertThat(onFx(() -> atBottom(root)))
                     .as("a reader back at the newest row follows it again").isTrue();
+        }
+    }
+
+    /**
+     * A press inside a message cell is not a scroll. The timeline's guard reads the press's ancestry,
+     * so clicking a message's action menu leaves the follow intent alone and the arrival that follows
+     * still lands at the newest row; only the list's own scroll bar ends the follow.
+     *
+     * <p>The press is a real one dispatched at the button's node, not {@code MenuButton.fire()}: the
+     * filter under test sees the pointer's press, not the action a release would raise, and the press
+     * is what used to end the follow for every descendant of the list.
+     */
+    @Test
+    void pressingAMessageActionButtonKeepsFollowingTheNewestRow(@TempDir Path home) throws Exception {
+        try (FakeChatServer server = new FakeChatServer();
+             FakeWebSocketServer realtime = new FakeWebSocketServer();
+             Shell shell = openShell(home, server, realtime)) {
+            Parent root = shell.root();
+            waitForFx(() -> messages(root) >= HISTORY + 1, Duration.ofSeconds(10));
+            realtime.awaitClient(TimeUnit.SECONDS, 10);
+            waitForFx(() -> labelsContain(root, "Up to date"), Duration.ofSeconds(10));
+            settleTimeline(root);
+            scrollToBottom(root);
+            assertThat(onFx(() -> atBottom(root)))
+                    .as("the test starts at the newest row, where the shell follows").isTrue();
+
+            pressMessageAction(root);
+            // The press must not move the viewport by itself either: it is a click on content.
+            assertThat(onFx(() -> atBottom(root)))
+                    .as("clicking a message action does not scroll the timeline").isTrue();
+
+            // The intent is observable where a re-wrap re-applies it. This move is the harness's own
+            // programmatic scroll, which the gesture tests deliberately avoid because the shell does
+            // not read it as the reader leaving the tail; narrowing re-wraps every row, so a shell
+            // that still follows returns to the newest row and one whose intent the press ended
+            // stays in the history.
+            setPosition(root, 0.45);
+            onFx(() -> {
+                shell.stage().setWidth(760);
+                root.applyCss();
+                root.layout();
+                return true;
+            });
+            waitForFx(() -> atBottom(root), Duration.ofSeconds(5));
+            assertThat(onFx(() -> atBottom(root)))
+                    .as("a press on a message action must not end the follow intent")
+                    .isTrue();
+
+            realtime.sendText(messageCreated(UUID.randomUUID(), FakeChatServer.FRIEND_ID,
+                    "after the action press", "2026-11-09T12:50:00Z"));
+            waitForFx(() -> messages(root) == HISTORY + 2, Duration.ofSeconds(10));
+            waitForFx(() -> atBottom(root), Duration.ofSeconds(5));
+            assertThat(onFx(() -> atBottom(root)))
+                    .as("a press on a message action must not end the follow intent")
+                    .isTrue();
+            assertThat(onFx(() -> labelsContain(root, "after the action press")))
+                    .as("the arrival is on screen, at the newest row").isTrue();
         }
     }
 
@@ -792,6 +850,28 @@ class ChatTimelineScrollFxTest {
             double y = Math.max(trackBounds.getMinY() + 1, thumbInTrack.getMinY() - 4);
             fireMouse(track, MouseEvent.MOUSE_PRESSED, x, y);
             fireMouse(track, MouseEvent.MOUSE_RELEASED, x, y);
+            return true;
+        });
+    }
+
+    /**
+     * A real press on a message's action button, dispatched at the button so it travels through the
+     * timeline's filters exactly as a pointer press on that descendant does.
+     */
+    private static void pressMessageAction(Parent root) {
+        onFx(() -> {
+            MenuButton action = null;
+            for (Node cell : timeline(root).lookupAll(".timeline-cell")) {
+                if (!(cell instanceof ListCell<?> listCell) || listCell.isEmpty()) continue;
+                if (cell.lookup(".icon-button") instanceof MenuButton menu) {
+                    action = menu;
+                    break;
+                }
+            }
+            assertThat(action).as("a message in the timeline offers its action menu").isNotNull();
+            Bounds bounds = action.getBoundsInLocal();
+            fireMouse(action, MouseEvent.MOUSE_PRESSED,
+                    bounds.getWidth() / 2, bounds.getHeight() / 2);
             return true;
         });
     }
