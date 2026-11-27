@@ -4,10 +4,18 @@ import com.nexus.desktop.shared.ui.I18n;
 import com.nexus.desktop.shared.ui.Theme;
 import com.nexus.desktop.shared.ui.ThemeManager;
 import javafx.application.Platform;
+import javafx.collections.FXCollections;
+import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
+import javafx.scene.control.Button;
+import javafx.scene.control.DatePicker;
 import javafx.scene.control.Label;
+import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
+import javafx.scene.control.TextField;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyEvent;
 import javafx.scene.image.PixelReader;
 import javafx.scene.image.WritableImage;
 import javafx.scene.SnapshotParameters;
@@ -20,6 +28,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.util.Locale;
 import java.util.TimeZone;
 import java.util.concurrent.Callable;
@@ -255,8 +264,349 @@ class AdminGoldenScreenshotFxTest {
         }
     }
 
+    /**
+     * The administrator screens in Vietnamese. The translated toolbar, table headers and detail
+     * titles are the longest strings the layout has to hold, so they get their own baseline rather
+     * than being assumed safe because the English one fits.
+     */
+    @Test
+    void vietnameseAdminScreensMatchGoldensInLightAndDark() throws Exception {
+        TimeZone previousZone = TimeZone.getDefault();
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+        try (FakeAdminServer server = new FakeAdminServer()) {
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            I18n vietnamese = new I18n(BASE, Locale.forLanguageTag("vi"));
+            AtomicReference<Stage> stageReference = new AtomicReference<>();
+            AdminAppContext context = onFx(() -> {
+                Stage ownStage = new Stage();
+                stageReference.set(ownStage);
+                return new AdminAppContext(ownStage, server.origin().toString(), theme, vietnamese);
+            });
+            Stage stage = stageReference.get();
+            try {
+                Parent login = onFx(() -> {
+                    Parent root = AdminViewLoader.load(AdminViewLoader.LOGIN,
+                            new AdminLoginController(context, profile -> { }), vietnamese);
+                    mount(stage, theme, root);
+                    return root;
+                });
+                GoldenPointer.capture(login,
+                        () -> assertGolden(snapshot(stage), "login-vi-light.png"));
+                onFx(() -> {
+                    theme.setTheme(Theme.DARK);
+                    theme.apply(stage.getScene());
+                    login.applyCss();
+                    login.layout();
+                    return true;
+                });
+                GoldenPointer.capture(login,
+                        () -> assertGolden(snapshot(stage), "login-vi-dark.png"));
+
+                context.activate(context.signIn("admin", "correct horse battery staple".toCharArray()));
+                AtomicReference<Parent> shellReference = new AtomicReference<>();
+                onFx(() -> {
+                    theme.setTheme(Theme.LIGHT);
+                    Parent root = AdminViewLoader.load(AdminViewLoader.SHELL,
+                            new AdminShellController(context, () -> { }), vietnamese);
+                    mount(stage, theme, root);
+                    shellReference.set(root);
+                    return true;
+                });
+                waitForFx(() -> tableRows(stage, 0) > 1 && !loadingDetails(stage, vietnamese),
+                        Duration.ofSeconds(10));
+                onFx(() -> {
+                    shellReference.get().applyCss();
+                    shellReference.get().layout();
+                    clearFocus(shellReference.get());
+                    return true;
+                });
+                GoldenPointer.capture(shellReference.get(), () -> {
+                    selectPrimaryRow(stage, vietnamese, "#accountsTable");
+                    assertGolden(snapshot(stage), "shell-vi-light.png");
+                });
+                onFx(() -> {
+                    theme.setTheme(Theme.DARK);
+                    theme.apply(stage.getScene());
+                    shellReference.get().applyCss();
+                    shellReference.get().layout();
+                    return true;
+                });
+                GoldenPointer.capture(shellReference.get(), () -> {
+                    selectPrimaryRow(stage, vietnamese, "#accountsTable");
+                    assertGolden(snapshot(stage), "shell-vi-dark.png");
+                });
+
+                AtomicReference<Parent> reportsRoot = new AtomicReference<>();
+                onFx(() -> {
+                    theme.setTheme(Theme.LIGHT);
+                    Parent reports = AdminViewLoader.load(AdminViewLoader.REPORTS,
+                            new ReportsController(context), vietnamese);
+                    Scene scene = new Scene(reports, WIDTH, HEIGHT);
+                    theme.apply(scene);
+                    AdminViewLoader.applyStylesheet(scene);
+                    stage.setScene(scene);
+                    stage.show();
+                    reports.applyCss();
+                    reports.layout();
+                    clearFocus(reports);
+                    reportsRoot.set(reports);
+                    return true;
+                });
+                waitForFx(() -> tableRows(stage, 0) > 0 && tableRows(stage, 1) > 0,
+                        Duration.ofSeconds(10));
+                GoldenPointer.capture(reportsRoot.get(), () -> {
+                    selectPrimaryRow(stage, vietnamese, "#reportsTable");
+                    assertGolden(snapshot(stage), "reports-vi-light.png");
+                });
+                onFx(() -> {
+                    theme.setTheme(Theme.DARK);
+                    theme.apply(stage.getScene());
+                    reportsRoot.get().applyCss();
+                    reportsRoot.get().layout();
+                    return true;
+                });
+                GoldenPointer.capture(reportsRoot.get(), () -> {
+                    selectPrimaryRow(stage, vietnamese, "#reportsTable");
+                    assertGolden(snapshot(stage), "reports-vi-dark.png");
+                });
+            } finally {
+                onFx(() -> {
+                    stage.close();
+                    context.close();
+                    return true;
+                });
+            }
+        } finally {
+            TimeZone.setDefault(previousZone);
+        }
+    }
+
+    /**
+     * The remaining admin workspaces in Vietnamese: accounts, analytics, audit, groups and
+     * registrations. Their toolbars, table headers and detail titles are the longest strings the
+     * layout has to hold, so each gets a translated baseline of its own rather than being assumed
+     * safe because the English capture fits.
+     */
+    @Test
+    void vietnameseWorkspacesMatchGoldensInLightAndDark() throws Exception {
+        TimeZone previousZone = TimeZone.getDefault();
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+        try (FakeAdminServer server = new FakeAdminServer()) {
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            I18n vietnamese = new I18n(BASE, Locale.forLanguageTag("vi"));
+            AtomicReference<Stage> stageReference = new AtomicReference<>();
+            AdminAppContext context = onFx(() -> {
+                Stage ownStage = new Stage();
+                stageReference.set(ownStage);
+                return new AdminAppContext(ownStage, server.origin().toString(), theme, vietnamese);
+            });
+            context.activate(context.signIn("admin", "correct horse battery staple".toCharArray()));
+            Stage stage = stageReference.get();
+            try {
+                Parent accounts = onFx(() -> AdminViewLoader.load(AdminViewLoader.ACCOUNTS,
+                        new AccountsController(context), vietnamese));
+                onFx(() -> {
+                    mount(stage, theme, accounts);
+                    return true;
+                });
+                waitForFx(() -> tableRows(stage, 0) > 1 && tableRows(stage, 1) > 0 && tableRows(stage, 2) > 0
+                                && !loadingDetails(stage, vietnamese),
+                        Duration.ofSeconds(10));
+                selectPrimaryRow(stage, vietnamese, "#accountsTable");
+                captureLightAndDark(stage, theme, accounts, "accounts-vi");
+
+                Parent analytics = onFx(() -> AdminViewLoader.load(AdminViewLoader.ANALYTICS,
+                        new AnalyticsController(context), vietnamese));
+                // Analytics is the one admin screen taller than the working window, so it is
+                // captured at the height the English baseline uses.
+                onFx(() -> {
+                    mount(stage, theme, analytics, WIDTH, 1120);
+                    return true;
+                });
+                onFx(() -> {
+                    ((TextField) analytics.lookup("#yearField")).setText("2026");
+                    ((DatePicker) analytics.lookup("#activityFrom")).setValue(LocalDate.of(2026, 11, 1));
+                    ((DatePicker) analytics.lookup("#activityTo")).setValue(LocalDate.of(2026, 11, 30));
+                    ((Button) analytics.lookup("#loadChartsButton")).fire();
+                    ((Button) analytics.lookup("#loadActivityButton")).fire();
+                    ((Button) analytics.lookup("#loadFriendsButton")).fire();
+                    return true;
+                });
+                waitForFx(() -> tableRows(stage, 0) > 0 && tableRows(stage, 1) > 0
+                                && labelContaining(stage, vietnamese.get("admin.analytics.chartsLoaded")),
+                        Duration.ofSeconds(10));
+                captureLightAndDark(stage, theme, analytics, "analytics-vi");
+
+                Parent audit = onFx(() -> AdminViewLoader.load(AdminViewLoader.AUDIT,
+                        new AuditController(context), vietnamese));
+                onFx(() -> {
+                    mount(stage, theme, audit);
+                    return true;
+                });
+                waitForFx(() -> tableRows(stage, 0) > 0, Duration.ofSeconds(10));
+                captureLightAndDark(stage, theme, audit, "audit-vi");
+
+                Parent groups = onFx(() -> AdminViewLoader.load(AdminViewLoader.GROUPS,
+                        new GroupsController(context), vietnamese));
+                onFx(() -> {
+                    mount(stage, theme, groups);
+                    return true;
+                });
+                waitForFx(() -> tableRows(stage, 0) > 0 && tableRows(stage, 1) > 0, Duration.ofSeconds(10));
+                captureLightAndDark(stage, theme, groups, "groups-vi");
+
+                Parent registrations = onFx(() -> AdminViewLoader.load(AdminViewLoader.REGISTRATIONS,
+                        new RegistrationsController(context), vietnamese));
+                onFx(() -> {
+                    mount(stage, theme, registrations);
+                    return true;
+                });
+                onFx(() -> {
+                    ((DatePicker) registrations.lookup("#fromDate")).setValue(LocalDate.of(2026, 11, 1));
+                    ((DatePicker) registrations.lookup("#toDate")).setValue(LocalDate.of(2026, 11, 30));
+                    ((Button) registrations.lookup("#applyButton")).fire();
+                    return true;
+                });
+                waitForFx(() -> tableRows(stage, 0) > 0, Duration.ofSeconds(10));
+                captureLightAndDark(stage, theme, registrations, "registrations-vi");
+            } finally {
+                onFx(() -> {
+                    stage.close();
+                    context.close();
+                    return true;
+                });
+            }
+        } finally {
+            TimeZone.setDefault(previousZone);
+        }
+    }
+
+    /**
+     * The four admin workspaces that had no baseline: analytics, audit, groups and registrations.
+     * Both date-bounded screens open on today's date, so the test pins their date fields before the
+     * capture — a baseline that moved with the calendar would fail the next day's run.
+     */
+    @Test
+    void analyticsAuditGroupsAndRegistrationsMatchGoldensInLightAndDark() throws Exception {
+        TimeZone previousZone = TimeZone.getDefault();
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+        try (FakeAdminServer server = new FakeAdminServer()) {
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            I18n english = new I18n(BASE, Locale.ENGLISH);
+            AtomicReference<Stage> stageReference = new AtomicReference<>();
+            AdminAppContext context = onFx(() -> {
+                Stage ownStage = new Stage();
+                stageReference.set(ownStage);
+                return new AdminAppContext(ownStage, server.origin().toString(), theme, english);
+            });
+            context.activate(context.signIn("admin", "correct horse battery staple".toCharArray()));
+            Stage stage = stageReference.get();
+            try {
+                Parent analytics = onFx(() -> AdminViewLoader.load(AdminViewLoader.ANALYTICS,
+                        new AnalyticsController(context), english));
+                // Tall enough for the charts, the activity report and the friend report at once:
+                // analytics is the one admin screen taller than the working window, and a baseline
+                // taken at 780 would record a scroll position instead of the screen.
+                onFx(() -> {
+                    mount(stage, theme, analytics, WIDTH, 1120);
+                    return true;
+                });
+                onFx(() -> {
+                    ((TextField) analytics.lookup("#yearField")).setText("2026");
+                    ((DatePicker) analytics.lookup("#activityFrom")).setValue(LocalDate.of(2026, 11, 1));
+                    ((DatePicker) analytics.lookup("#activityTo")).setValue(LocalDate.of(2026, 11, 30));
+                    ((Button) analytics.lookup("#loadChartsButton")).fire();
+                    ((Button) analytics.lookup("#loadActivityButton")).fire();
+                    // Neither report table loads on open: each has its own button.
+                    ((Button) analytics.lookup("#loadFriendsButton")).fire();
+                    return true;
+                });
+                // Both charts come from one task that writes its status last, and the two report
+                // tables load on their own; all three are waited for so the capture is the loaded
+                // screen rather than whichever half happened to land first.
+                waitForFx(() -> tableRows(stage, 0) > 0 && tableRows(stage, 1) > 0
+                                && labelContaining(stage, english.get("admin.analytics.chartsLoaded")),
+                        Duration.ofSeconds(10));
+                captureLightAndDark(stage, theme, analytics, "analytics");
+
+                Parent audit = onFx(() -> AdminViewLoader.load(AdminViewLoader.AUDIT,
+                        new AuditController(context), english));
+                onFx(() -> {
+                    mount(stage, theme, audit);
+                    return true;
+                });
+                waitForFx(() -> tableRows(stage, 0) > 0, Duration.ofSeconds(10));
+                captureLightAndDark(stage, theme, audit, "audit");
+
+                Parent groups = onFx(() -> AdminViewLoader.load(AdminViewLoader.GROUPS,
+                        new GroupsController(context), english));
+                onFx(() -> {
+                    mount(stage, theme, groups);
+                    return true;
+                });
+                // The member roster fills in only after the first group is selected, so both tables
+                // have to have rows before the capture.
+                waitForFx(() -> tableRows(stage, 0) > 0 && tableRows(stage, 1) > 0, Duration.ofSeconds(10));
+                captureLightAndDark(stage, theme, groups, "groups");
+
+                Parent registrations = onFx(() -> AdminViewLoader.load(AdminViewLoader.REGISTRATIONS,
+                        new RegistrationsController(context), english));
+                onFx(() -> {
+                    mount(stage, theme, registrations);
+                    return true;
+                });
+                onFx(() -> {
+                    ((DatePicker) registrations.lookup("#fromDate")).setValue(LocalDate.of(2026, 11, 1));
+                    ((DatePicker) registrations.lookup("#toDate")).setValue(LocalDate.of(2026, 11, 30));
+                    ((Button) registrations.lookup("#applyButton")).fire();
+                    return true;
+                });
+                waitForFx(() -> tableRows(stage, 0) > 0, Duration.ofSeconds(10));
+                captureLightAndDark(stage, theme, registrations, "registrations");
+            } finally {
+                onFx(() -> {
+                    stage.close();
+                    context.close();
+                    return true;
+                });
+            }
+        } finally {
+            TimeZone.setDefault(previousZone);
+        }
+    }
+
+    /** Captures one mounted screen in both themes, and leaves the manager back on LIGHT. */
+    private static void captureLightAndDark(Stage stage, ThemeManager theme, Parent root, String name)
+            throws Exception {
+        for (Theme requested : new Theme[]{Theme.LIGHT, Theme.DARK}) {
+            onFx(() -> {
+                theme.setTheme(requested);
+                theme.apply(stage.getScene());
+                clearFocus(root);
+                root.applyCss();
+                root.layout();
+                return true;
+            });
+            String suffix = requested == Theme.DARK ? "dark" : "light";
+            GoldenPointer.capture(root,
+                    () -> assertGolden(snapshot(stage), name + "-" + suffix + ".png"));
+        }
+        onFx(() -> {
+            theme.setTheme(Theme.LIGHT);
+            theme.apply(stage.getScene());
+            return true;
+        });
+    }
+
     private static void mount(Stage stage, ThemeManager theme, Parent root) {
-        Scene scene = new Scene(root, WIDTH, HEIGHT);
+        mount(stage, theme, root, WIDTH, HEIGHT);
+    }
+
+    private static void mount(Stage stage, ThemeManager theme, Parent root, int width, int height) {
+        Scene scene = new Scene(root, width, height);
         theme.apply(scene);
         AdminViewLoader.applyStylesheet(scene);
         stage.setScene(scene);
@@ -264,6 +614,92 @@ class AdminGoldenScreenshotFxTest {
         root.applyCss();
         root.layout();
         clearFocus(root);
+    }
+
+    /**
+     * The F2 row inspector lives in a window with a scene of its own, so no screen golden above can
+     * cover it: a snapshot of the table's scene does not contain the popup, and the popup's palette
+     * is exactly what used to go wrong (a content node keeps the colours it was built under). These
+     * two captures are of the popup's own root, in both themes.
+     *
+     * <p>The sample ends the first line with a single token holding the two shapes a break counted
+     * in characters tears apart: an accented letter written as a base plus a combining mark, and an
+     * emoji written as a base plus a variation selector. The token runs into the wrap column, so the
+     * baseline shows the break leaving both clusters whole instead of splitting either one.
+     */
+    @Test
+    void rowInspectorMatchesGoldensInLightAndDark() throws Exception {
+        // A joined sequence would be the stronger emoji sample, but JavaFX draws one as boxes here
+        // (no ZWJ-capable font is installed), which would capture empty glyphs instead of text.
+        String emoji = "\u2764\uFE0F";
+        String clipped = "Resident, Flat 4, Rehabilitation Wing, Building 3, cafe\u0301" + emoji
+                + " Rehabilitation-Wing-Suite-314, Mallory Q. Reported-Example";
+        AtomicReference<Stage> stageReference = new AtomicReference<>();
+        AtomicReference<ThemeManager> themeReference = new AtomicReference<>();
+        AtomicReference<AdminUi.RowInspector> inspectorReference = new AtomicReference<>();
+        TableView<String> table = onFx(() -> {
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            themeReference.set(theme);
+            TableView<String> loaded = new TableView<>(FXCollections.observableArrayList(clipped));
+            TableColumn<String, String> address = new TableColumn<>("Address");
+            AdminUi.bind(address, value -> value);
+            AdminUi.explainTruncatedText(address, new I18n(BASE, Locale.ENGLISH));
+            TableColumn<String, String> state = new TableColumn<>("State");
+            AdminUi.bind(state, value -> "active");
+            TableColumn<String, String> lastSeen = new TableColumn<>("Last seen");
+            AdminUi.bind(lastSeen, value -> "2026-11-24 18:20");
+            loaded.getColumns().addAll(address, state, lastSeen);
+            loaded.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+            inspectorReference.set(AdminUi.keyboardReadable(loaded));
+            Stage stage = new Stage();
+            stageReference.set(stage);
+            Scene scene = new Scene(loaded, 420, 200);
+            theme.apply(scene);
+            AdminViewLoader.applyStylesheet(scene);
+            stage.setScene(scene);
+            stage.show();
+            loaded.applyCss();
+            loaded.layout();
+            loaded.getSelectionModel().selectFirst();
+            return loaded;
+        });
+        try {
+            AdminUi.RowInspector inspector = inspectorReference.get();
+            onFx(() -> {
+                table.fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED, "", "", KeyCode.F2,
+                        false, false, false, false));
+                return true;
+            });
+            waitForFx(inspector::isShowing, Duration.ofSeconds(5));
+            assertGolden(popupSnapshot(inspector), "row-inspector-light.png");
+
+            onFx(() -> {
+                themeReference.get().setTheme(Theme.DARK);
+                themeReference.get().apply(stageReference.get().getScene());
+                return true;
+            });
+            // The popup is a window of its own; it is restyled through its owner, and the class is
+            // the only visible part of that.
+            waitForFx(() -> inspector.text().getStyleClass().contains("theme-dark"),
+                    Duration.ofSeconds(5));
+            assertGolden(popupSnapshot(inspector), "row-inspector-dark.png");
+        } finally {
+            onFx(() -> {
+                stageReference.get().close();
+                return true;
+            });
+        }
+    }
+
+    /** The popup's own window, not the table's scene, which is where its palette lives. */
+    private static WritableImage popupSnapshot(AdminUi.RowInspector inspector) {
+        return onFx(() -> {
+            Parent root = inspector.text().getScene().getRoot();
+            root.applyCss();
+            root.layout();
+            return root.snapshot(new SnapshotParameters(), null);
+        });
     }
 
     /** True while a detail pane still shows its placeholder instead of the loaded count. */
