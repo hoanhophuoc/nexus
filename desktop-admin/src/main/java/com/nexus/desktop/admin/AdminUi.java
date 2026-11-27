@@ -33,6 +33,7 @@ import javafx.scene.text.TextAlignment;
 import javafx.stage.Popup;
 import javafx.stage.Window;
 
+import java.text.BreakIterator;
 import java.text.Normalizer;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -41,6 +42,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.function.Function;
@@ -269,9 +271,12 @@ final class AdminUi {
 
         /**
          * Breaks a copy that is wider than the tooltip allows and still carries a combining mark, at
-         * the grid the tooltip paints in, never between a letter and its mark and never inside a
-         * joined sequence. A copy that fits on one line is returned untouched, and so is one with no
-         * mark on a letter, so nothing about either changes.
+         * the grid the tooltip paints in, never inside an extended grapheme cluster: a letter keeps
+         * its marks, a joined sequence its joiners and a flag its pair of regional indicators. A copy
+         * that fits on one line is returned untouched, and so is one with no mark on a letter, so
+         * nothing about either changes. The boundaries are the JDK's extended grapheme clusters as
+         * its bundled Unicode data defines them; a cluster class newer than that data is not
+         * recognised.
          */
         private String breakMarkedLines(String text) {
             if (!carriesMarkOnALetter(text)) return text;
@@ -282,10 +287,16 @@ final class AdminUi {
             StringBuilder broken = new StringBuilder(text.length() + 8);
             String rest = text;
             while (!rest.isEmpty()) {
+                // Cluster boundaries come from the JDK's own extended-grapheme iterator rather than
+                // from a rule written here: it knows a letter with its marks, a ZWJ emoji sequence
+                // and a regional-indicator flag are one unit, and a hand-written rule would only
+                // cover the sequences someone remembered to list.
+                BreakIterator clusters = BreakIterator.getCharacterInstance(Locale.ROOT);
+                clusters.setText(rest);
                 int fitted = 0;
                 int space = -1;
-                for (int cursor = 0; cursor < rest.length(); cursor = nextCluster(rest, cursor)) {
-                    int next = nextCluster(rest, cursor);
+                for (int cursor = clusters.first(), next = clusters.next();
+                     next != BreakIterator.DONE; cursor = next, next = clusters.next()) {
                     measure.setText(rest.substring(0, next));
                     if (measure.getLayoutBounds().getWidth() > TOOLTIP_TEXT_WIDTH && cursor > 0) break;
                     fitted = next;
@@ -308,15 +319,6 @@ final class AdminUi {
         private static boolean fits(String text, Text measure) {
             measure.setText(text);
             return measure.getLayoutBounds().getWidth() <= TOOLTIP_TEXT_WIDTH;
-        }
-
-        /** The index just past the cluster that starts at {@code offset}: a base and its marks. */
-        private static int nextCluster(String text, int offset) {
-            int next = offset + Character.charCount(text.codePointAt(offset));
-            while (next < text.length() && attachesToPrevious(text.codePointAt(next))) {
-                next += Character.charCount(text.codePointAt(next));
-            }
-            return next;
         }
 
         /** A combining mark on a letter: the case that stops JavaFX from wrapping the tooltip. */
@@ -355,14 +357,6 @@ final class AdminUi {
                 tooltipTheme = List.copyOf(theme);
             }
             return tooltipFont;
-        }
-
-        /**
-         * Whether {@code codePoint} belongs to the glyph before it, so a line must not start there:
-         * a mark, or a joiner and selector that hold a sequence of them together.
-         */
-        private static boolean attachesToPrevious(int codePoint) {
-            return isMark(codePoint) || Character.getType(codePoint) == Character.FORMAT;
         }
 
         private static boolean isMark(int codePoint) {

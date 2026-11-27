@@ -29,6 +29,7 @@ import org.junit.jupiter.api.Test;
 import org.kordamp.ikonli.feather.Feather;
 import org.kordamp.ikonli.javafx.FontIcon;
 
+import java.text.BreakIterator;
 import java.text.Normalizer;
 import java.time.Duration;
 import java.util.List;
@@ -875,6 +876,96 @@ class AdminDesignSystemFxTest {
     }
 
     /**
+     * The hand breaking must never cut inside a cluster a reader sees as one character. This copy
+     * activates it — a macron on an "x" that NFC cannot compose — and also carries a joined family
+     * and a flag, so every line has to end on an extended grapheme boundary: a break inside either
+     * sequence would paint a lone joiner or half a flag, and the copy would no longer be the value.
+     * The cell keeps the value as submitted for the accessible text and the copy.
+     */
+    @Test
+    void aMarkedCopyNeverBreaksInsideAJoinedSequence() throws Exception {
+        String macron = "x\u0304";
+        String family = "\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67";
+        String flag = "\uD83C\uDDFB\uD83C\uDDF3";
+        // Enough repeats that the copy spans several lines and the breaks really have to fall
+        // among these sequences rather than around them; the copy stays under the preview cap, so
+        // nothing is shortened before it is broken and the value under test is the whole value.
+        String token = "Rehabilitation-Wing-Suite-314-Flat-cafe" + macron
+                + (family + flag).repeat(6)
+                + "Building3Storey2ActiveResidentDesk314159";
+        assertThat(Normalizer.normalize(token, Normalizer.Form.NFC))
+                .as("the sample carries a mark composing cannot remove").isEqualTo(token);
+        assertThat(token).as("the sample has no space to break at").doesNotContain(" ");
+
+        AtomicReference<Stage> stageReference = new AtomicReference<>();
+        TableView<String> table = onFx(() -> {
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            TableView<String> loaded = new TableView<>(FXCollections.observableArrayList(token));
+            TableColumn<String, String> column = new TableColumn<>("Contact");
+            AdminUi.bind(column, value -> value);
+            AdminUi.explainTruncatedText(column, ENGLISH);
+            loaded.getColumns().add(column);
+            loaded.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+            Stage stage = new Stage();
+            stageReference.set(stage);
+            Scene scene = new Scene(loaded, 240, 140);
+            theme.apply(scene);
+            AdminViewLoader.applyStylesheet(scene);
+            stage.setScene(scene);
+            stage.show();
+            loaded.applyCss();
+            loaded.layout();
+            return loaded;
+        });
+        try {
+            TableCell<?, ?> cell = onFx(() -> cellWithText(table, token));
+            assertThat(cell).as("the value is rendered and clipped").isNotNull();
+            Tooltip hover = cell.getTooltip();
+            assertThat(hover).as("a clipped value explains itself").isNotNull();
+            String copy = hover.getText();
+            assertThat(copy).as("the copy is broken into lines by hand").contains("\n");
+            assertThat(copy.replace("\n", ""))
+                    .as("no code point is dropped or reordered by the break").isEqualTo(token);
+            assertThat(copy).as("the joined family was not split by a line break")
+                    .contains(family).contains(flag);
+            String unbroken = copy.replace("\n", "");
+            int offset = 0;
+            for (String line : copy.split("\n", -1)) {
+                final int boundary = offset;
+                assertThat(isClusterBoundary(unbroken, boundary))
+                        .as("line at %d starts on a grapheme boundary, never inside a joined "
+                                + "sequence: %s", boundary, copy)
+                        .isTrue();
+                // The newline itself is not part of the unbroken copy, so only the line's own
+                // length moves the offset of the next one.
+                offset += line.length();
+            }
+            assertThat(copy.lines()).as("no line starts inside a cluster: %s", copy)
+                    .allMatch(line -> !line.isEmpty()
+                            && line.charAt(0) != '\u200D'
+                            && Character.getType(line.codePointAt(0)) != Character.NON_SPACING_MARK
+                            && Character.getType(line.codePointAt(0)) != Character.ENCLOSING_MARK
+                            && Character.getType(line.codePointAt(0)) != Character.COMBINING_SPACING_MARK
+                            && !Character.isLowSurrogate(line.charAt(0)));
+            assertThat(cell.getAccessibleText())
+                    .as("assistive technology reads the value as submitted")
+                    .isEqualTo(token);
+
+            double[] size = shownSize(hover, cell);
+            assertThat(size[0]).as("the popup wraps inside its width: %s px", size[0])
+                    .isLessThanOrEqualTo(AdminUi.TOOLTIP_WRAP_WIDTH + 1);
+            assertThat(size[1]).as("and stays inside the window: %s px", size[1])
+                    .isLessThan(200);
+        } finally {
+            onFx(() -> {
+                stageReference.get().close();
+                return true;
+            });
+        }
+    }
+
+    /**
      * A value that is a paragraph — a submitted message, a long report reason — cannot be shown in
      * a hover without making the tooltip taller than the window, so the hover keeps its opening
      * words while the cell keeps the whole value as accessible text. The table here is built from
@@ -1378,6 +1469,18 @@ class AdminDesignSystemFxTest {
     }
 
     /** Shows {@code explanation} as it is and returns its rendered {width, height}. */
+    /** Whether {@code offset} starts an extended grapheme cluster in {@code text}. */
+    private static boolean isClusterBoundary(String text, int offset) {
+        BreakIterator clusters = BreakIterator.getCharacterInstance(Locale.ROOT);
+        clusters.setText(text);
+        for (int boundary = clusters.first(); boundary != BreakIterator.DONE;
+             boundary = clusters.next()) {
+            if (boundary == offset) return true;
+            if (boundary > offset) return false;
+        }
+        return false;
+    }
+
     private static double[] shownSize(Tooltip explanation, Node owner) throws Exception {
         onFx(() -> {
             explanation.show(owner, 40, 40);
