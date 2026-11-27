@@ -146,20 +146,19 @@ class RealServerUserSmokeFxTest {
                         .as("both messages are on the server").contains(message, reply);
                 System.out.println("SMOKE sender received the reply by realtime push: " + reply);
 
-                onFx(() -> {
-                    sender.theme.setTheme(Theme.DARK);
-                    return true;
-                });
+                // The switch is pressed where the reader presses it, so this also proves the control
+                // is wired. Both the shell's handler and ThemeManager own the re-apply depending on
+                // when they were written; the class on the root is what a reader actually sees.
+                clickThemeButton(sender.shell);
                 waitForFx(() -> sender.shell.getStyleClass().contains("theme-dark"),
                         Duration.ofSeconds(10));
                 assertThat(sender.theme.isDark()).as("the client reports the dark theme").isTrue();
 
-                onFx(() -> {
-                    sender.theme.setTheme(Theme.LIGHT);
-                    return true;
-                });
+                clickThemeButton(sender.shell);
                 waitForFx(() -> sender.shell.getStyleClass().contains("theme-light"),
                         Duration.ofSeconds(10));
+                assertThat(sender.theme.isDark())
+                        .as("a second press returns the client to the light theme").isFalse();
                 System.out.println("SMOKE theme switched light -> dark -> light");
             }
         } finally {
@@ -236,6 +235,17 @@ class RealServerUserSmokeFxTest {
         session.api().getCsrfToken();
         session.api().login(new Login().username(username).password(PASSWORD));
         return profile;
+    }
+
+    /** Presses the shell's own theme control: the path a reader takes, not a call on the manager. */
+    private static void clickThemeButton(Parent shell) throws Exception {
+        boolean clicked = onFx(() -> {
+            Node control = shell.lookup("#themeButton");
+            if (!(control instanceof Button button)) return false;
+            button.fire();
+            return true;
+        });
+        assertThat(clicked).as("the shell renders a theme button to press").isTrue();
     }
 
     private static void sendFrom(Client client, String text) {
