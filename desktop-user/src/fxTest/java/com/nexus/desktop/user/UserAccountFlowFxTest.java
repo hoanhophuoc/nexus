@@ -324,6 +324,69 @@ class UserAccountFlowFxTest {
     }
 
     @Test
+    void groupSettingsActionsStayDisabledUntilMembersLoad(@TempDir Path home) throws Exception {
+        withHome(home, () -> {
+            try (FakeChatServer server = new FakeChatServer()) {
+                Harness harness = harness(server);
+                try {
+                    Conversation group = harness.context().groups().createGroup("Team",
+                            List.of(FakeChatServer.FRIEND_ID));
+                    // The member list is the response that says whether this account may rename or
+                    // manage the group; holding it keeps that loading state on screen instead of
+                    // racing a poll against it.
+                    server.holdGroupMembers();
+                    onFx(() -> {
+                        GroupSettingsController controller = new GroupSettingsController(harness.context(),
+                                group, () -> { }, () -> { }, () -> { });
+                        Parent root = ViewLoader.load(ViewLoader.GROUP_SETTINGS, controller,
+                                harness.i18n());
+                        Scene scene = new Scene(root, 640, 600);
+                        harness.theme().apply(scene);
+                        harness.stage().setScene(scene);
+                        harness.stage().show();
+                        return true;
+                    });
+                    Scene scene = harness.stage().getScene();
+                    for (int poll = 0; poll < 5; poll++) {
+                        assertThat(onFx(() -> disabled(scene, "#renameButton")))
+                                .as("rename stays unavailable while the member list loads")
+                                .isTrue();
+                        assertThat(onFx(() -> disabled(scene, "#promoteButton"))).isTrue();
+                        assertThat(onFx(() -> disabled(scene, "#demoteButton"))).isTrue();
+                        assertThat(onFx(() -> disabled(scene, "#removeButton"))).isTrue();
+                        sleep();
+                    }
+                    // Nothing was sent while the dialog could not act: the click the old dialog
+                    // accepted and then dropped has no request behind it here.
+                    assertThat(server.groupName()).isEqualTo("Team");
+                    assertThat(onFx(() -> listSize(scene, "#membersList"))).isZero();
+
+                    server.releaseGroupMembers();
+                    waitForFx(() -> !disabled(scene, "#renameButton")
+                            && listSize(scene, "#membersList") == 2, Duration.ofSeconds(10));
+
+                    onFx(() -> {
+                        ((ListView<?>) scene.lookup("#membersList")).getSelectionModel().select(1);
+                        return true;
+                    });
+                    assertThat(onFx(() -> disabled(scene, "#promoteButton"))).isFalse();
+                    assertThat(onFx(() -> disabled(scene, "#removeButton"))).isFalse();
+                    // The selected friend is a plain member, so demote has nothing to do yet.
+                    assertThat(onFx(() -> disabled(scene, "#demoteButton"))).isTrue();
+                } finally {
+                    server.releaseGroupMembers();
+                    onFx(() -> {
+                        harness.stage().close();
+                        harness.context().close();
+                        return true;
+                    });
+                }
+            }
+            return null;
+        });
+    }
+
+    @Test
     void registrationAndPasswordResetScreensSubmit(@TempDir Path home) throws Exception {
         withHome(home, () -> {
             try (FakeChatServer server = new FakeChatServer()) {
@@ -479,6 +542,11 @@ class UserAccountFlowFxTest {
     private static int listSize(Scene scene, String id) {
         Node node = scene.lookup(id);
         return node instanceof ListView<?> list ? list.getItems().size() : 0;
+    }
+
+    private static boolean disabled(Scene scene, String id) {
+        Node node = scene.lookup(id);
+        return node instanceof Button button && button.isDisabled();
     }
 
     private static String labelText(Scene scene, String id) {

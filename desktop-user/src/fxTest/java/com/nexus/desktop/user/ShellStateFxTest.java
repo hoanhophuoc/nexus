@@ -121,11 +121,7 @@ class ShellStateFxTest {
                                     watchForLoadingPlaceholder(stage, LOADING_MESSAGES, timelineShowedLoading);
                                     Platform.runLater(() -> button(stage, "Group settings").fire());
                                     Window settings = awaitDialog("#nameField");
-                                    Platform.runLater(() -> {
-                                        ((TextField) settings.getScene().lookup("#nameField"))
-                                                .setText(RENAMED_GROUP);
-                                        primaryButton(settings).fire();
-                                    });
+                                    renameWhenReady(settings, RENAMED_GROUP);
                                 },
                                 () -> server.groupName().equals(RENAMED_GROUP)
                                         && titleIs(stage, RENAMED_GROUP)
@@ -471,13 +467,30 @@ class ShellStateFxTest {
         throw new AssertionError("The dialog has no primary button");
     }
 
+    /**
+     * Renames through the settings dialog once its rename button is enabled. The controller learns
+     * that the signed-in user is an admin from the member list and keeps the action disabled until
+     * then, so this waits for that state — the same readiness a person sees — instead of clicking a
+     * button whose action the dialog would refuse.
+     */
+    private static void renameWhenReady(Window settings, String name) {
+        waitForFx(() -> settings.getScene().lookup("#renameButton") instanceof Button rename
+                && !rename.isDisabled(), Duration.ofSeconds(10));
+        Platform.runLater(() -> {
+            ((TextField) settings.getScene().lookup("#nameField")).setText(name);
+            primaryButton(settings).fire();
+        });
+    }
+
     /** The shell with nothing open: the empty-state copy and the actions that need a chat. */
     private static boolean emptyShell(Stage stage) {
         return titleIs(stage, NO_CONVERSATION_TITLE)
                 && subtitleIs(stage, NO_CONVERSATION_HINT)
                 && disabled(stage, "#reportButton")
                 && disabled(stage, "#groupSettingsButton")
-                && disabled(stage, "#clearHistoryButton");
+                && disabled(stage, "#clearHistoryButton")
+                && disabled(stage, "#addMemberButton")
+                && disabled(stage, "#removeMemberButton");
     }
 
     /** Whether the sidebar is listing a conversation under this name. */
