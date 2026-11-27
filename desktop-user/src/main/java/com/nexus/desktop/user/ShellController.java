@@ -336,6 +336,10 @@ public final class ShellController {
         reportButton.setDisable(group);
         groupSettingsButton.setDisable(!group);
         clearHistoryButton.setDisable(group);
+        // A direct chat has no membership to edit; the buttons say so instead of answering with a
+        // status line that a reader has to go and find.
+        addMemberButton.setDisable(!group);
+        removeMemberButton.setDisable(!group);
         String title = conversation.getName() == null || conversation.getName().isBlank()
                 ? i18n.get("shell.directChat") : conversation.getName();
         chatTitleLabel.setText(title);
@@ -996,6 +1000,8 @@ public final class ShellController {
         reportButton.setDisable(disabled);
         groupSettingsButton.setDisable(disabled);
         clearHistoryButton.setDisable(disabled);
+        addMemberButton.setDisable(disabled);
+        removeMemberButton.setDisable(disabled);
     }
 
     private void refreshProfileHeader() {

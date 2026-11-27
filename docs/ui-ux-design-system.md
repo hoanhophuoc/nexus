@@ -133,7 +133,7 @@ Use a consistent spacing scale derived from 4px increments. Preferred steps are 
 - Use semantic `styleClass` values and shared CSS. Avoid long inline `Node.setStyle(...)` strings.
 - Load FXML and stylesheets with fail-fast error handling and useful diagnostic context. Never silently show a blank screen after a loading error.
 - Keep FXML, CSS, fonts and images under the package-aligned resource paths required by the repository.
-- Do not change application behavior, permissions, API contracts, encryption or moderation policy as a side effect of visual work.
+- Disable an action while the permission or target it needs is still loading, instead of accepting the click and then refusing it silently. A button that looks available has to be one whose action the controller will carry out; `GroupSettingsController` keeps rename and the member actions disabled until the member list says whether the signed-in user is an admin.
 
 ### 4.2 Native behavior and keyboard
 
