@@ -50,7 +50,6 @@ scripts/                gates, live journey, packaging helpers
 | `./scripts/check-ga-pins.sh` | Fails on a pre-release action SHA, image tag or base image |
 | `./scripts/check-image-pins.sh` | Fails on a floating or untagged container image |
 | `./gradlew :server:bootRun` | Runs the API and WebSocket on `NEXUS_SERVER_PORT` |
-| `./scripts/smoke-desktop.sh` | Starts throwaway PostgreSQL and Redis, runs the server, pushes a message each way between two real clients over realtime, then cleans up |
 | `./gradlew :desktop-user:run` / `:desktop-admin:run` | Runs a desktop client |
 | `./gradlew :desktop-user:packageClient` / `:desktop-admin:packageAdmin` | Builds a native installer |
 | `./gradlew :client-sdk:openApiGenerate` | Regenerates the SDK from `api/v1/openapi.yaml` |
@@ -58,38 +57,6 @@ scripts/                gates, live journey, packaging helpers
 Integration tests need a Docker daemon. They start throwaway `postgres:18-alpine` and
 `redis:8.10-alpine` containers, never a shared database. `fxTest` needs a display; the CI job
 installs Xvfb.
-
-## Desktop smoke
-
-`./scripts/smoke-desktop.sh` answers "does the client work against a real server?" without
-clicking anything. It starts throwaway `postgres:18-alpine` and `redis:8.10-alpine` containers on
-ephemeral host ports (so a database already running on 5432 is untouched), starts
-`:server:bootRun` on a free port with `NEXUS_SECURE_COOKIE=false`, waits for
-`/actuator/health` to report `UP`, then runs the user client's opt-in test under Xvfb:
-
-```
-NEXUS_REAL_SERVER=true ./gradlew :desktop-user:fxTest --tests '*RealServerUserSmokeFxTest' --rerun-tasks
-```
-
-`RealServerUserSmokeFxTest` is skipped unless `NEXUS_REAL_SERVER=true`, so `fullTest` never needs a
-server. When it runs it registers two unique accounts through `/auth/register`, makes them friends
-and creates a direct conversation through the API, signs in as the first through the same
-`UserAppContext.signIn` the client uses, renders `shell.fxml` in a real `Stage`, waits for the
-connected status, opens that conversation, types into the composer and sends. It then waits for the
-bubble to lose its `pending` marker, which happens only after the queued message was accepted, and
-checks the message is in the server's history. The second account is already signed in to its own
-client window with realtime enabled and sitting in the same chat. Its background syncs are allowed
-to finish and the chat is asserted empty, so the text can only appear there by the server pushing it
-over the socket; the test waits for that push and asserts the bubble is the counterpart's, not its
-own. The counterpart then answers in its own shell, and the first client — whose chat has been open
-the whole time — has to receive that answer the same way, which proves both directions of the push.
-Finally the shell switches LIGHT → DARK → LIGHT. A green run covers the SDK, the session cookie, the
-encrypted cache, sending, realtime receiving and the shell together.
-
-Everything the script creates — both containers, the server and its Gradle daemon — is removed on
-exit, including on failure or Ctrl-C. Its log is `build/smoke/server.log`;
-`NEXUS_SMOKE_KEEP=true` leaves the stack running for inspection and `NEXUS_SMOKE_NO_XVFB=true` uses
-the current display.
 
 ## Tests
 
