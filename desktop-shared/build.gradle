@@ -41,6 +41,17 @@ tasks.withType(Test).configureEach { useJUnitPlatform() }
 
 tasks.named('jacocoTestReport') {
     dependsOn tasks.named('test')
+    // The shared UI facilities (the theme manager and the popup theme propagation) only run with a
+    // toolkit, so the suites that exercise them are the clients' JavaFX suites. Their exec files
+    // arrive from the fx-test job; when they are absent this report still measures the unit suite.
+    executionData files(provider {
+        def execs = [layout.buildDirectory.file('jacoco/test.exec').get().asFile]
+        ['desktop-user', 'desktop-admin'].each { module ->
+            def fxExec = rootProject.file("$module/build/jacoco/fxTest.exec")
+            if (fxExec.exists()) execs.add(fxExec)
+        }
+        execs
+    })
     reports {
         xml.required = true
         html.required = false
