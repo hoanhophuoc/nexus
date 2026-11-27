@@ -64,7 +64,7 @@ installs Xvfb.
 | --- | --- | --- |
 | `test` | every module | Pure logic: validation, mapping, crypto helpers, formatting |
 | `integrationTest` | `server` | Migrations from an empty schema, constraints and transactions, REST auth and CSRF, Redis rate limits and presence, delete cost, search plans |
-| `fxTest` | `desktop-user`, `desktop-admin` | FXML loading, controller wiring, JavaFX journeys |
+| `fxTest` | `desktop-user`, `desktop-admin` | FXML loading, controller wiring, JavaFX journeys, the golden screenshots, and the chat timeline benchmark that asserts its responsiveness budgets |
 
 Write the test in the suite that matches its dependencies: no database in `test`, no JavaFX
 toolkit outside `fxTest`. Name classes `*Test`. Run the narrow task while iterating and
