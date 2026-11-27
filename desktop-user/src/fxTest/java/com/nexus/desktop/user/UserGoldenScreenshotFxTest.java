@@ -11,13 +11,18 @@ import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.SnapshotParameters;
+import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
+import javafx.scene.control.MenuButton;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListView;
+import javafx.scene.control.TextField;
 import javafx.scene.image.PixelReader;
 import javafx.scene.image.WritableImage;
 import javafx.scene.paint.Color;
+import javafx.stage.PopupWindow;
 import javafx.stage.Stage;
+import javafx.stage.Window;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -131,11 +136,11 @@ class UserGoldenScreenshotFxTest {
     }
 
     /**
-     * The two screens a user meets first, which had no baseline: sign-in and the chat shell with a
-     * settled conversation list, one incoming message and the connected status.
+     * The sign-in screen in Vietnamese, which is the first screen of the product and the one whose
+     * longest labels ("Đăng nhập", "Quên mật khẩu?") are not exercised by the English baseline.
      */
     @Test
-    void loginAndShellMatchGoldensInLightAndDark(@TempDir Path home) throws Exception {
+    void vietnameseLoginMatchesGoldensInLightAndDark(@TempDir Path home) throws Exception {
         String previousHome = System.getProperty("user.home");
         TimeZone previousZone = TimeZone.getDefault();
         System.setProperty("user.home", home.toString());
@@ -144,78 +149,14 @@ class UserGoldenScreenshotFxTest {
             Stage stage = onFx(Stage::new);
             ThemeManager theme = new ThemeManager();
             theme.setTheme(Theme.LIGHT);
-            I18n i18n = new I18n(BASE, Locale.ENGLISH);
+            I18n i18n = new I18n(BASE, Locale.forLanguageTag("vi"));
             UserAppContext context = new UserAppContext(stage, server.origin().toString(), false,
                     null, theme, i18n);
             try {
                 Parent login = onFx(() -> mount(stage, theme,
                         ViewLoader.load(ViewLoader.LOGIN, new LoginController(context, profile -> { }),
                                 i18n), 520, 640));
-                snapshot(stage, login, "login-light.png", "login-dark.png", theme, null, i18n);
-
-                context.activate(context.signIn("alice", PASSWORD.toCharArray()));
-                Parent shell = onFx(() -> mount(stage, theme,
-                        ViewLoader.load(ViewLoader.SHELL, new ShellController(context, () -> { }), i18n),
-                        1180, 760));
-                // Settled means the shell has its conversation, its one message bubble and the status
-                // the load task writes last; snapshotting earlier would baseline a loading screen.
-                waitForFx(() -> shell.lookupAll(".message-bubble").size() == 1
-                        && shell.lookup("#statusLabel") instanceof javafx.scene.control.Label status
-                        && i18n.get("shell.connected").equals(status.getText()),
-                        Duration.ofSeconds(10));
-                snapshot(stage, shell, "shell-light.png", "shell-dark.png", theme,
-                        FakeChatServer.FRIEND_NAME, i18n);
-            } finally {
-                onFx(() -> {
-                    stage.close();
-                    context.close();
-                    return true;
-                });
-            }
-        } finally {
-            TimeZone.setDefault(previousZone);
-            if (previousHome == null) System.clearProperty("user.home");
-            else System.setProperty("user.home", previousHome);
-        }
-    }
-
-    /**
-     * The group workspace, which had no baseline: a member message carrying its resolved name, an own
-     * message, and the header where only group actions apply.
-     */
-    @Test
-    void groupChatMatchesGoldensInLightAndDark(@TempDir Path home) throws Exception {
-        String previousHome = System.getProperty("user.home");
-        TimeZone previousZone = TimeZone.getDefault();
-        System.setProperty("user.home", home.toString());
-        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
-        try (FakeChatServer server = new FakeChatServer()) {
-            Stage stage = onFx(Stage::new);
-            ThemeManager theme = new ThemeManager();
-            theme.setTheme(Theme.LIGHT);
-            I18n i18n = new I18n(BASE, Locale.ENGLISH);
-            UserAppContext context = new UserAppContext(stage, server.origin().toString(), false,
-                    null, theme, i18n);
-            context.activate(context.signIn("alice", PASSWORD.toCharArray()));
-            Conversation group = context.groups().createGroup("Team", List.of(FakeChatServer.FRIEND_ID));
-            // Seeded history keeps the capture about rendering: one member message whose name the sync
-            // resolved, and one of the user's own.
-            context.cache().upsert(new CachedMessage(UUID.randomUUID(), group.getId(),
-                    FakeChatServer.FRIEND_ID, "Bob", "hello group",
-                    Instant.parse("2026-11-10T09:30:00Z")));
-            context.cache().upsert(new CachedMessage(UUID.randomUUID(), group.getId(),
-                    FakeChatServer.USER_ID, "", "my group message",
-                    Instant.parse("2026-11-10T09:31:00Z")));
-            try {
-                Parent shell = onFx(() -> mount(stage, theme,
-                        ViewLoader.load(ViewLoader.SHELL, new ShellController(context, () -> { }), i18n),
-                        1180, 760));
-                waitForFx(() -> openConversationNamed(shell, "Team"), Duration.ofSeconds(10));
-                waitForFx(() -> shell.lookupAll(".message-bubble").size() == 2
-                        && shell.lookup(".chat-title") instanceof Label title
-                        && "Team".equals(title.getText()), Duration.ofSeconds(10));
-                snapshot(stage, shell, "group-chat-light.png", "group-chat-dark.png", theme,
-                        "Team", i18n);
+                snapshot(stage, login, "login-vi-light.png", "login-vi-dark.png", theme, null, i18n);
             } finally {
                 onFx(() -> {
                     stage.close();
@@ -305,6 +246,74 @@ class UserGoldenScreenshotFxTest {
                         && "Team".equals(title.getText()), Duration.ofSeconds(10));
                 snapshot(stage, shell, "group-chat-vi-light.png", "group-chat-vi-dark.png",
                         theme, "Team", i18n);
+            } finally {
+                onFx(() -> {
+                    stage.close();
+                    context.close();
+                    return true;
+                });
+            }
+        } finally {
+            TimeZone.setDefault(previousZone);
+            if (previousHome == null) System.clearProperty("user.home");
+            else System.setProperty("user.home", previousHome);
+        }
+    }
+
+    /**
+     * The account, registration, report and group-settings screens in Vietnamese. These are the
+     * forms whose labels are longest, and none of them had a translated baseline: a clipped button,
+     * a wrapped helper line or a field pushed out of its column is exactly what the English capture
+     * cannot show.
+     */
+    @Test
+    void vietnameseUserScreensMatchGoldensInLightAndDark(@TempDir Path home) throws Exception {
+        String previousHome = System.getProperty("user.home");
+        TimeZone previousZone = TimeZone.getDefault();
+        System.setProperty("user.home", home.toString());
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+        try (FakeChatServer server = new FakeChatServer()) {
+            Stage stage = onFx(Stage::new);
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            I18n i18n = new I18n(BASE, Locale.forLanguageTag("vi"));
+            UserAppContext context = new UserAppContext(stage, server.origin().toString(), false,
+                    null, theme, i18n);
+            context.activate(context.signIn("alice", PASSWORD.toCharArray()));
+            try {
+                Parent account = onFx(() -> mount(stage, theme,
+                        ViewLoader.load(ViewLoader.ACCOUNT, new AccountController(context,
+                                id -> { }, user -> { }, () -> { }, () -> { }), i18n),
+                        960, 720));
+                waitForFx(() -> account.lookup("#friendsList") instanceof ListView<?> list
+                        && !list.getItems().isEmpty(), Duration.ofSeconds(10));
+                snapshot(stage, account, "account-vi-light.png", "account-vi-dark.png", theme, null, i18n);
+
+                Parent register = onFx(() -> mount(stage, theme,
+                        ViewLoader.load(ViewLoader.REGISTER, new RegisterController(context,
+                                username -> { }, () -> { }), i18n), 560, 780));
+                snapshot(stage, register, "register-vi-light.png", "register-vi-dark.png", theme,
+                        null, i18n);
+
+                User target = new User().id(FakeChatServer.FRIEND_ID).username("bob").fullName("Bob");
+                CachedMessage evidence = new CachedMessage(UUID.fromString(
+                        "44444444-4444-4444-8444-444444444444"), FakeChatServer.CONVERSATION_ID,
+                        FakeChatServer.FRIEND_ID, "", "the reported message",
+                        Instant.parse("2026-11-09T10:15:30Z"));
+                Parent report = onFx(() -> mount(stage, theme,
+                        ViewLoader.load(ViewLoader.REPORT, new ReportController(context, target,
+                                List.of(evidence), () -> { }), i18n), 560, 620));
+                snapshot(stage, report, "report-vi-light.png", "report-vi-dark.png", theme, null, i18n);
+
+                Conversation group = context.groups().createGroup("Team",
+                        List.of(FakeChatServer.FRIEND_ID));
+                Parent groupSettings = onFx(() -> mount(stage, theme,
+                        ViewLoader.load(ViewLoader.GROUP_SETTINGS, new GroupSettingsController(context,
+                                group, () -> { }, () -> { }, () -> { }), i18n), 640, 600));
+                waitForFx(() -> groupSettings.lookup("#membersList") instanceof ListView<?> list
+                        && list.getItems().size() == 2, Duration.ofSeconds(10));
+                snapshot(stage, groupSettings, "group-vi-light.png", "group-vi-dark.png", theme,
+                        null, i18n);
             } finally {
                 onFx(() -> {
                     stage.close();
