@@ -27,7 +27,7 @@
                     </columns>
                 </TableView>
             </VBox>
-            <VBox spacing="8">
+            <VBox spacing="8" styleClass="admin-split-pane-trailing">
                 <Label styleClass="admin-section-title" text="%admin.groups.membersTitle"/>
                 <Label fx:id="memberStatusLabel" styleClass="admin-status" text="%admin.groups.selectHint"/>
                 <TableView fx:id="membersTable" styleClass="admin-table" VBox.vgrow="ALWAYS">
