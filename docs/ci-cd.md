@@ -1,6 +1,6 @@
 # CI/CD
 
-Six workflows live in `.github/workflows`. Everything they enforce is reproducible locally with
+Seven workflows live in `.github/workflows`. Everything they enforce is reproducible locally with
 the commands below.
 
 ## `ci.yml` — pull requests and main
@@ -228,6 +228,28 @@ the historic failure lost. At 600 passes it took 18 m 36 s locally; a `shell_rep
 2 min 18 s on GitHub's runner, so the job's budget is 60 minutes instead of the 20 the main JavaFX
 job uses. Its own concurrency group means a push that cancels an in-progress CI run leaves a stress
 run alone.
+
+## `desktop-smoke.yml` — nightly and on demand
+
+Every other JavaFX suite drives `FakeChatServer`. This workflow is the only one that runs
+`scripts/smoke-desktop.sh`, so it is the only place the client is proven against the service this
+repository ships. The script starts throwaway `postgres:18-alpine` and `redis:8.10-alpine` on
+ephemeral host ports, boots `:server:bootRun` on a free port, waits for `/actuator/health` to
+report `UP`, runs `RealServerUserSmokeFxTest` under Xvfb, and removes everything it created on
+exit. The test registers two accounts, signs each into its own shell, and proves send **and**
+receive by realtime push in both directions before switching LIGHT → DARK → LIGHT.
+
+| Job | Runs | Fails when |
+| --- | --- | --- |
+| Desktop smoke (real server) | `./scripts/smoke-desktop.sh` with `NEXUS_REAL_SERVER=true` (the script exports it too) on a runner that supplies Docker, Xvfb and python3 | The server never reports `UP`, either direction of the push is not delivered, the shell stops rendering or switching themes, or a `nexus-smoke-*` container survives the run. The surefire XML, the HTML report and `build/smoke/server.log` are uploaded as `desktop-smoke-reports` either way |
+
+It runs on a schedule (03:40 UTC daily) rather than on every pull request, because one test costs a
+Docker pull, a server boot and the client's build. A `schedule` fires only from the default branch,
+so to exercise it on a branch before this file has merged either add the `desktop-smoke` label to
+the pull request (`gh pr edit <number> --add-label desktop-smoke`), which starts the job from that
+branch's copy of the file, or dispatch it once the file is on `main` with
+`gh workflow run desktop-smoke.yml`. Its concurrency group is per ref and never cancels, so a push
+that cancels an in-progress CI run leaves a nightly run alone.
 
 ## `codeql.yml` and `dependency-review.yml`
 

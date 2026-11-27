@@ -1,0 +1,88 @@
+name: Desktop smoke
+
+# The only job that runs the desktop client against the service this repository ships: every other
+# JavaFX suite drives FakeChatServer. scripts/smoke-desktop.sh starts throwaway PostgreSQL and
+# Redis on ephemeral host ports, boots :server:bootRun on a free port, waits for /actuator/health,
+# then runs RealServerUserSmokeFxTest, which signs two accounts into two shells and proves a message
+# each way by realtime push. It needs a Docker pull, a server boot and the client build for a single
+# test, so it runs nightly instead of on every pull request; a `desktop-smoke` label runs it for a
+# branch before this file reaches main.
+
+on:
+  schedule:
+    # 03:40 UTC daily, after CodeQL, so two full builds do not race for the same runner pool.
+    - cron: '40 3 * * *'
+  workflow_dispatch:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+# Per ref, not cancelled: a push that cancels an in-progress CI run must not also cancel a nightly
+# smoke run that is already proving a realtime path.
+concurrency:
+  group: desktop-smoke-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  desktop-smoke:
+    name: Desktop smoke (real server)
+    if: github.event_name != 'pull_request' || github.event.label.name == 'desktop-smoke'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 27
+        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: '27'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          validate-wrappers: true
+
+      # The script runs the smoke test through xvfb-run, so the toolkit needs no real display.
+      - name: Install Xvfb
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb
+
+      # The script exports NEXUS_REAL_SERVER itself, which is what un-skips the test; setting it here
+      # as well keeps the job's intent readable without opening the script. NEXUS_SMOKE_PORT stays
+      # unset so the script picks a free port and nothing on the runner can collide with it.
+      - name: Run the two-client realtime smoke
+        env:
+          NEXUS_REAL_SERVER: 'true'
+        run: ./scripts/smoke-desktop.sh
+
+      # A failing run has to leave both the test report and the server log: a boot that never reached
+      # UP, or a push the client did not process, is diagnosed from those two alone.
+      - name: Upload smoke reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-smoke-reports
+          path: |
+            desktop-user/build/reports/tests/fxTest
+            desktop-user/build/test-results/fxTest
+            build/smoke/server.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      # The script removes its containers on exit, including on failure; this proves it, the way the
+      # live journey does, instead of trusting the trap.
+      - name: Verify temporary Docker resources were removed
+        if: always()
+        run: |
+          set -euo pipefail
+          leftovers="$(docker ps -a --format '{{.Names}}' | grep '^nexus-smoke-' || true)"
+          if [ -n "$leftovers" ]; then
+            echo "::error::Temporary smoke-test Docker resources were not removed:"
+            echo "$leftovers"
+            exit 1
+          fi

@@ -86,6 +86,11 @@ the whole time — has to receive that answer the same way, which proves both di
 Finally the shell switches LIGHT → DARK → LIGHT. A green run covers the SDK, the session cookie, the
 encrypted cache, sending, realtime receiving and the shell together.
 
+CI runs the same script in the `desktop-smoke` job: nightly from the default branch, and on a pull
+request that carries the `desktop-smoke` label. That job uploads the test report and
+`build/smoke/server.log` as `desktop-smoke-reports`, so a failed run can be read without a local
+reproduction.
+
 Everything the script creates — both containers, the server and its Gradle daemon — is removed on
 exit, including on failure or Ctrl-C. Its log is `build/smoke/server.log`;
 `NEXUS_SMOKE_KEEP=true` leaves the stack running for inspection and `NEXUS_SMOKE_NO_XVFB=true` uses
