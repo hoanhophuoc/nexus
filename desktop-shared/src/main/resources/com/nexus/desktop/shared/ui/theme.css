@@ -1,7 +1,10 @@
 /* Nexus design tokens and component catalogue.
    Every screen uses semantic tokens; no screen-level inline colour. */
 
-.root {
+/* Light is named as well as default: a popup scene has no node carrying the
+   automatic "root" style class until one is put there, so ThemeManager puts
+   theme-light on the popup root and every token still resolves. */
+.root, .theme-light {
     -color-bg: rgb(244, 246, 250);
     -color-surface: rgb(255, 255, 255);
     -color-surface-muted: rgb(238, 242, 247);
@@ -35,6 +38,10 @@
 }
 
 .theme-dark {
+    /* Same bundled face and size as light. A popup root carries only the theme class, never the
+       automatic "root" one, so without this a dark tooltip falls back to Modena's 0.85 em. */
+    -fx-font-family: "Nexus Sans";
+    -fx-font-size: 13px;
     -color-bg: rgb(15, 20, 27);
     -color-surface: rgb(21, 28, 38);
     -color-surface-muted: rgb(27, 36, 48);

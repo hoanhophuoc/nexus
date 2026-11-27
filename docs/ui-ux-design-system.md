@@ -134,6 +134,7 @@ Use a consistent spacing scale derived from 4px increments. Preferred steps are 
 - Load FXML and stylesheets with fail-fast error handling and useful diagnostic context. Never silently show a blank screen after a loading error.
 - Keep FXML, CSS, fonts and images under the package-aligned resource paths required by the repository.
 - Do not change application behavior, permissions, API contracts, encryption or moderation policy as a side effect of visual work.
+- A popup owns a scene of its own, and JavaFX gives that scene neither the application stylesheet nor the theme class, so a `ComboBox` list, a menu, a tooltip or a `Dialog` would paint with the toolkit's palette. `ThemeManager` adopts every window whose owner chain reaches a scene it styled, `PopupThemes` stamps the theme class on the popup's content nodes and re-resolves them, and the light palette is declared on `.root, .theme-light` so a popup root resolves its tokens without being the scene root. Both themes name the bundled face at 13 px, so a dark popup paints at the theme size instead of Modena's 0.85 em. `PopupThemeFxTest` reads the colours each popup actually rendered, in both themes, and `PopupKeyboardFxTest` drives the keyboard path.
 
 ### 4.2 Native behavior and keyboard
 
@@ -297,6 +298,8 @@ Current known FX test classes include:
 - `desktop-user/.../DesignSystemFxTest.java`
 - `desktop-user/.../RenderedControlContrastFxTest.java`
 - `desktop-user/.../UserGoldenScreenshotFxTest.java`
+- `desktop-user/.../PopupThemeFxTest.java`
+- `desktop-user/.../PopupKeyboardFxTest.java`
 - `desktop-admin/.../AdminDesignSystemFxTest.java`
 - `desktop-admin/.../AdminGoldenScreenshotFxTest.java`
 
