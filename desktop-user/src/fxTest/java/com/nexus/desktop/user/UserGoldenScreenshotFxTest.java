@@ -11,13 +11,18 @@ import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.SnapshotParameters;
+import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
+import javafx.scene.control.MenuButton;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListView;
+import javafx.scene.control.TextField;
 import javafx.scene.image.PixelReader;
 import javafx.scene.image.WritableImage;
 import javafx.scene.paint.Color;
+import javafx.stage.PopupWindow;
 import javafx.stage.Stage;
+import javafx.stage.Window;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -116,6 +121,85 @@ class UserGoldenScreenshotFxTest {
                 waitForFx(() -> groupSettings.lookup("#membersList") instanceof javafx.scene.control.ListView<?> list
                         && list.getItems().size() == 2, Duration.ofSeconds(10));
                 snapshot(stage, groupSettings, "group-light.png", "group-dark.png", theme, null, i18n);
+            } finally {
+                onFx(() -> {
+                    stage.close();
+                    context.close();
+                    return true;
+                });
+            }
+        } finally {
+            TimeZone.setDefault(previousZone);
+            if (previousHome == null) System.clearProperty("user.home");
+            else System.setProperty("user.home", previousHome);
+        }
+    }
+
+    /**
+     * The popups are scenes of their own, so they get a baseline of their own: the ComboBox list of
+     * the account screen and the message actions menu, each captured while it is open and then
+     * captured again after the theme changes underneath it. A popup that stops repainting renders
+     * the other theme's surface and fails here even though every screen golden still matches.
+     */
+    @Test
+    void openPopupsKeepTheirThemeAcrossAFlip(@TempDir Path home) throws Exception {
+        String previousHome = System.getProperty("user.home");
+        TimeZone previousZone = TimeZone.getDefault();
+        System.setProperty("user.home", home.toString());
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+        try (FakeChatServer server = new FakeChatServer()) {
+            Stage stage = onFx(Stage::new);
+            ThemeManager theme = new ThemeManager();
+            theme.setTheme(Theme.LIGHT);
+            I18n i18n = new I18n(BASE, Locale.ENGLISH);
+            UserAppContext context = new UserAppContext(stage, server.origin().toString(), false,
+                    null, theme, i18n);
+            context.activate(context.signIn("alice", PASSWORD.toCharArray()));
+            try {
+                Parent account = onFx(() -> mount(stage, theme,
+                        ViewLoader.load(ViewLoader.ACCOUNT, new AccountController(context,
+                                id -> { }, user -> { }, () -> { }, () -> { }), i18n),
+                        960, 720));
+                waitForFx(() -> account.lookup("#friendsList") instanceof ListView<?> list
+                        && !list.getItems().isEmpty(), Duration.ofSeconds(10));
+                ComboBox<?> gender = (ComboBox<?>) onFx(() -> account.lookup("#profileGenderField"));
+                assertThat(gender).as("the account gender choice").isNotNull();
+                Parent comboPopup = openPopup(gender::show, ".list-view");
+                capturePopup(comboPopup, "popup-combo-light.png");
+
+                onFx(() -> {
+                    theme.setTheme(Theme.DARK);
+                    return true;
+                });
+                waitForFx(() -> comboPopup.getStyleClass().contains("theme-dark"),
+                        Duration.ofSeconds(10));
+                capturePopup(comboPopup, "popup-combo-dark.png");
+                onFx(() -> {
+                    gender.hide();
+                    return true;
+                });
+
+                // The shell mounts in the dark theme that is now active, so its menu opens dark and
+                // the capture after the flip proves the light palette arrives while it is open.
+                Parent shell = onFx(() -> mount(stage, theme,
+                        ViewLoader.load(ViewLoader.SHELL, new ShellController(context, () -> { }), i18n),
+                        1180, 760));
+                waitForFx(() -> shell.lookupAll(".message-bubble").size() == 1
+                        && shell.lookup("#statusLabel") instanceof Label status
+                        && i18n.get("shell.connected").equals(status.getText()),
+                        Duration.ofSeconds(10));
+                MenuButton actions = (MenuButton) onFx(() -> shell.lookup(".menu-button"));
+                assertThat(actions).as("the message actions menu").isNotNull();
+                Parent menuPopup = openPopup(actions::show, ".context-menu");
+                capturePopup(menuPopup, "popup-menu-dark.png");
+
+                onFx(() -> {
+                    theme.setTheme(Theme.LIGHT);
+                    return true;
+                });
+                waitForFx(() -> menuPopup.getStyleClass().contains("theme-light"),
+                        Duration.ofSeconds(10));
+                capturePopup(menuPopup, "popup-menu-light.png");
             } finally {
                 onFx(() -> {
                     stage.close();
@@ -317,6 +401,35 @@ class UserGoldenScreenshotFxTest {
             if (previousHome == null) System.clearProperty("user.home");
             else System.setProperty("user.home", previousHome);
         }
+    }
+
+    /** Opens a control's popup and returns the live popup root that carries the marker. */
+    private static Parent openPopup(Runnable show, String marker) {
+        onFx(() -> {
+            show.run();
+            return true;
+        });
+        waitForFx(() -> popupContaining(marker) != null, Duration.ofSeconds(10));
+        return popupContaining(marker);
+    }
+
+    private static Parent popupContaining(String marker) {
+        for (Window window : Window.getWindows()) {
+            if (!(window instanceof PopupWindow) || !window.isShowing()) continue;
+            Parent root = window.getScene() == null ? null : window.getScene().getRoot();
+            if (root != null && root.lookup(marker) != null) return root;
+        }
+        return null;
+    }
+
+    /** Captures the popup itself: it lives in a window of its own, so the stage capture misses it. */
+    private static void capturePopup(Parent popup, String name) throws Exception {
+        WritableImage image = onFx(() -> {
+            popup.applyCss();
+            popup.layout();
+            return popup.snapshot(new SnapshotParameters(), null);
+        });
+        assertGolden(image, name);
     }
 
     /** Selects a conversation by name once the shell's own refresh has listed it. */
