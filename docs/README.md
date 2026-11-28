@@ -17,6 +17,7 @@ and measured. The root `DESIGN.md` is a short UI/UX entry point; canonical desig
 | [performance.md](performance.md) | Measured capacity, latency, and the database cost of each hot path |
 | [ui-ux-design-system.md](ui-ux-design-system.md) | Canonical native JavaFX visual language, component contracts, interaction, motion, accessibility and UI quality gates |
 | [ui-ux-tooling.md](ui-ux-tooling.md) | Evaluated design/JavaFX libraries, agent skills, adoption decisions, compatibility and dependency gates |
+| [golden/](golden/) | Rendered popup screenshots copied from the FX test goldens, for reviewing the UI from the repository page |
 
 
 ## One name

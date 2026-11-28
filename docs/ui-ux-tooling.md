@@ -99,6 +99,17 @@ Still open before production adoption:
 - Focus, keyboard and accessibility behaviour of the AtlantaFX-only controls inside real Nexus
   screens, and the 5,000-message timeline benchmark that decides on virtualization.
 
+**Popup golden baselines.** `UserGoldenScreenshotFxTest.openPopupsKeepTheirThemeAcrossAFlip` pins the
+popup contract in pixels: `popup-combo-light/dark.png` for the account screen's ComboBox list and
+`popup-menu-light/dark.png` for a message's actions menu. Each pair is captured from the live popup
+window itself — a popup is not part of the stage capture — once under LIGHT and once after the
+theme changes while it is open, so a popup that stops repainting shows the other theme's surface and
+fails even though every screen golden still matches. Regenerate them scoped to that one test with
+`USER_UPDATE_GOLDENS=true ./gradlew :desktop-user:fxTest --tests '*UserGoldenScreenshotFxTest.openPopupsKeepTheirThemeAcrossAFlip'`
+(and the same with `GOLDEN_BASELINE=ci` for `golden-ci`). Static copies of the four images, for
+reviewing a popup from the repository page, live in `docs/golden/` and are indexed from
+`docs/README.md`.
+
 The check runs in the `fx-test` CI job; its screenshots are uploaded as the `ui-spike` artifact.
 
 Official references:
